@@ -99,6 +99,10 @@ void SwitcherCore::process(std::uint64_t output_index) {
     preview = state_.preview;
   }
 
+  const auto& program_source = source_by_id(program);
+  const auto& preview_source = source_by_id(preview);
+  backend_.prepare_frame(
+      {program_source.flow_id, preview_source.flow_id}, output_index);
   route_one(program, program_output_.flow_id, output_index);
   route_one(preview, preview_output_.flow_id, output_index);
 }
@@ -162,6 +166,12 @@ void MemoryBackend::create_output_once(const OutputSpec& output) {
   if (!outputs_.emplace(output.flow_id, output).second) {
     throw std::logic_error("output flow must only be created once");
   }
+}
+
+void MemoryBackend::prepare_frame(const std::vector<FlowId>& source_flows,
+                                  std::uint64_t output_index) {
+  (void)source_flows;
+  (void)output_index;
 }
 
 void MemoryBackend::route_grain(const FlowId& source_flow,

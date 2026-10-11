@@ -21,6 +21,8 @@ struct MxlBackendStats {
   std::uint64_t too_late{0};
   std::uint64_t timeouts{0};
   std::uint64_t reader_reopens{0};
+  std::uint64_t sync_waits{0};
+  std::uint64_t sync_timeouts{0};
 };
 
 // Production backend for the official DMF MXL Flow API. The header keeps SDK
@@ -38,6 +40,8 @@ class MxlBackend final : public MediaBackend {
   MxlBackend& operator=(MxlBackend&&) noexcept;
 
   void create_output_once(const OutputSpec& output) override;
+  void prepare_frame(const std::vector<FlowId>& source_flows,
+                     std::uint64_t output_index) override;
   void route_grain(const FlowId& source_flow, const FlowId& output_flow,
                    std::uint64_t output_index) override;
 
@@ -52,4 +56,3 @@ class MxlBackend final : public MediaBackend {
 };
 
 }  // namespace mxl_core
-

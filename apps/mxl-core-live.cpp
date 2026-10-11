@@ -109,6 +109,8 @@ int main(int argc, char** argv) {
               << " too_late=" << stats.too_late
               << " timeouts=" << stats.timeouts
               << " reader_reopens=" << stats.reader_reopens
+              << " sync_waits=" << stats.sync_waits
+              << " sync_timeouts=" << stats.sync_timeouts
               << " revision=" << state.revision << '\n';
     return 0;
   } catch (const std::exception& error) {

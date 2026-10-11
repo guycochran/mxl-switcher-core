@@ -23,6 +23,11 @@ frame boundary ── apply queued commands ────┤
                                             └─ one write into stable PVW flow
 ```
 
+Before either write, the live backend places the selected readers in an MXL
+Flow Synchronization Group and waits for the output timestamp. This prevents a
+faster producer from being routed while a phase-shifted producer is still
+publishing the same grain.
+
 The engine never interprets pixels and never performs a colorspace conversion.
 The mock backend shares immutable payload ownership. The production adapter will
 open an input grain and an output grain through the MXL Flow API, copy the opaque
@@ -51,11 +56,13 @@ resynchronize to the current domain index and report discontinuity metrics.
 1. creates two discrete v210 writers at startup;
 2. keeps one reader handle per registered source;
 3. reads by the supplied grain index;
-4. copies directly from the SDK-owned input payload into the SDK-owned output
+4. synchronizes selected inputs at the output timestamp through the SDK's Flow
+   Synchronization Group;
+5. copies directly from the SDK-owned input payload into the SDK-owned output
    payload, avoiding an intermediate allocation or second copy;
-5. commits invalid grains for missing/late input so output timing advances;
-6. reopens a reader after `MXL_ERR_FLOW_INVALID` without recreating PGM/PVW;
-7. closes handles at shutdown without deleting/recreating flows during operation.
+6. commits invalid grains for missing/late input so output timing advances;
+7. reopens a reader after `MXL_ERR_FLOW_INVALID` without recreating PGM/PVW;
+8. closes handles at shutdown without deleting/recreating flows during operation.
 
 This is deliberately isolated from the engine so development and contract tests
 do not require `/dev/shm`, Docker, or an installed SDK. `mxl-core-live` is the

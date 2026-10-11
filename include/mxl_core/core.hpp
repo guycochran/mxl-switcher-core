@@ -68,6 +68,11 @@ class MediaBackend {
  public:
   virtual ~MediaBackend() = default;
   virtual void create_output_once(const OutputSpec& output) = 0;
+  // Called once per frame after control commands have been applied and before
+  // either bus is routed. A live backend uses this hook to synchronize all
+  // selected inputs at the output timestamp.
+  virtual void prepare_frame(const std::vector<FlowId>& source_flows,
+                             std::uint64_t output_index) = 0;
   // Route is one operation so a live backend can copy directly from an
   // SDK-owned input grain into an SDK-owned output grain. Splitting read and
   // write here would force an extra allocation and media copy in the core.
@@ -129,6 +134,8 @@ class MemoryBackend final : public MediaBackend {
 
   void add_source(FlowId flow_id, VideoFormat format, std::uint8_t marker);
   void create_output_once(const OutputSpec& output) override;
+  void prepare_frame(const std::vector<FlowId>& source_flows,
+                     std::uint64_t output_index) override;
   void route_grain(const FlowId& source_flow, const FlowId& output_flow,
                    std::uint64_t output_index) override;
 

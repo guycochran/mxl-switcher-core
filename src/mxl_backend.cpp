@@ -7,6 +7,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace mxl_core {
@@ -46,9 +47,19 @@ class MxlBackend::Impl {
     if (instance_ == nullptr) {
       throw std::runtime_error("could not open MXL domain: " + domain_);
     }
+    const auto status =
+        mxlCreateFlowSynchronizationGroup(instance_, &sync_group_);
+    if (status != MXL_STATUS_OK) {
+      mxlDestroyInstance(instance_);
+      instance_ = nullptr;
+      throw sdk_error("mxlCreateFlowSynchronizationGroup", status);
+    }
   }
 
   ~Impl() {
+    if (sync_group_ != nullptr) {
+      mxlReleaseFlowSynchronizationGroup(instance_, sync_group_);
+    }
     for (auto& [id, reader] : readers_) {
       (void)id;
       mxlReleaseFlowReader(instance_, reader.handle);
@@ -97,6 +108,68 @@ class MxlBackend::Impl {
     writers_.emplace(output.flow_id, Writer{writer, config, created});
   }
 
+  void prepare_frame(const std::vector<FlowId>& source_flows,
+                     std::uint64_t output_index) {
+    std::vector<FlowId> unique_flows;
+    unique_flows.reserve(source_flows.size());
+    std::unordered_set<FlowId> desired;
+    for (const auto& flow_id : source_flows) {
+      if (desired.emplace(flow_id).second) {
+        unique_flows.push_back(flow_id);
+      }
+    }
+    if (unique_flows.empty()) {
+      throw std::invalid_argument("a frame requires at least one source flow");
+    }
+
+    if (desired != grouped_flows_) {
+      for (const auto& flow_id : grouped_flows_) {
+        const auto reader = readers_.find(flow_id);
+        if (reader != readers_.end()) {
+          const auto status = mxlFlowSynchronizationGroupRemoveReader(
+              sync_group_, reader->second.handle);
+          if (status != MXL_STATUS_OK) {
+            throw sdk_error("mxlFlowSynchronizationGroupRemoveReader", status);
+          }
+        }
+      }
+      grouped_flows_.clear();
+
+      for (const auto& flow_id : unique_flows) {
+        auto& reader = get_reader(flow_id);
+        const auto status =
+            mxlFlowSynchronizationGroupAddReader(sync_group_, reader.handle);
+        if (status != MXL_STATUS_OK) {
+          throw sdk_error("mxlFlowSynchronizationGroupAddReader", status);
+        }
+        grouped_flows_.emplace(flow_id);
+      }
+    }
+
+    auto& first = get_reader(unique_flows.front());
+    const auto rate = first.config.common.grainRate;
+    for (const auto& flow_id : unique_flows) {
+      const auto& candidate = get_reader(flow_id).config.common.grainRate;
+      if (candidate.numerator != rate.numerator ||
+          candidate.denominator != rate.denominator) {
+        throw std::invalid_argument(
+            "selected MXL sources do not share a grain rate");
+      }
+    }
+
+    const auto timestamp = mxlIndexToTimestamp(&rate, output_index);
+    const auto status = mxlFlowSynchronizationGroupWaitForDataAt(
+        sync_group_, timestamp, read_timeout_ns_);
+    ++stats_.sync_waits;
+    if (status == MXL_ERR_TIMEOUT || status == MXL_ERR_OUT_OF_RANGE_TOO_EARLY) {
+      ++stats_.sync_timeouts;
+      return;
+    }
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowSynchronizationGroupWaitForDataAt", status);
+    }
+  }
+
   void route_grain(const FlowId& source_flow, const FlowId& output_flow,
                    std::uint64_t output_index) {
     auto& reader = get_reader(source_flow);
@@ -111,6 +184,15 @@ class MxlBackend::Impl {
                                                read_timeout_ns_, &source_info,
                                                &source_payload);
     if (status == MXL_ERR_FLOW_INVALID) {
+      if (grouped_flows_.contains(source_flow)) {
+        const auto remove_status = mxlFlowSynchronizationGroupRemoveReader(
+            sync_group_, reader.handle);
+        if (remove_status != MXL_STATUS_OK) {
+          throw sdk_error("mxlFlowSynchronizationGroupRemoveReader",
+                          remove_status);
+        }
+        grouped_flows_.erase(source_flow);
+      }
       mxlReleaseFlowReader(instance_, reader.handle);
       readers_.erase(source_flow);
       ++stats_.reader_reopens;
@@ -237,9 +319,11 @@ class MxlBackend::Impl {
   std::string domain_;
   std::uint64_t read_timeout_ns_;
   mxlInstance instance_{nullptr};
+  mxlFlowSynchronizationGroup sync_group_{nullptr};
   std::unordered_map<FlowId, std::string> output_definitions_;
   std::unordered_map<FlowId, Reader> readers_;
   std::unordered_map<FlowId, Writer> writers_;
+  std::unordered_set<FlowId> grouped_flows_;
   MxlBackendStats stats_;
 };
 
@@ -257,6 +341,11 @@ MxlBackend& MxlBackend::operator=(MxlBackend&&) noexcept = default;
 
 void MxlBackend::create_output_once(const OutputSpec& output) {
   impl_->create_output_once(output);
+}
+
+void MxlBackend::prepare_frame(const std::vector<FlowId>& source_flows,
+                               std::uint64_t output_index) {
+  impl_->prepare_frame(source_flows, output_index);
 }
 
 void MxlBackend::route_grain(const FlowId& source_flow,
@@ -277,4 +366,3 @@ void MxlBackend::sleep_until_index(std::uint64_t index,
 MxlBackendStats MxlBackend::stats() const { return impl_->stats(); }
 
 }  // namespace mxl_core
-
