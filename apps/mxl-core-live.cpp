@@ -1,4 +1,6 @@
 #include "mxl_core/core.hpp"
+#include "mxl_core/control_api.hpp"
+#include "mxl_core/http_server.hpp"
 #include "mxl_core/mxl_backend.hpp"
 
 #include <atomic>
@@ -70,6 +72,15 @@ int main(int argc, char** argv) {
     const auto rate_denominator = args.contains("rate-denominator")
                                       ? std::stoul(args.at("rate-denominator"))
                                       : 1001UL;
+    const auto control_host = args.contains("control-host")
+                                  ? args.at("control-host")
+                                  : "127.0.0.1";
+    const auto control_port_value = args.contains("control-port")
+                                        ? std::stoul(args.at("control-port"))
+                                        : 8080UL;
+    if (control_port_value == 0 || control_port_value > 65535) {
+      throw std::invalid_argument("control port must be between 1 and 65535");
+    }
 
     const VideoFormat v210{1920, 1080,
                            static_cast<std::uint32_t>(rate_numerator),
@@ -85,6 +96,11 @@ int main(int argc, char** argv) {
          {"src_b", source_b, "Source B", v210}},
         {program_id, "MXL Switcher Program", v210},
         {preview_id, "MXL Switcher Preview", v210}, "src_a", "src_b");
+    ControlApi control_api(core);
+    HttpServer http(control_api, control_host,
+                    static_cast<std::uint16_t>(control_port_value));
+    std::cout << "control=http://" << http.bind_address() << ':' << http.port()
+              << "/api/mxl/v1" << '\n';
 
     std::signal(SIGINT, stop);
     std::signal(SIGTERM, stop);
@@ -132,7 +148,8 @@ int main(int argc, char** argv) {
         << "usage: mxl-core-live --domain PATH --source-a UUID --source-b UUID "
            "--program-def FILE --program-id UUID --preview-def FILE "
            "--preview-id UUID [--frames N] [--take-every N] "
-           "[--rate-numerator N] [--rate-denominator N]\n";
+           "[--rate-numerator N] [--rate-denominator N] "
+           "[--control-host IPv4] [--control-port N]\n";
     return 2;
   }
 }

@@ -4,10 +4,11 @@ CPPFLAGS ?= -Iinclude
 BUILD := build
 CORE_OBJ := $(BUILD)/core.o
 CONTROL_OBJ := $(BUILD)/control_api.o
+HTTP_OBJ := $(BUILD)/http_server.o
 
 .PHONY: all test demo soak live live-syntax clean
 
-all: $(BUILD)/mxl-core-demo $(BUILD)/core-tests $(BUILD)/control-api-tests
+all: $(BUILD)/mxl-core-demo $(BUILD)/core-tests $(BUILD)/control-api-tests $(BUILD)/http-server-tests
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -16,6 +17,9 @@ $(CORE_OBJ): src/core.cpp include/mxl_core/core.hpp | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(CONTROL_OBJ): src/control_api.cpp include/mxl_core/control_api.hpp include/mxl_core/core.hpp | $(BUILD)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(HTTP_OBJ): src/http_server.cpp include/mxl_core/http_server.hpp include/mxl_core/control_api.hpp | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/mxl-core-demo: apps/mxl-core-demo.cpp $(CORE_OBJ) | $(BUILD)
@@ -27,9 +31,13 @@ $(BUILD)/core-tests: tests/core_tests.cpp $(CORE_OBJ) | $(BUILD)
 $(BUILD)/control-api-tests: tests/control_api_tests.cpp $(CORE_OBJ) $(CONTROL_OBJ) | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
-test: $(BUILD)/core-tests $(BUILD)/control-api-tests
+$(BUILD)/http-server-tests: tests/http_server_tests.cpp $(CORE_OBJ) $(CONTROL_OBJ) $(HTTP_OBJ) | $(BUILD)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
+
+test: $(BUILD)/core-tests $(BUILD)/control-api-tests $(BUILD)/http-server-tests
 	./$(BUILD)/core-tests
 	./$(BUILD)/control-api-tests
+	./$(BUILD)/http-server-tests
 
 demo: $(BUILD)/mxl-core-demo
 	./$(BUILD)/mxl-core-demo
@@ -38,7 +46,7 @@ soak: $(BUILD)/core-tests
 	./$(BUILD)/core-tests --soak 1000000
 
 # Build this target on Linux after installing the official MXL SDK.
-live: $(CORE_OBJ) src/mxl_backend.cpp apps/mxl-core-live.cpp | $(BUILD)
+live: $(CORE_OBJ) $(CONTROL_OBJ) $(HTTP_OBJ) src/mxl_backend.cpp apps/mxl-core-live.cpp | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ $$(pkg-config --cflags --libs libmxl) -o $(BUILD)/mxl-core-live
 
 # Local API compatibility check against an MXL source checkout. Usage:

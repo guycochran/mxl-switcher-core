@@ -27,6 +27,8 @@ control service is the next implementation slice.
   stale media from failures in the stable PGM/PVW outputs.
 - dependency-free versioned control adapter for state, sources, Preview, Cut,
   and Take, with contract tests preserving frame-boundary command semantics.
+- bounded HTTP/1.1 control transport, loopback-only by default, with real-socket
+  tests and no access to MXL handles or media buffers.
 
 ## Build and verify
 
@@ -47,7 +49,8 @@ make live
   --program-def program.json --program-id PROGRAM_UUID \
   --preview-def preview.json --preview-id PREVIEW_UUID \
   --frames 300 --take-every 90 \
-  --rate-numerator 30000 --rate-denominator 1001
+  --rate-numerator 30000 --rate-denominator 1001 \
+  --control-host 127.0.0.1 --control-port 8080
 ```
 
 The rate flags describe the facility operating point. For a 1080p30 domain use
@@ -82,8 +85,7 @@ ran clean in isolated source tests.
 
 ## Planned milestones
 
-1. **Control transport:** expose the tested JSON contract over loopback HTTP and
-   add its event stream; no media in the web process.
+1. **Control events:** add the state/tally event stream and input-health endpoint.
 2. **Linux package:** one service, one config, health endpoint, graceful restart.
 3. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
    hours on the Supermicro, including cuts under load.
