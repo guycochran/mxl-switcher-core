@@ -26,6 +26,7 @@ struct LiveConfig {
   VideoFormat format{1920, 1080, 30000, 1001, "video/v210"};
   std::uint64_t frames{0};
   std::uint64_t take_every{0};
+  std::uint64_t input_delay_frames{0};
   std::string control_host{"127.0.0.1"};
   std::uint16_t control_port{8080};
 };

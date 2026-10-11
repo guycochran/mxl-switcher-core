@@ -29,8 +29,11 @@ class MxlBackend::Impl {
  public:
   Impl(std::string domain,
        std::vector<MxlOutputDefinition> output_definitions,
-       std::uint64_t read_timeout_ns)
-      : domain_(std::move(domain)), read_timeout_ns_(read_timeout_ns) {
+       std::uint64_t read_timeout_ns,
+       std::uint64_t input_delay_frames)
+      : domain_(std::move(domain)),
+        read_timeout_ns_(read_timeout_ns),
+        input_delay_frames_(input_delay_frames) {
     if (domain_.empty() || read_timeout_ns_ == 0) {
       throw std::invalid_argument("MXL domain and read timeout are required");
     }
@@ -158,7 +161,7 @@ class MxlBackend::Impl {
       }
     }
 
-    const auto timestamp = mxlIndexToTimestamp(&rate, output_index);
+    const auto timestamp = mxlIndexToTimestamp(&rate, input_index(output_index));
     const auto status = mxlFlowSynchronizationGroupWaitForDataAt(
         sync_group_, timestamp, read_timeout_ns_);
     {
@@ -185,7 +188,8 @@ class MxlBackend::Impl {
 
     mxlGrainInfo source_info{};
     std::uint8_t* source_payload = nullptr;
-    const auto status = mxlFlowReaderGetGrain(reader.handle, output_index,
+    const auto status = mxlFlowReaderGetGrain(reader.handle,
+                                               input_index(output_index),
                                                read_timeout_ns_, &source_info,
                                                &source_payload);
     if (status == MXL_ERR_FLOW_INVALID) {
@@ -310,6 +314,13 @@ class MxlBackend::Impl {
     bool created;
   };
 
+  std::uint64_t input_index(std::uint64_t output_index) const {
+    if (output_index < input_delay_frames_) {
+      throw std::invalid_argument("input delay exceeds the output index");
+    }
+    return output_index - input_delay_frames_;
+  }
+
   Reader& get_reader(const FlowId& flow_id) {
     if (auto found = readers_.find(flow_id); found != readers_.end()) {
       return found->second;
@@ -355,6 +366,7 @@ class MxlBackend::Impl {
 
   std::string domain_;
   std::uint64_t read_timeout_ns_;
+  std::uint64_t input_delay_frames_;
   mxlInstance instance_{nullptr};
   mxlFlowSynchronizationGroup sync_group_{nullptr};
   std::unordered_map<FlowId, std::string> output_definitions_;
@@ -368,10 +380,12 @@ class MxlBackend::Impl {
 MxlBackend::MxlBackend(
     std::string domain,
     std::vector<MxlOutputDefinition> output_definitions,
-    std::uint64_t read_timeout_ns)
+    std::uint64_t read_timeout_ns,
+    std::uint64_t input_delay_frames)
     : impl_(std::make_unique<Impl>(std::move(domain),
                                   std::move(output_definitions),
-                                  read_timeout_ns)) {}
+                                  read_timeout_ns,
+                                  input_delay_frames)) {}
 
 MxlBackend::~MxlBackend() = default;
 MxlBackend::MxlBackend(MxlBackend&&) noexcept = default;

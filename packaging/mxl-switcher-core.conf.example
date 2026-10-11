@@ -25,6 +25,10 @@ rate_denominator=1
 frames=0
 take_every=0
 
+# Hold output behind real time so sources with a known pipeline latency can be
+# read at a common grain index. Zero is appropriate only for zero-latency input.
+input_delay_frames=0
+
 # Keep loopback unless an authenticated reverse proxy is in front of the API.
 control_host=127.0.0.1
 control_port=8080

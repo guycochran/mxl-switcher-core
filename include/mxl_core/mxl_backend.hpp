@@ -42,7 +42,8 @@ class MxlBackend final : public MediaBackend {
  public:
   MxlBackend(std::string domain,
              std::vector<MxlOutputDefinition> output_definitions,
-             std::uint64_t read_timeout_ns = 5'000'000);
+             std::uint64_t read_timeout_ns = 5'000'000,
+             std::uint64_t input_delay_frames = 0);
   ~MxlBackend() override;
 
   MxlBackend(const MxlBackend&) = delete;

@@ -56,6 +56,7 @@ rate_numerator=30
 rate_denominator=1
 frames=0
 take_every=0
+input_delay_frames=7
 control_host=127.0.0.1
 control_port=8080
 )CONFIG";
@@ -70,7 +71,8 @@ void test_valid_config() {
   require(config.format.rate_numerator == 30 &&
               config.format.rate_denominator == 1,
           "operating rate was parsed incorrectly");
-  require(config.frames == 0 && config.control_port == 8080,
+  require(config.frames == 0 && config.input_delay_frames == 7 &&
+              config.control_port == 8080,
           "runtime settings were parsed incorrectly");
 }
 

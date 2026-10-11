@@ -117,6 +117,10 @@ LiveConfig config_from_args(
   config.take_every = args.contains("take-every")
                           ? std::stoull(args.at("take-every"))
                           : 90ULL;
+  config.input_delay_frames =
+      args.contains("input-delay-frames")
+          ? std::stoull(args.at("input-delay-frames"))
+          : 0ULL;
   config.format.rate_numerator =
       args.contains("rate-numerator")
           ? static_cast<std::uint32_t>(std::stoul(args.at("rate-numerator")))
@@ -164,7 +168,8 @@ int main(int argc, char** argv) {
     MxlBackend media(
         config.domain,
         {{config.program_id, read_file(config.program_definition_path)},
-         {config.preview_id, read_file(config.preview_definition_path)}});
+         {config.preview_id, read_file(config.preview_definition_path)}},
+        5'000'000, config.input_delay_frames);
     SwitcherCore core(
         media, std::move(sources),
         {config.program_id, "MXL Switcher Program", config.format},
@@ -224,6 +229,7 @@ int main(int argc, char** argv) {
            "   or: mxl-core-live --domain PATH --source-a UUID --source-b UUID "
            "--program-def FILE --program-id UUID --preview-def FILE "
            "--preview-id UUID [--frames N] [--take-every N] "
+           "[--input-delay-frames N] "
            "[--rate-numerator N] [--rate-denominator N] "
            "[--control-host IPv4] [--control-port N]\n";
     return 2;

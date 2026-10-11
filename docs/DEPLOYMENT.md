@@ -66,6 +66,11 @@ Use `GET /api/mxl/v1/health` for the service probe and
 `GET /api/mxl/v1/events` for tally/state changes. Upstream invalid or late media
 is visible per input rather than being mistaken for a process failure.
 
+Set `input_delay_frames` to the facility's measured source latency. The core
+reads every selected input at that delayed grain index while publishing Program
+and Preview at the current output index. This provides deterministic frame sync
+without changing the stable output clock.
+
 ## Hardware acceptance
 
 `scripts/run-acceptance.sh CONFIG OUTPUT_DIRECTORY` runs a bounded configuration

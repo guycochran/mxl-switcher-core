@@ -138,6 +138,8 @@ LiveConfig load_live_config(const std::string& path) {
       config.frames = unsigned_value(value, key, line_number);
     } else if (key == "take_every") {
       config.take_every = unsigned_value(value, key, line_number);
+    } else if (key == "input_delay_frames") {
+      config.input_delay_frames = unsigned_value(value, key, line_number);
     } else if (key == "control_host") {
       config.control_host = value;
     } else if (key == "control_port") {
