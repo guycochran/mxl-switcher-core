@@ -78,6 +78,14 @@ See [the architecture](docs/ARCHITECTURE.md) and
 [control semantics](docs/CONTROL.md). See [Linux deployment](docs/DEPLOYMENT.md)
 for the validated configuration format and non-root systemd service.
 
+The NDI pilot now has a documented loaded full-path result. A five-minute
+isolated gate passed with zero media errors, while a 30-minute run with two
+continuous NDI receivers exposed a fixed-index scheduling limitation under
+sustained CPU load. All containers stayed running, upstream inputs remained
+valid, and memory stayed bounded. See the
+[NDI full-path acceptance findings](docs/NDI_FULL_PATH_FINDINGS.md) for exact
+measurements and the adaptive common-window remediation plan.
+
 The first hardware gate completed on a 1080p30 v210 domain: the core created and
 reused isolated stable PGM/PVW UUIDs, switched two live flows at frame
 boundaries, and both outputs were consumed concurrently through the GStreamer
@@ -95,7 +103,10 @@ intermittent guest input while the clip input remained clean.
 
 ## Planned milestones
 
-1. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
-   hours on the Supermicro, including cuts under load.
+1. **Adaptive live scheduling:** select input grains from the common readable
+   window of all active sources and pass the loaded five- and 30-minute gates.
+2. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
+   hours on the Supermicro, including cuts and two active NDI outputs under
+   load.
 
 License: MIT.

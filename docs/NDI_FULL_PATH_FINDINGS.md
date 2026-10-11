@@ -1,0 +1,194 @@
+# NDI full-path acceptance findings
+
+Date: 2026-10-11
+
+## Executive conclusion
+
+The MXL Switcher Core can route stable v210 Program and Preview flows, accept
+frame-boundary control changes, and feed two simultaneous NDI outputs. The
+isolated five-minute gate passed cleanly. The subsequent 30-minute gate, with
+both NDI outputs continuously encoded and decoded, exposed a scheduling defect:
+the Core's fixed wall-clock-relative input index can fall outside the common
+readable window of the selected source rings when the host is under sustained
+load.
+
+This is not evidence of corrupt source media, container instability, a memory
+leak, or an NDI pipeline crash. All seven containers remained running with zero
+restarts, source invalid counters stayed at zero, direct read timeouts stayed at
+zero, and Core RSS remained essentially flat. The failure is localized to how
+the Core chooses the input grain for each output frame.
+
+The current build is a successful pilot and demonstration path, but it should
+not yet be described as production-ready under loaded, long-duration operation.
+
+## Test topology
+
+- Dedicated MXL domain: `/dev/shm/mxl/domain_ndi_lab`
+- Operating point: 1920x1080, v210 inside MXL, 30000/1001 fps
+- Ring history: one second, 29 grains
+- Core input delay: five frames
+- Bounded read timeout: 20 ms
+- Source A: NDI ingress
+- Source B: deterministic synthetic v210 publisher
+- Stable outputs: Program and Preview MXL flows
+- NDI egress: separate Program and Preview publishers
+- Loaded gate: one sustained receiver for each NDI output
+- Control load: regular TAKE commands throughout the run
+
+The NDI boundary converts the internal v210 signal to the format required by
+the NDI pipeline. The Core itself does not abandon v210 or mutate source
+payloads.
+
+## Results
+
+### Isolated five-minute gate: pass
+
+The Core, both sources, and both outputs ran without the sustained receiver load.
+
+| Measure | Result |
+| --- | ---: |
+| Samples | 25 |
+| TAKEs | 4 |
+| Routed grains | 19,322 |
+| Routed from each source | 9,661 |
+| Invalid output grains | 0 |
+| Too early | 0 |
+| Too late | 0 |
+| Direct read timeouts | 0 |
+| Reader reopens | 0 |
+| Synchronization timeouts | 0 |
+| Monitoring errors | 0 |
+
+Evidence directory on VM 101:
+`~/mxl-switcher-core/run-ndi-core-5m-history1s-delay5-20261011T185227Z`
+
+### Loaded 30-minute full-path gate: fail
+
+Two receiver containers continuously consumed Program and Preview so that both
+NDI encode and decode paths remained under real load.
+
+| Measure | Result |
+| --- | ---: |
+| Samples | 127 |
+| TAKEs / final revision | 29 / 29 |
+| Routed grains | 107,314 |
+| Invalid output grains | 3,327 |
+| Too early | 2,820 |
+| Too late | 507 |
+| Direct read timeouts | 0 |
+| Reader reopens | 0 |
+| Synchronization waits | 55,321 |
+| Synchronization timeouts | 5,731 |
+| Monitoring errors | 0 |
+
+Per-source attribution:
+
+| Source | Routed | Upstream invalid | Too early | Too late | Read timeout | Reopen |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| NDI ingress | 52,395 | 0 | 2,793 | 132 | 0 | 0 |
+| Synthetic | 54,919 | 0 | 27 | 375 | 0 | 0 |
+
+All five service containers and both temporary receiver containers were running
+with zero restarts at completion. Final state was Program = synthetic and
+Preview = NDI.
+
+Resource ranges observed during the loaded gate:
+
+| Service | CPU | RSS |
+| --- | ---: | ---: |
+| Core | 11.13-56.82% | 309.2-311.1 MiB |
+| Synthetic source | 14.76-60.30% | 308.5-311.5 MiB |
+| NDI ingress | 56.94-116.17% | 203.1-220.0 MiB |
+| Program NDI egress | 38.74-96.99% | 30.42-38.49 MiB |
+| Preview NDI egress | 36.51-84.11% | 26.16-38.68 MiB |
+
+Evidence directory on VM 101:
+`~/mxl-switcher-core/run-ndi-full-path-loaded-30m-20261011T193447Z`
+
+## What the test proved
+
+- Stable Program and Preview flow identities survive repeated TAKEs.
+- The control plane applied 29 frame-boundary TAKEs with matching revision.
+- Both Program and Preview were discoverable and decodable as NDI video.
+- The v210 MXL-to-NDI path can run concurrently in both directions.
+- Containers stayed alive and did not restart under the measured load.
+- The Core did not show material RSS growth.
+- Invalid outputs were generated locally by out-of-range reads, not attributed
+  to invalid upstream grains.
+
+## What failed and why
+
+For output index `N`, the current MXL backend always requests input index
+`N - input_delay_frames`. That works only while all selected producers remain
+close enough to the Core's wall-clock-derived output cadence for that one index
+to be present in every source ring.
+
+Under the combined ingress, two egress encoders, and two decoder loads, producer
+heads moved relative to one another. The requested fixed index was sometimes
+ahead of a source (`too_early`) and sometimes already outside another source's
+history (`too_late`). The occurrence of both conditions, including late reads
+from the synthetic source, shows that the problem is the lack of a continuously
+computed common read window, not simply an undersized timeout.
+
+Increasing only the read timeout cannot repair an index that is already too
+late, and increasing only the fixed delay adds latency while moving the failure
+boundary rather than adapting to source skew.
+
+## Proposed remediation
+
+### 1. Select each input index from the common readable window
+
+Before routing an output frame, inspect runtime information for every selected
+reader and calculate their overlapping readable interval:
+
+- upper bound: the oldest of the selected source heads;
+- lower bound: the newest of the selected sources' oldest readable grains;
+- chosen input: the newest index safely inside that overlap, with a small
+  configurable safety margin.
+
+Store that chosen input index for the entire prepared output frame so Program
+and Preview route from the same decision. If no overlap exists, record that
+condition explicitly and apply a documented failure policy rather than waiting
+at an index that cannot succeed.
+
+### 2. Add timing observability
+
+Expose enough data to diagnose source skew without reconstructing it from
+errors:
+
+- reader head and oldest-readable index per source;
+- chosen common input index and resulting delay;
+- common-window width;
+- synchronization status split into timeout, too-early, and too-late outcomes;
+- count and attribution of no-overlap decisions.
+
+### 3. Test the scheduler deterministically
+
+Add mocked tests for unequal source heads, jitter, shrinking overlap, and no
+overlap. Then repeat live gates in this order:
+
+1. five minutes with both NDI receivers active;
+2. 30 minutes with both receivers active and regular TAKEs;
+3. source interruption and recovery;
+4. Core and NDI egress restart/reconnection behavior;
+5. eight-hour loaded acceptance.
+
+A loaded gate passes only with zero invalid, too-early, too-late, read-timeout,
+reader-reopen, synchronization-timeout, and monitoring-error counts; zero
+container restarts; bounded RSS; and the expected TAKE/revision total.
+
+### 4. Optimize deployment after correctness
+
+Once adaptive scheduling passes, measure CPU placement and contention. Candidate
+deployment improvements include CPU affinity or priority separation, placing NDI
+egress on a separate lightweight VM, and offering a Program-only NDI profile on
+constrained hosts. Keep v210 as the MXL core format; conversions belong at I/O
+boundaries. Audio-follow-video and lower-cost multiview/proxy outputs are later
+features, not substitutes for correcting the scheduler.
+
+## Additional resilience finding
+
+A Core restart caused the temporary NDI receivers to disconnect even though the
+egress containers remained alive. Restart and receiver reconnection therefore
+need their own acceptance case after the scheduler is corrected. It is not the
+root cause of the loaded timing failure.

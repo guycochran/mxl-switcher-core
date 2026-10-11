@@ -89,6 +89,12 @@ is necessary but not sufficient: acceptance also requires exactly two output
 grains per configured frame, no reader reopenings or read timeouts, bounded RSS,
 and explicit attribution of any invalid grains to their upstream inputs.
 
+For the measured NDI pilot topology, loaded acceptance must include sustained
+receivers on both Program and Preview. An unloaded gate can hide producer skew
+caused by simultaneous NDI ingress, egress encoding, and receiving. See
+[NDI full-path acceptance findings](NDI_FULL_PATH_FINDINGS.md) for the baseline
+results, resource ranges, and pass criteria.
+
 For a test that is fully isolated from production publishers, create a separate
 MXL domain with a domain `options.json` that sets
 `urn:x-mxl:option:history_duration/v1.0` to at least two seconds. Build
