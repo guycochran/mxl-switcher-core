@@ -1,0 +1,67 @@
+# Linux deployment
+
+The deployment shape is one unprivileged process, one local configuration file,
+and the existing MXL shared-memory domain. No container runtime, database, web
+framework, GPU, or media codec package is required by the core.
+
+## Build and stage
+
+Build `mxl-core-live` against the official MXL SDK with `make live`. The
+`install-live` target stages the binary, example configuration, and systemd unit.
+`DESTDIR` can be used by a package builder:
+
+```sh
+make live
+sudo make install-live
+```
+
+The target deliberately installs the configuration as an example and never
+overwrites `/etc/mxl-switcher-core/core.conf`.
+
+## Configure
+
+Copy `packaging/mxl-switcher-core.conf.example` to
+`/etc/mxl-switcher-core/core.conf`, replace the placeholder UUIDs, and place the
+two output flow definitions beside it. Validate without opening the MXL domain:
+
+```sh
+/usr/local/bin/mxl-core-live \
+  --check-config /etc/mxl-switcher-core/core.conf
+```
+
+Each `source` entry is `operator_id|MXL_flow_UUID|label`. Source ids and flow ids
+must be unique. At least two sources are required, but there is no two-input
+limit in the engine or control API.
+
+Keep the control listener on loopback unless an authenticated reverse proxy is
+used. The core intentionally does not contain account management, TLS keys, or
+an internet-facing web stack.
+
+## Service identity and MXL access
+
+Create a locked `mxl-switcher` service account. Grant that account access to the
+MXL domain through the facility's existing shared-memory group or ACL; do not run
+the switcher as root and do not make unrelated shared memory world-writable.
+
+The supplied unit uses systemd hardening and has no Linux capabilities. If the
+facility uses a dedicated MXL group, add it with a local systemd drop-in rather
+than editing the versioned unit:
+
+```ini
+[Service]
+SupplementaryGroups=mxl
+```
+
+After installing the unit and local configuration, reload systemd and enable the
+service using the host's normal administration workflow.
+
+## Shutdown and restart
+
+SIGTERM stops acceptance of new control connections, finishes the current media
+iteration, closes SSE clients, releases MXL handles, and exits. PGM and PVW use
+the configured stable UUIDs when systemd starts the process again; cuts never
+replace those identities.
+
+Use `GET /api/mxl/v1/health` for the service probe and
+`GET /api/mxl/v1/events` for tally/state changes. Upstream invalid or late media
+is visible per input rather than being mistaken for a process failure.

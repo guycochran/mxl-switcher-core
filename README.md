@@ -75,7 +75,8 @@ The local engine must prove these invariants before live SDK work:
    grows the mock output history without a bound.
 
 See [the architecture](docs/ARCHITECTURE.md) and
-[control semantics](docs/CONTROL.md).
+[control semantics](docs/CONTROL.md). See [Linux deployment](docs/DEPLOYMENT.md)
+for the validated configuration format and non-root systemd service.
 
 The first hardware gate completed on a 1080p30 v210 domain: the core created and
 reused isolated stable PGM/PVW UUIDs, switched two live flows at frame
@@ -94,9 +95,7 @@ intermittent guest input while the clip input remained clean.
 
 ## Planned milestones
 
-1. **Linux package:** one service, one config, graceful restart and a non-root
-   runtime user.
-2. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
+1. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
    hours on the Supermicro, including cuts under load.
 
 License: MIT.

@@ -1,0 +1,30 @@
+# MXL Switcher Core deployment configuration.
+# Copy to /etc/mxl-switcher-core/core.conf and replace placeholders locally.
+# Never commit facility UUIDs or credentials.
+
+domain=/dev/shm/mxl/domain_1
+
+# Repeat source=id|flow_uuid|operator label for every v210 input.
+source=camera_a|SOURCE_UUID_A|Camera A
+source=clip|SOURCE_UUID_B|Clip Player
+
+program_definition=/etc/mxl-switcher-core/program.json
+program_id=PROGRAM_OUTPUT_UUID
+preview_definition=/etc/mxl-switcher-core/preview.json
+preview_id=PREVIEW_OUTPUT_UUID
+
+initial_program=camera_a
+initial_preview=clip
+
+width=1920
+height=1080
+rate_numerator=30
+rate_denominator=1
+
+# Zero means run until SIGINT/SIGTERM. Automatic TAKE is disabled at zero.
+frames=0
+take_every=0
+
+# Keep loopback unless an authenticated reverse proxy is in front of the API.
+control_host=127.0.0.1
+control_port=8080

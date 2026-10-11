@@ -1,6 +1,7 @@
 #include "mxl_core/core.hpp"
 #include "mxl_core/control_api.hpp"
 #include "mxl_core/http_server.hpp"
+#include "mxl_core/live_config.hpp"
 #include "mxl_core/mxl_backend.hpp"
 
 #include <atomic>
@@ -90,69 +91,99 @@ const std::string& required(
   }
   return found->second;
 }
+
+LiveConfig config_from_args(
+    const std::unordered_map<std::string, std::string>& args) {
+  if (args.contains("config")) {
+    if (args.size() != 1) {
+      throw std::invalid_argument(
+          "--config cannot be combined with individual settings");
+    }
+    return load_live_config(args.at("config"));
+  }
+
+  LiveConfig config;
+  config.domain = required(args, "domain");
+  config.sources = {{"src_a", required(args, "source-a"), "Source A"},
+                    {"src_b", required(args, "source-b"), "Source B"}};
+  config.program_definition_path = required(args, "program-def");
+  config.program_id = required(args, "program-id");
+  config.preview_definition_path = required(args, "preview-def");
+  config.preview_id = required(args, "preview-id");
+  config.initial_program = "src_a";
+  config.initial_preview = "src_b";
+  config.frames =
+      args.contains("frames") ? std::stoull(args.at("frames")) : 300ULL;
+  config.take_every = args.contains("take-every")
+                          ? std::stoull(args.at("take-every"))
+                          : 90ULL;
+  config.format.rate_numerator =
+      args.contains("rate-numerator")
+          ? static_cast<std::uint32_t>(std::stoul(args.at("rate-numerator")))
+          : 30000U;
+  config.format.rate_denominator =
+      args.contains("rate-denominator")
+          ? static_cast<std::uint32_t>(std::stoul(args.at("rate-denominator")))
+          : 1001U;
+  config.control_host = args.contains("control-host")
+                            ? args.at("control-host")
+                            : "127.0.0.1";
+  const auto port = args.contains("control-port")
+                        ? std::stoul(args.at("control-port"))
+                        : 8080UL;
+  if (port > 65535) {
+    throw std::invalid_argument("control port must be between 1 and 65535");
+  }
+  config.control_port = static_cast<std::uint16_t>(port);
+  validate_live_config(config);
+  return config;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
   try {
     const auto args = parse_args(argc, argv);
-    const auto& domain = required(args, "domain");
-    const auto& source_a = required(args, "source-a");
-    const auto& source_b = required(args, "source-b");
-    const auto& program_def_path = required(args, "program-def");
-    const auto& preview_def_path = required(args, "preview-def");
-    const auto& program_id = required(args, "program-id");
-    const auto& preview_id = required(args, "preview-id");
-    const auto frames = args.contains("frames")
-                            ? std::stoull(args.at("frames"))
-                            : 300ULL;
-    const auto take_every = args.contains("take-every")
-                                ? std::stoull(args.at("take-every"))
-                                : 90ULL;
-    const auto rate_numerator = args.contains("rate-numerator")
-                                    ? std::stoul(args.at("rate-numerator"))
-                                    : 30000UL;
-    const auto rate_denominator = args.contains("rate-denominator")
-                                      ? std::stoul(args.at("rate-denominator"))
-                                      : 1001UL;
-    const auto control_host = args.contains("control-host")
-                                  ? args.at("control-host")
-                                  : "127.0.0.1";
-    const auto control_port_value = args.contains("control-port")
-                                        ? std::stoul(args.at("control-port"))
-                                        : 8080UL;
-    if (control_port_value == 0 || control_port_value > 65535) {
-      throw std::invalid_argument("control port must be between 1 and 65535");
+    if (args.contains("check-config")) {
+      if (args.size() != 1) {
+        throw std::invalid_argument(
+            "--check-config cannot be combined with other settings");
+      }
+      const auto config = load_live_config(args.at("check-config"));
+      std::cout << "config valid: " << config.sources.size()
+                << " sources, control " << config.control_host << ':'
+                << config.control_port << '\n';
+      return 0;
     }
-
-    const VideoFormat v210{1920, 1080,
-                           static_cast<std::uint32_t>(rate_numerator),
-                           static_cast<std::uint32_t>(rate_denominator),
-                           "video/v210"};
+    const auto config = config_from_args(args);
+    std::vector<Source> sources;
+    sources.reserve(config.sources.size());
+    for (const auto& source : config.sources) {
+      sources.push_back(
+          {source.id, source.flow_id, source.label, config.format});
+    }
     MxlBackend media(
-        domain,
-        {{program_id, read_file(program_def_path)},
-         {preview_id, read_file(preview_def_path)}});
+        config.domain,
+        {{config.program_id, read_file(config.program_definition_path)},
+         {config.preview_id, read_file(config.preview_definition_path)}});
     SwitcherCore core(
-        media,
-        {{"src_a", source_a, "Source A", v210},
-         {"src_b", source_b, "Source B", v210}},
-        {program_id, "MXL Switcher Program", v210},
-        {preview_id, "MXL Switcher Preview", v210}, "src_a", "src_b");
+        media, std::move(sources),
+        {config.program_id, "MXL Switcher Program", config.format},
+        {config.preview_id, "MXL Switcher Preview", config.format},
+        config.initial_program, config.initial_preview);
     ControlApi control_api(core,
                            [&media] { return health_json(media.stats()); });
-    HttpServer http(control_api, control_host,
-                    static_cast<std::uint16_t>(control_port_value));
+    HttpServer http(control_api, config.control_host, config.control_port);
     std::cout << "control=http://" << http.bind_address() << ':' << http.port()
               << "/api/mxl/v1" << '\n';
 
     std::signal(SIGINT, stop);
     std::signal(SIGTERM, stop);
-    auto index = media.current_index(v210) + 2;
+    auto index = media.current_index(config.format) + 2;
     std::uint64_t processed = 0;
-    while (running && (frames == 0 || processed < frames)) {
-      media.sleep_until_index(index, v210);
-      if (take_every != 0 && processed != 0 &&
-          (processed % take_every) == 0) {
+    while (running && (config.frames == 0 || processed < config.frames)) {
+      media.sleep_until_index(index, config.format);
+      if (config.take_every != 0 && processed != 0 &&
+          (processed % config.take_every) == 0) {
         core.take();
       }
       core.process(index);
@@ -188,7 +219,9 @@ int main(int argc, char** argv) {
   } catch (const std::exception& error) {
     std::cerr << "mxl-core-live: " << error.what() << '\n';
     std::cerr
-        << "usage: mxl-core-live --domain PATH --source-a UUID --source-b UUID "
+        << "usage: mxl-core-live --config FILE\n"
+           "       mxl-core-live --check-config FILE\n"
+           "   or: mxl-core-live --domain PATH --source-a UUID --source-b UUID "
            "--program-def FILE --program-id UUID --preview-def FILE "
            "--preview-id UUID [--frames N] [--take-every N] "
            "[--rate-numerator N] [--rate-denominator N] "

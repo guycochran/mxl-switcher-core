@@ -1,0 +1,31 @@
+[Unit]
+Description=MXL Switcher Core
+After=local-fs.target
+
+[Service]
+Type=simple
+User=mxl-switcher
+Group=mxl-switcher
+ExecStart=/usr/local/bin/mxl-core-live --config /etc/mxl-switcher-core/core.conf
+ExecStartPre=/usr/local/bin/mxl-core-live --check-config /etc/mxl-switcher-core/core.conf
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=10s
+KillSignal=SIGTERM
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
