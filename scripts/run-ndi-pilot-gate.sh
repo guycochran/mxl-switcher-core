@@ -6,12 +6,20 @@ duration=${DURATION:-300}
 interval=${INTERVAL:-10}
 base_url=${BASE_URL:-http://127.0.0.1:18080/api/mxl/v1}
 
+docker_call() {
+  if docker info >/dev/null 2>&1; then
+    docker "$@"
+  else
+    sudo -n docker "$@"
+  fi
+}
+
 mkdir -p "$output_dir"
 : >"$output_dir/samples.tsv"
 : >"$output_dir/controls.jsonl"
 : >"$output_dir/errors.log"
 
-printf 'timestamp\tcore\tingress\tresources\thealth\tstate\n' \
+printf 'timestamp\tcore\tingress\tprogram_out\tpreview_out\tresources\thealth\tstate\n' \
   >>"$output_dir/samples.tsv"
 
 started=$(date +%s)
@@ -23,15 +31,20 @@ monitor_errors=0
 
 while [ "$(date +%s)" -lt "$deadline" ]; do
   timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  core=$(sudo -n docker inspect --format '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}/{{.RestartCount}}' mxl-core-pilot 2>>"$output_dir/errors.log" || true)
-  ingress=$(sudo -n docker inspect --format '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}/{{.RestartCount}}' mxl-ndi-core-ingress 2>>"$output_dir/errors.log" || true)
-  resources=$(sudo -n docker stats --no-stream --format '{{.Name}}={{.CPUPerc}},{{.MemUsage}}' mxl-core-pilot mxl-core-pilot-source mxl-ndi-core-ingress 2>>"$output_dir/errors.log" | tr '\n' ';' || true)
+  core=$(docker_call inspect --format '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}/{{.RestartCount}}' mxl-core-pilot 2>>"$output_dir/errors.log" || true)
+  ingress=$(docker_call inspect --format '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}/{{.RestartCount}}' mxl-ndi-core-ingress 2>>"$output_dir/errors.log" || true)
+  program_out=$(docker_call inspect --format '{{.State.Status}}/{{.RestartCount}}' mxl-ndi-core-program-out 2>>"$output_dir/errors.log" || true)
+  preview_out=$(docker_call inspect --format '{{.State.Status}}/{{.RestartCount}}' mxl-ndi-core-preview-out 2>>"$output_dir/errors.log" || true)
+  resources=$(docker_call stats --no-stream --format '{{.Name}}={{.CPUPerc}},{{.MemUsage}}' mxl-core-pilot mxl-core-pilot-source mxl-ndi-core-ingress mxl-ndi-core-program-out mxl-ndi-core-preview-out 2>>"$output_dir/errors.log" | tr '\n' ';' || true)
   health=$(curl -fsS --connect-timeout 2 --max-time 3 "$base_url/health" 2>>"$output_dir/errors.log" || true)
   state=$(curl -fsS --connect-timeout 2 --max-time 3 "$base_url/state" 2>>"$output_dir/errors.log" || true)
-  if [ -z "$core" ] || [ -z "$ingress" ] || [ -z "$health" ] || [ -z "$state" ]; then
+  if [ -z "$core" ] || [ -z "$ingress" ] || [ -z "$program_out" ] ||
+     [ -z "$preview_out" ] || [ -z "$health" ] || [ -z "$state" ]; then
     monitor_errors=$((monitor_errors + 1))
   fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$timestamp" "$core" "$ingress" "$resources" "$health" "$state" >>"$output_dir/samples.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$timestamp" "$core" "$ingress" "$program_out" "$preview_out" \
+    "$resources" "$health" "$state" >>"$output_dir/samples.tsv"
   samples=$((samples + 1))
 
   now=$(date +%s)
