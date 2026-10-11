@@ -64,8 +64,33 @@ done
 finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 final_health=$(curl -fsS --connect-timeout 2 --max-time 3 "$base_url/health" 2>>"$output_dir/errors.log" || true)
 final_state=$(curl -fsS --connect-timeout 2 --max-time 3 "$base_url/state" 2>>"$output_dir/errors.log" || true)
+gate_failures=$monitor_errors
+health_totals=${final_health%%,\"sources\"*}
+for counter in invalid too_early too_late timeouts reader_reopens \
+  sync_timeouts sync_too_early sync_too_late no_common_window; do
+  value=$(printf '%s' "$health_totals" |
+    sed -n "s/.*\"$counter\":\([0-9][0-9]*\).*/\1/p")
+  if [ -z "$value" ] || [ "$value" -ne 0 ]; then
+    gate_failures=$((gate_failures + 1))
+    printf 'nonzero_or_missing_counter=%s value=%s\n' \
+      "$counter" "${value:-missing}" >>"$output_dir/errors.log"
+  fi
+done
+if [ "$core" != "running/healthy/0" ] ||
+   [ "$ingress" != "running/healthy/0" ] ||
+   [ "$program_out" != "running/0" ] ||
+   [ "$preview_out" != "running/0" ]; then
+  gate_failures=$((gate_failures + 1))
+  printf 'unhealthy_final_container_state core=%s ingress=%s program=%s preview=%s\n' \
+    "$core" "$ingress" "$program_out" "$preview_out" \
+    >>"$output_dir/errors.log"
+fi
 {
-  printf 'finished=%s samples=%s takes=%s monitor_errors=%s\n' "$finished" "$samples" "$takes" "$monitor_errors"
+  printf 'finished=%s samples=%s takes=%s monitor_errors=%s gate_failures=%s\n' \
+    "$finished" "$samples" "$takes" "$monitor_errors" "$gate_failures"
   printf 'health=%s\nstate=%s\n' "$final_health" "$final_state"
 } >"$output_dir/summary.txt"
 touch "$output_dir/done"
+if [ "$gate_failures" -ne 0 ]; then
+  exit 1
+fi
