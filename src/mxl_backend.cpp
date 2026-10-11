@@ -6,6 +6,7 @@
 #include <mxl/time.h>
 
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -165,6 +166,8 @@ class MxlBackend::Impl {
 
     std::vector<ReadWindowSource> windows;
     windows.reserve(unique_flows.size());
+    std::uint64_t minimum_head = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t maximum_head = 0;
     for (const auto& flow_id : unique_flows) {
       auto& reader = get_reader(flow_id);
       mxlFlowRuntimeInfo runtime{};
@@ -178,6 +181,8 @@ class MxlBackend::Impl {
                               ? runtime.headIndex - grain_count + 2U
                               : std::uint64_t{0};
       windows.push_back({runtime.headIndex, grain_count});
+      minimum_head = std::min(minimum_head, runtime.headIndex);
+      maximum_head = std::max(maximum_head, runtime.headIndex);
       std::lock_guard lock(stats_mutex_);
       auto& source = stats_.sources[flow_id];
       source.latest_head_index = runtime.headIndex;
@@ -200,12 +205,44 @@ class MxlBackend::Impl {
 
     {
       std::lock_guard lock(stats_mutex_);
+      const auto first_selection = stats_.adaptive_selections == 0;
+      const auto window_width =
+          selection->newest_index - selection->oldest_index + 1U;
+      const auto source_skew = maximum_head - minimum_head;
+      const auto cadence = classify_input_index_step(
+          last_selected_input_index_, selection->selected_index);
       ++stats_.adaptive_selections;
       stats_.last_common_oldest_index = selection->oldest_index;
       stats_.last_common_newest_index = selection->newest_index;
       stats_.last_selected_input_index = selection->selected_index;
-      stats_.last_common_window_width =
-          selection->newest_index - selection->oldest_index + 1U;
+      stats_.last_common_window_width = window_width;
+      stats_.last_source_skew_frames = source_skew;
+      if (first_selection || window_width < stats_.min_common_window_width) {
+        stats_.min_common_window_width = window_width;
+      }
+      stats_.max_common_window_width =
+          std::max(stats_.max_common_window_width, window_width);
+      if (first_selection || source_skew < stats_.min_source_skew_frames) {
+        stats_.min_source_skew_frames = source_skew;
+      }
+      stats_.max_source_skew_frames =
+          std::max(stats_.max_source_skew_frames, source_skew);
+      switch (cadence.kind) {
+        case InputIndexStepKind::Repeat:
+          ++stats_.selected_input_repeats;
+          break;
+        case InputIndexStepKind::Skip:
+          ++stats_.selected_input_skip_events;
+          stats_.selected_input_skipped_grains += cadence.magnitude;
+          break;
+        case InputIndexStepKind::Regression:
+          ++stats_.selected_input_regressions;
+          break;
+        case InputIndexStepKind::First:
+        case InputIndexStepKind::Sequential:
+          break;
+      }
+      last_selected_input_index_ = selection->selected_index;
     }
 
     const auto timestamp =
@@ -435,6 +472,7 @@ class MxlBackend::Impl {
   std::unordered_set<FlowId> grouped_flows_;
   std::optional<std::uint64_t> prepared_output_index_;
   std::optional<std::uint64_t> prepared_input_index_;
+  std::optional<std::uint64_t> last_selected_input_index_;
   mutable std::mutex stats_mutex_;
   MxlBackendStats stats_;
 };

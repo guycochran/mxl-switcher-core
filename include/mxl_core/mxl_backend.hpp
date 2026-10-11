@@ -44,6 +44,15 @@ struct MxlBackendStats {
   std::uint64_t last_common_newest_index{0};
   std::uint64_t last_selected_input_index{0};
   std::uint64_t last_common_window_width{0};
+  std::uint64_t min_common_window_width{0};
+  std::uint64_t max_common_window_width{0};
+  std::uint64_t last_source_skew_frames{0};
+  std::uint64_t min_source_skew_frames{0};
+  std::uint64_t max_source_skew_frames{0};
+  std::uint64_t selected_input_repeats{0};
+  std::uint64_t selected_input_skip_events{0};
+  std::uint64_t selected_input_skipped_grains{0};
+  std::uint64_t selected_input_regressions{0};
   std::unordered_map<FlowId, MxlSourceStats> sources;
 };
 

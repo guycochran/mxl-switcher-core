@@ -64,6 +64,25 @@ void test_rejects_invalid_input() {
   require(shallow_rejected, "invalid ring depth was accepted");
 }
 
+void test_classifies_input_cadence() {
+  require(classify_input_index_step(std::nullopt, 100).kind ==
+              InputIndexStepKind::First,
+          "first selection was misclassified");
+  require(classify_input_index_step(100, 101).kind ==
+              InputIndexStepKind::Sequential,
+          "sequential selection was misclassified");
+  require(classify_input_index_step(100, 100).kind ==
+              InputIndexStepKind::Repeat,
+          "repeated selection was misclassified");
+  const auto skip = classify_input_index_step(100, 104);
+  require(skip.kind == InputIndexStepKind::Skip && skip.magnitude == 3,
+          "skipped grains were counted incorrectly");
+  const auto regression = classify_input_index_step(104, 100);
+  require(regression.kind == InputIndexStepKind::Regression &&
+              regression.magnitude == 4,
+          "input regression was counted incorrectly");
+}
+
 }  // namespace
 
 int main() {
@@ -73,6 +92,7 @@ int main() {
       {"no-overlap detection", test_reports_no_overlap},
       {"startup underflow clamp", test_handles_startup_without_underflow},
       {"invalid input rejection", test_rejects_invalid_input},
+      {"input cadence classification", test_classifies_input_cadence},
   };
 
   for (const auto& [name, test] : tests) {

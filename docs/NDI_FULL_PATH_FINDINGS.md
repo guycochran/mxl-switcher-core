@@ -192,3 +192,37 @@ A Core restart caused the temporary NDI receivers to disconnect even though the
 egress containers remained alive. Restart and receiver reconnection therefore
 need their own acceptance case after the scheduler is corrected. It is not the
 root cause of the loaded timing failure.
+
+## Adaptive scheduler follow-up
+
+The adaptive common-window scheduler was deployed on 2026-10-11. An initial
+loaded run retained a five-grain margin behind the newest common head and
+recorded one late synthetic-source read. Because an MXL runtime head describes
+an already committed grain, that margin reduced protection against overwrite by
+a faster producer. The NDI pilot was changed to select the newest committed
+grain shared by all active sources.
+
+The resulting loaded five-minute gate passed:
+
+| Measure | Result |
+| --- | ---: |
+| Samples | 22 |
+| TAKEs / final revision | 4 / 4 |
+| Routed grains | 20,977 |
+| Adaptive selections | 10,489 |
+| Common-window width | 23-27 grains |
+| Invalid / too early / too late | 0 / 0 / 0 |
+| Read timeout / reader reopen | 0 / 0 |
+| Sync timeout / sync early / sync late | 0 / 0 / 0 |
+| No common window | 0 |
+| Monitoring errors / gate failures | 0 / 0 |
+
+All seven containers were running with zero restarts at completion. The two
+temporary NDI receiver containers were then removed, leaving the five main
+services healthy. Evidence directory on VM 101:
+`~/mxl-switcher-core/run-ndi-adaptive-newest-loaded-5m-20261011T222317Z`
+
+Before the longer gates, cadence telemetry is being added for repeated selected
+indexes, skipped indexes and grains, regressions, source-head skew, and minimum
+and maximum common-window width. This distinguishes readable output from truly
+continuous temporal output.

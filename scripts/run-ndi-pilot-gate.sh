@@ -76,6 +76,13 @@ for counter in invalid too_early too_late timeouts reader_reopens \
       "$counter" "${value:-missing}" >>"$output_dir/errors.log"
   fi
 done
+regressions=$(printf '%s' "$health_totals" |
+  sed -n 's/.*"selected_input_regressions":\([0-9][0-9]*\).*/\1/p')
+if [ -z "$regressions" ] || [ "$regressions" -ne 0 ]; then
+  gate_failures=$((gate_failures + 1))
+  printf 'nonzero_or_missing_counter=selected_input_regressions value=%s\n' \
+    "${regressions:-missing}" >>"$output_dir/errors.log"
+fi
 if [ "$core" != "running/healthy/0" ] ||
    [ "$ingress" != "running/healthy/0" ] ||
    [ "$program_out" != "running/0" ] ||

@@ -55,6 +55,24 @@ std::string health_json(const MxlBackendStats& stats) {
          << stats.last_selected_input_index
          << ",\"last_common_window_width\":"
          << stats.last_common_window_width
+         << ",\"min_common_window_width\":"
+         << stats.min_common_window_width
+         << ",\"max_common_window_width\":"
+         << stats.max_common_window_width
+         << ",\"last_source_skew_frames\":"
+         << stats.last_source_skew_frames
+         << ",\"min_source_skew_frames\":"
+         << stats.min_source_skew_frames
+         << ",\"max_source_skew_frames\":"
+         << stats.max_source_skew_frames
+         << ",\"selected_input_repeats\":"
+         << stats.selected_input_repeats
+         << ",\"selected_input_skip_events\":"
+         << stats.selected_input_skip_events
+         << ",\"selected_input_skipped_grains\":"
+         << stats.selected_input_skipped_grains
+         << ",\"selected_input_regressions\":"
+         << stats.selected_input_regressions
          << ",\"sources\":[";
   bool first = true;
   for (const auto& [flow_id, source] : stats.sources) {
@@ -238,6 +256,24 @@ int main(int argc, char** argv) {
               << stats.last_selected_input_index
               << " last_common_window_width="
               << stats.last_common_window_width
+              << " min_common_window_width="
+              << stats.min_common_window_width
+              << " max_common_window_width="
+              << stats.max_common_window_width
+              << " last_source_skew_frames="
+              << stats.last_source_skew_frames
+              << " min_source_skew_frames="
+              << stats.min_source_skew_frames
+              << " max_source_skew_frames="
+              << stats.max_source_skew_frames
+              << " selected_input_repeats="
+              << stats.selected_input_repeats
+              << " selected_input_skip_events="
+              << stats.selected_input_skip_events
+              << " selected_input_skipped_grains="
+              << stats.selected_input_skipped_grains
+              << " selected_input_regressions="
+              << stats.selected_input_regressions
               << " revision=" << state.revision << '\n';
     for (const auto& source : core.sources()) {
       const auto found = stats.sources.find(source.flow_id);

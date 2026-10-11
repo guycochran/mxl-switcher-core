@@ -91,3 +91,4 @@ clean:
 .PHONY: check-scripts
 check-scripts:
 	sh -n scripts/run-acceptance.sh
+	sh -n scripts/run-ndi-pilot-gate.sh

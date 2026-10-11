@@ -41,4 +41,24 @@ std::optional<ReadWindowSelection> select_common_read_index(
                              std::max(common_oldest, delayed)};
 }
 
+InputIndexStep classify_input_index_step(
+    std::optional<std::uint64_t> previous_index,
+    std::uint64_t selected_index) {
+  if (!previous_index) {
+    return {InputIndexStepKind::First, 0};
+  }
+  if (selected_index == *previous_index) {
+    return {InputIndexStepKind::Repeat, 1};
+  }
+  if (selected_index < *previous_index) {
+    return {InputIndexStepKind::Regression,
+            *previous_index - selected_index};
+  }
+  const auto advance = selected_index - *previous_index;
+  if (advance == 1) {
+    return {InputIndexStepKind::Sequential, 1};
+  }
+  return {InputIndexStepKind::Skip, advance - 1};
+}
+
 }  // namespace mxl_core
