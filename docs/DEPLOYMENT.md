@@ -65,3 +65,17 @@ replace those identities.
 Use `GET /api/mxl/v1/health` for the service probe and
 `GET /api/mxl/v1/events` for tally/state changes. Upstream invalid or late media
 is visible per input rather than being mistaken for a process failure.
+
+## Hardware acceptance
+
+`scripts/run-acceptance.sh CONFIG OUTPUT_DIRECTORY` runs a bounded configuration
+as a child process and records media output, health, state, SSE events, HTTP TAKE
+receipts, CPU, and RSS. It issues a TAKE once per minute and reconnects the event
+stream every five minutes. The configuration determines the duration; eight
+hours at 30 fps is `frames=864000`.
+
+The driver does not install a service or alter the MXL domain. Run it from the
+repository checkout after compiling the live binary. A successful process exit
+is necessary but not sufficient: acceptance also requires exactly two output
+grains per configured frame, no reader reopenings or read timeouts, bounded RSS,
+and explicit attribution of any invalid grains to their upstream inputs.

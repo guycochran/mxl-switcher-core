@@ -74,3 +74,7 @@ install-live: $(BUILD)/mxl-core-live
 
 clean:
 	rm -rf $(BUILD)
+
+.PHONY: check-scripts
+check-scripts:
+	sh -n scripts/run-acceptance.sh
