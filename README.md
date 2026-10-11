@@ -83,6 +83,13 @@ about 131 MiB maximum RSS. Invalid output grains observed during that run were
 traced to an intermittent upstream guest flow; a continuously healthy clip flow
 ran clean in isolated source tests.
 
+The loopback HTTP transport has also been exercised against the live core. A
+TAKE returned a command receipt at revision 0 and appeared in state at revision
+1 on a later grain boundary, with PGM/PVW flow identities unchanged. A following
+Preview command advanced revision 2. The 600-frame controlled run emitted all
+1,200 expected output grains; its invalid grains were attributed to the same
+intermittent guest input while the clip input remained clean.
+
 ## Planned milestones
 
 1. **Control events:** add the state/tally event stream and input-health endpoint.
