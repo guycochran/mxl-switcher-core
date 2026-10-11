@@ -1,0 +1,57 @@
+services:
+  pilot-source:
+    image: mxl-lab:latest
+    container_name: mxl-core-pilot-source
+    user: "1000:1000"
+    network_mode: none
+    volumes:
+      - /dev/shm/mxl:/dev/shm/mxl
+      - ../..:/opt/core:ro
+    command:
+      - /opt/core/build/mxl-test-source
+      - --domain
+      - /dev/shm/mxl/domain_ndi_lab
+      - --flow-a-def
+      - /opt/core/packaging/ndi-pilot/synthetic-a.json
+      - --flow-b-def
+      - /opt/core/packaging/ndi-pilot/synthetic-b.json
+      - --frames
+      - "0"
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /dev/shm/mxl/domain_ndi_lab/4d584c10-2002-4c10-8000-000000000002.mxl-flow"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 10s
+
+  pilot-core:
+    image: mxl-lab:latest
+    container_name: mxl-core-pilot
+    user: "1000:1000"
+    network_mode: host
+    depends_on:
+      pilot-source:
+        condition: service_healthy
+    volumes:
+      - /dev/shm/mxl:/dev/shm/mxl
+      - ../..:/opt/core:ro
+    command:
+      - /opt/core/build/mxl-core-live
+      - --config
+      - /opt/core/packaging/ndi-pilot/core.conf
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18080/api/mxl/v1/health >/dev/null"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 10s
