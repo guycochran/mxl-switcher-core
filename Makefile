@@ -7,7 +7,7 @@ CONTROL_OBJ := $(BUILD)/control_api.o
 HTTP_OBJ := $(BUILD)/http_server.o
 CONFIG_OBJ := $(BUILD)/live_config.o
 
-.PHONY: all test demo soak live live-syntax clean
+.PHONY: all test demo soak live live-test-source live-syntax clean
 
 all: $(BUILD)/mxl-core-demo $(BUILD)/core-tests $(BUILD)/control-api-tests $(BUILD)/http-server-tests $(BUILD)/live-config-tests
 
@@ -56,6 +56,9 @@ soak: $(BUILD)/core-tests
 # Build this target on Linux after installing the official MXL SDK.
 live: $(CORE_OBJ) $(CONTROL_OBJ) $(HTTP_OBJ) $(CONFIG_OBJ) src/mxl_backend.cpp apps/mxl-core-live.cpp | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ $$(pkg-config --cflags --libs libmxl) -o $(BUILD)/mxl-core-live
+
+live-test-source: apps/mxl-test-source.cpp | $(BUILD)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< $$(pkg-config --cflags --libs libmxl) -o $(BUILD)/mxl-test-source
 
 # Local API compatibility check against an MXL source checkout. Usage:
 # make live-syntax MXL_INCLUDE=/path/to/mxl/lib/include

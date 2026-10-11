@@ -84,3 +84,10 @@ repository checkout after compiling the live binary. A successful process exit
 is necessary but not sufficient: acceptance also requires exactly two output
 grains per configured frame, no reader reopenings or read timeouts, bounded RSS,
 and explicit attribution of any invalid grains to their upstream inputs.
+
+For a test that is fully isolated from production publishers, create a separate
+MXL domain with a domain `options.json` that sets
+`urn:x-mxl:option:history_duration/v1.0` to at least two seconds. Build
+`live-test-source` and run `mxl-test-source` with two unique v210 flow
+definitions in that domain. The publisher writes two deterministic, frame-locked
+sources and reports the actual grain count allocated by MXL.
