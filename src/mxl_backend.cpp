@@ -1,0 +1,280 @@
+#include "mxl_core/mxl_backend.hpp"
+
+#include <mxl/dataformat.h>
+#include <mxl/flow.h>
+#include <mxl/time.h>
+
+#include <cstring>
+#include <stdexcept>
+#include <unordered_map>
+#include <utility>
+
+namespace mxl_core {
+namespace {
+
+mxlRational rational(const VideoFormat& format) {
+  return mxlRational{format.rate_numerator, format.rate_denominator};
+}
+
+std::runtime_error sdk_error(const char* operation, mxlStatus status) {
+  return std::runtime_error(std::string(operation) + " failed with MXL status " +
+                            std::to_string(static_cast<int>(status)));
+}
+
+}  // namespace
+
+class MxlBackend::Impl {
+ public:
+  Impl(std::string domain,
+       std::vector<MxlOutputDefinition> output_definitions,
+       std::uint64_t read_timeout_ns)
+      : domain_(std::move(domain)), read_timeout_ns_(read_timeout_ns) {
+    if (domain_.empty() || read_timeout_ns_ == 0) {
+      throw std::invalid_argument("MXL domain and read timeout are required");
+    }
+    for (auto& definition : output_definitions) {
+      if (definition.flow_id.empty() || definition.flow_definition_json.empty() ||
+          !output_definitions_
+               .emplace(std::move(definition.flow_id),
+                        std::move(definition.flow_definition_json))
+               .second) {
+        throw std::invalid_argument(
+            "output flow definitions must be non-empty and unique");
+      }
+    }
+    instance_ = mxlCreateInstance(domain_.c_str(), nullptr);
+    if (instance_ == nullptr) {
+      throw std::runtime_error("could not open MXL domain: " + domain_);
+    }
+  }
+
+  ~Impl() {
+    for (auto& [id, reader] : readers_) {
+      (void)id;
+      mxlReleaseFlowReader(instance_, reader.handle);
+    }
+    for (auto& [id, writer] : writers_) {
+      (void)id;
+      mxlReleaseFlowWriter(instance_, writer.handle);
+    }
+    if (instance_ != nullptr) {
+      mxlDestroyInstance(instance_);
+    }
+  }
+
+  void create_output_once(const OutputSpec& output) {
+    if (writers_.contains(output.flow_id)) {
+      throw std::logic_error("output flow must only be opened once");
+    }
+    const auto definition = output_definitions_.find(output.flow_id);
+    if (definition == output_definitions_.end()) {
+      throw std::invalid_argument("no flow definition for output: " +
+                                  output.flow_id);
+    }
+    if (definition->second.find(output.flow_id) == std::string::npos ||
+        definition->second.find("video/v210") == std::string::npos) {
+      throw std::invalid_argument(
+          "output definition must contain its UUID and video/v210 media type");
+    }
+
+    mxlFlowWriter writer = nullptr;
+    mxlFlowConfigInfo config{};
+    bool created = false;
+    const auto status = mxlCreateFlowWriter(
+        instance_, definition->second.c_str(), nullptr, &writer, &config, &created);
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlCreateFlowWriter", status);
+    }
+    const auto expected_rate = rational(output.format);
+    if (config.common.format != MXL_DATA_FORMAT_VIDEO ||
+        config.common.payloadLocation != MXL_PAYLOAD_LOCATION_HOST_MEMORY ||
+        config.common.grainRate.numerator != expected_rate.numerator ||
+        config.common.grainRate.denominator != expected_rate.denominator) {
+      mxlReleaseFlowWriter(instance_, writer);
+      throw std::invalid_argument(
+          "output MXL flow does not match host-memory v210 operating point");
+    }
+    writers_.emplace(output.flow_id, Writer{writer, config, created});
+  }
+
+  void route_grain(const FlowId& source_flow, const FlowId& output_flow,
+                   std::uint64_t output_index) {
+    auto& reader = get_reader(source_flow);
+    const auto writer_it = writers_.find(output_flow);
+    if (writer_it == writers_.end()) {
+      throw std::invalid_argument("output flow is not open: " + output_flow);
+    }
+
+    mxlGrainInfo source_info{};
+    std::uint8_t* source_payload = nullptr;
+    const auto status = mxlFlowReaderGetGrain(reader.handle, output_index,
+                                               read_timeout_ns_, &source_info,
+                                               &source_payload);
+    if (status == MXL_ERR_FLOW_INVALID) {
+      mxlReleaseFlowReader(instance_, reader.handle);
+      readers_.erase(source_flow);
+      ++stats_.reader_reopens;
+      commit_invalid(writer_it->second.handle, output_index);
+      return;
+    }
+    if (status == MXL_ERR_OUT_OF_RANGE_TOO_EARLY) {
+      ++stats_.too_early;
+      commit_invalid(writer_it->second.handle, output_index);
+      return;
+    }
+    if (status == MXL_ERR_OUT_OF_RANGE_TOO_LATE) {
+      ++stats_.too_late;
+      commit_invalid(writer_it->second.handle, output_index);
+      return;
+    }
+    if (status == MXL_ERR_TIMEOUT) {
+      ++stats_.timeouts;
+      commit_invalid(writer_it->second.handle, output_index);
+      return;
+    }
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowReaderGetGrain", status);
+    }
+
+    mxlGrainInfo output_info{};
+    std::uint8_t* output_payload = nullptr;
+    auto write_status = mxlFlowWriterOpenGrain(
+        writer_it->second.handle, output_index, &output_info, &output_payload);
+    if (write_status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowWriterOpenGrain", write_status);
+    }
+
+    if ((source_info.flags & MXL_GRAIN_FLAG_INVALID) != 0) {
+      output_info.flags = MXL_GRAIN_FLAG_INVALID;
+      output_info.validSlices = 0;
+      ++stats_.invalid;
+    } else {
+      if (source_info.grainSize != output_info.grainSize ||
+          source_info.totalSlices != output_info.totalSlices ||
+          source_payload == nullptr || output_payload == nullptr) {
+        output_info.flags = MXL_GRAIN_FLAG_INVALID;
+        output_info.validSlices = 0;
+        ++stats_.invalid;
+      } else {
+        std::memcpy(output_payload, source_payload, source_info.grainSize);
+        output_info.flags = source_info.flags;
+        output_info.validSlices = source_info.validSlices;
+        ++stats_.routed;
+      }
+    }
+    write_status =
+        mxlFlowWriterCommitGrain(writer_it->second.handle, &output_info);
+    if (write_status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowWriterCommitGrain", write_status);
+    }
+  }
+
+  std::uint64_t current_index(const VideoFormat& format) const {
+    auto rate = rational(format);
+    return mxlGetCurrentIndex(&rate);
+  }
+
+  void sleep_until_index(std::uint64_t index, const VideoFormat& format) const {
+    auto rate = rational(format);
+    mxlSleepForNs(mxlGetNsUntilIndex(index, &rate));
+  }
+
+  MxlBackendStats stats() const { return stats_; }
+
+ private:
+  struct Reader {
+    mxlFlowReader handle;
+    mxlFlowConfigInfo config;
+  };
+  struct Writer {
+    mxlFlowWriter handle;
+    mxlFlowConfigInfo config;
+    bool created;
+  };
+
+  Reader& get_reader(const FlowId& flow_id) {
+    if (auto found = readers_.find(flow_id); found != readers_.end()) {
+      return found->second;
+    }
+    mxlFlowReader handle = nullptr;
+    auto status =
+        mxlCreateFlowReader(instance_, flow_id.c_str(), nullptr, &handle);
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlCreateFlowReader", status);
+    }
+    mxlFlowConfigInfo config{};
+    status = mxlFlowReaderGetConfigInfo(handle, &config);
+    if (status != MXL_STATUS_OK) {
+      mxlReleaseFlowReader(instance_, handle);
+      throw sdk_error("mxlFlowReaderGetConfigInfo", status);
+    }
+    if (config.common.format != MXL_DATA_FORMAT_VIDEO ||
+        config.common.payloadLocation != MXL_PAYLOAD_LOCATION_HOST_MEMORY) {
+      mxlReleaseFlowReader(instance_, handle);
+      throw std::invalid_argument(
+          "source is not a host-memory MXL video flow: " + flow_id);
+    }
+    return readers_.emplace(flow_id, Reader{handle, config}).first->second;
+  }
+
+  void commit_invalid(mxlFlowWriter writer, std::uint64_t output_index) {
+    mxlGrainInfo info{};
+    std::uint8_t* unused = nullptr;
+    auto status =
+        mxlFlowWriterOpenGrain(writer, output_index, &info, &unused);
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowWriterOpenGrain(invalid)", status);
+    }
+    info.flags = MXL_GRAIN_FLAG_INVALID;
+    info.validSlices = 0;
+    status = mxlFlowWriterCommitGrain(writer, &info);
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowWriterCommitGrain(invalid)", status);
+    }
+    ++stats_.invalid;
+  }
+
+  std::string domain_;
+  std::uint64_t read_timeout_ns_;
+  mxlInstance instance_{nullptr};
+  std::unordered_map<FlowId, std::string> output_definitions_;
+  std::unordered_map<FlowId, Reader> readers_;
+  std::unordered_map<FlowId, Writer> writers_;
+  MxlBackendStats stats_;
+};
+
+MxlBackend::MxlBackend(
+    std::string domain,
+    std::vector<MxlOutputDefinition> output_definitions,
+    std::uint64_t read_timeout_ns)
+    : impl_(std::make_unique<Impl>(std::move(domain),
+                                  std::move(output_definitions),
+                                  read_timeout_ns)) {}
+
+MxlBackend::~MxlBackend() = default;
+MxlBackend::MxlBackend(MxlBackend&&) noexcept = default;
+MxlBackend& MxlBackend::operator=(MxlBackend&&) noexcept = default;
+
+void MxlBackend::create_output_once(const OutputSpec& output) {
+  impl_->create_output_once(output);
+}
+
+void MxlBackend::route_grain(const FlowId& source_flow,
+                             const FlowId& output_flow,
+                             std::uint64_t output_index) {
+  impl_->route_grain(source_flow, output_flow, output_index);
+}
+
+std::uint64_t MxlBackend::current_index(const VideoFormat& format) const {
+  return impl_->current_index(format);
+}
+
+void MxlBackend::sleep_until_index(std::uint64_t index,
+                                   const VideoFormat& format) const {
+  impl_->sleep_until_index(index, format);
+}
+
+MxlBackendStats MxlBackend::stats() const { return impl_->stats(); }
+
+}  // namespace mxl_core
+
