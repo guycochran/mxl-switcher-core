@@ -29,6 +29,8 @@ control service is the next implementation slice.
   and Take, with contract tests preserving frame-boundary command semantics.
 - bounded HTTP/1.1 control transport, loopback-only by default, with real-socket
   tests and no access to MXL handles or media buffers.
+- reconnectable Server-Sent Events for frame-applied state/tally revisions and a
+  thread-safe live health endpoint with per-input routing counters.
 
 ## Build and verify
 
@@ -92,9 +94,9 @@ intermittent guest input while the clip input remained clean.
 
 ## Planned milestones
 
-1. **Control events:** add the state/tally event stream and input-health endpoint.
-2. **Linux package:** one service, one config, health endpoint, graceful restart.
-3. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
+1. **Linux package:** one service, one config, graceful restart and a non-root
+   runtime user.
+2. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
    hours on the Supermicro, including cuts under load.
 
 License: MIT.

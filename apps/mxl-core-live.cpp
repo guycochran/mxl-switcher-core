@@ -7,6 +7,7 @@
 #include <csignal>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -18,6 +19,47 @@ namespace {
 std::atomic_bool running{true};
 
 void stop(int) { running = false; }
+
+std::string json_string(std::string_view value) {
+  std::string result{"\""};
+  for (const auto character : value) {
+    if (character == '\"' || character == '\\') {
+      result += '\\';
+    }
+    result += character;
+  }
+  result += '\"';
+  return result;
+}
+
+std::string health_json(const MxlBackendStats& stats) {
+  std::ostringstream output;
+  output << "{\"status\":\"running\",\"routed\":" << stats.routed
+         << ",\"invalid\":" << stats.invalid
+         << ",\"too_early\":" << stats.too_early
+         << ",\"too_late\":" << stats.too_late
+         << ",\"timeouts\":" << stats.timeouts
+         << ",\"reader_reopens\":" << stats.reader_reopens
+         << ",\"sync_waits\":" << stats.sync_waits
+         << ",\"sync_timeouts\":" << stats.sync_timeouts
+         << ",\"sources\":[";
+  bool first = true;
+  for (const auto& [flow_id, source] : stats.sources) {
+    if (!first) {
+      output << ',';
+    }
+    first = false;
+    output << "{\"flow_id\":" << json_string(flow_id)
+           << ",\"routed\":" << source.routed
+           << ",\"invalid\":" << source.invalid
+           << ",\"too_early\":" << source.too_early
+           << ",\"too_late\":" << source.too_late
+           << ",\"timeouts\":" << source.timeouts
+           << ",\"reader_reopens\":" << source.reader_reopens << '}';
+  }
+  output << "]}";
+  return output.str();
+}
 
 std::string read_file(const std::string& path) {
   std::ifstream input(path);
@@ -96,7 +138,8 @@ int main(int argc, char** argv) {
          {"src_b", source_b, "Source B", v210}},
         {program_id, "MXL Switcher Program", v210},
         {preview_id, "MXL Switcher Preview", v210}, "src_a", "src_b");
-    ControlApi control_api(core);
+    ControlApi control_api(core,
+                           [&media] { return health_json(media.stats()); });
     HttpServer http(control_api, control_host,
                     static_cast<std::uint16_t>(control_port_value));
     std::cout << "control=http://" << http.bind_address() << ':' << http.port()

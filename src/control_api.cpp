@@ -152,7 +152,8 @@ ApiResponse receipt_response(const CommandReceipt& receipt) {
 
 }  // namespace
 
-ControlApi::ControlApi(SwitcherCore& core) : core_(core) {}
+ControlApi::ControlApi(SwitcherCore& core, HealthProvider health_provider)
+    : core_(core), health_provider_(std::move(health_provider)) {}
 
 ApiResponse ControlApi::handle(std::string_view method, std::string_view path,
                                std::string_view body) {
@@ -168,6 +169,11 @@ ApiResponse ControlApi::handle(std::string_view method, std::string_view path,
     }
     if (method == "GET" && path == "/api/mxl/v1/sources") {
       return json_response(200, sources_json(core_.sources()));
+    }
+    if (method == "GET" && path == "/api/mxl/v1/health") {
+      return json_response(200, health_provider_
+                                    ? health_provider_()
+                                    : "{\"status\":\"running\"}");
     }
     if (method == "POST" && path == "/api/mxl/v1/take") {
       return receipt_response(core_.take());
@@ -189,6 +195,21 @@ ApiResponse ControlApi::handle(std::string_view method, std::string_view path,
   } catch (const std::invalid_argument& error) {
     return error_response(400, error.what());
   }
+}
+
+ApiEvent ControlApi::current_event() const {
+  const auto state = core_.state();
+  return {state.revision, "state", state_json(state)};
+}
+
+std::optional<ApiEvent> ControlApi::wait_for_event(
+    std::uint64_t after_revision,
+    std::chrono::milliseconds timeout) const {
+  const auto state = core_.wait_for_revision(after_revision, timeout);
+  if (!state) {
+    return std::nullopt;
+  }
+  return ApiEvent{state->revision, "state", state_json(*state)};
 }
 
 }  // namespace mxl_core

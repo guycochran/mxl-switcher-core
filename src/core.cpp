@@ -88,15 +88,21 @@ CommandReceipt SwitcherCore::enqueue(CommandKind kind, SourceId source) {
 void SwitcherCore::process(std::uint64_t output_index) {
   SourceId program;
   SourceId preview;
+  bool revision_changed = false;
   {
     std::lock_guard lock(mutex_);
     if (state_.last_output_index && output_index <= *state_.last_output_index) {
       throw std::invalid_argument("output grain indices must increase monotonically");
     }
+    const auto prior_revision = state_.revision;
     apply_pending_at_frame_boundary();
+    revision_changed = state_.revision != prior_revision;
     state_.last_output_index = output_index;
     program = state_.program;
     preview = state_.preview;
+  }
+  if (revision_changed) {
+    state_changed_.notify_all();
   }
 
   const auto& program_source = source_by_id(program);
@@ -145,6 +151,18 @@ const Source& SwitcherCore::source_by_id(const SourceId& id) const {
 
 State SwitcherCore::state() const {
   std::lock_guard lock(mutex_);
+  return state_;
+}
+
+std::optional<State> SwitcherCore::wait_for_revision(
+    std::uint64_t after_revision,
+    std::chrono::milliseconds timeout) const {
+  std::unique_lock lock(mutex_);
+  if (!state_changed_.wait_for(
+          lock, timeout,
+          [&] { return state_.revision > after_revision; })) {
+    return std::nullopt;
+  }
   return state_;
 }
 

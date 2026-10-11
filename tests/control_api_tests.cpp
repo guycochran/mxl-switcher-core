@@ -1,5 +1,6 @@
 #include "mxl_core/control_api.hpp"
 
+#include <chrono>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -95,6 +96,29 @@ void test_errors() {
           "unsupported API method did not return 405");
 }
 
+void test_events_and_health() {
+  Fixture fixture;
+  ControlApi api(fixture.core,
+                 [] { return std::string{"{\"status\":\"test\"}"}; });
+  const auto health = api.handle("GET", "/api/mxl/v1/health");
+  require(health.status == 200 &&
+              health.body == "{\"status\":\"test\"}",
+          "health provider was not exposed");
+
+  const auto initial = api.current_event();
+  require(initial.id == 0 && initial.type == "state",
+          "initial state event is wrong");
+  require(!api.wait_for_event(0, std::chrono::milliseconds(1)),
+          "event wait returned without a new revision");
+  fixture.core.take();
+  fixture.core.process(1);
+  const auto changed = api.wait_for_event(0, std::chrono::milliseconds(1));
+  require(changed && changed->id == 1 &&
+              changed->data.find("\"program\":\"src_b\"") !=
+                  std::string::npos,
+          "state event did not carry the applied revision");
+}
+
 }  // namespace
 
 int main() {
@@ -102,6 +126,7 @@ int main() {
     test_reads();
     test_commands_wait_for_frame_boundary();
     test_errors();
+    test_events_and_health();
     std::cout << "All control API tests passed.\n";
     return 0;
   } catch (const std::exception& error) {

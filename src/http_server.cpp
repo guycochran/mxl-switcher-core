@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <chrono>
 #include <cctype>
 #include <cstring>
 #include <limits>
@@ -17,6 +18,7 @@ namespace {
 
 constexpr std::size_t kMaximumHeaderBytes = 16 * 1024;
 constexpr std::size_t kMaximumBodyBytes = 64 * 1024;
+constexpr std::size_t kMaximumConnections = 32;
 
 std::runtime_error socket_error(std::string_view operation) {
   return std::runtime_error(std::string(operation) + ": " +
@@ -58,12 +60,14 @@ std::string_view reason_phrase(int status) {
       return "Method Not Allowed";
     case 413:
       return "Content Too Large";
+    case 503:
+      return "Service Unavailable";
     default:
       return "Internal Server Error";
   }
 }
 
-void send_all(int socket, std::string_view bytes) {
+bool send_all(int socket, std::string_view bytes) {
   while (!bytes.empty()) {
 #ifdef MSG_NOSIGNAL
     const auto sent = ::send(socket, bytes.data(), bytes.size(), MSG_NOSIGNAL);
@@ -74,13 +78,14 @@ void send_all(int socket, std::string_view bytes) {
       if (errno == EINTR) {
         continue;
       }
-      return;
+      return false;
     }
     if (sent == 0) {
-      return;
+      return false;
     }
     bytes.remove_prefix(static_cast<std::size_t>(sent));
   }
+  return true;
 }
 
 void send_response(int socket, const ApiResponse& response) {
@@ -90,8 +95,9 @@ void send_response(int socket, const ApiResponse& response) {
       response.content_type + "\r\nContent-Length: " +
       std::to_string(response.body.size()) +
       "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
-  send_all(socket, header);
-  send_all(socket, response.body);
+  if (send_all(socket, header)) {
+    (void)send_all(socket, response.body);
+  }
 }
 
 ApiResponse transport_error(int status, std::string_view message) {
@@ -186,6 +192,11 @@ HttpServer::~HttpServer() {
   if (thread_.joinable()) {
     thread_.join();
   }
+  std::unique_lock lock(connections_mutex_);
+  for (const auto socket : connections_) {
+    ::shutdown(socket, SHUT_RDWR);
+  }
+  connections_changed_.wait(lock, [&] { return connections_.empty(); });
 }
 
 std::uint16_t HttpServer::port() const { return port_; }
@@ -204,8 +215,35 @@ void HttpServer::run() {
       }
       continue;
     }
-    handle_connection(client);
-    ::close(client);
+#ifdef SO_NOSIGPIPE
+    const int no_sigpipe = 1;
+    (void)::setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe,
+                       sizeof(no_sigpipe));
+#endif
+    {
+      std::lock_guard lock(connections_mutex_);
+      if (connections_.size() >= kMaximumConnections) {
+        send_response(client,
+                      transport_error(503, "too many control connections"));
+        ::close(client);
+        continue;
+      }
+      connections_.insert(client);
+    }
+    std::thread([this, client] {
+      handle_connection(client);
+      release_connection(client);
+    }).detach();
+  }
+}
+
+void HttpServer::release_connection(int client_socket) noexcept {
+  {
+    std::lock_guard lock(connections_mutex_);
+    ::shutdown(client_socket, SHUT_RDWR);
+    ::close(client_socket);
+    connections_.erase(client_socket);
+    connections_changed_.notify_all();
   }
 }
 
@@ -251,6 +289,7 @@ void HttpServer::handle_connection(int client_socket) noexcept {
     }
 
     std::size_t content_length = 0;
+    std::optional<std::uint64_t> last_event_id;
     auto line_start = first_line_end + 2;
     while (line_start < header_end) {
       const auto line_end = request.find("\r\n", line_start);
@@ -265,11 +304,21 @@ void HttpServer::handle_connection(int client_socket) noexcept {
                       transport_error(400, "bad request header"));
         return;
       }
-      if (lowercase(trim(line.substr(0, colon))) == "content-length" &&
+      const auto header_name = lowercase(trim(line.substr(0, colon)));
+      if (header_name == "content-length" &&
           !parse_size(line.substr(colon + 1), content_length)) {
         send_response(client_socket,
                       transport_error(400, "bad content length"));
         return;
+      }
+      if (header_name == "last-event-id") {
+        std::size_t parsed = 0;
+        if (!parse_size(line.substr(colon + 1), parsed)) {
+          send_response(client_socket,
+                        transport_error(400, "bad Last-Event-ID"));
+          return;
+        }
+        last_event_id = static_cast<std::uint64_t>(parsed);
       }
       line_start = line_end + 2;
     }
@@ -291,9 +340,61 @@ void HttpServer::handle_connection(int client_socket) noexcept {
       request.append(buffer, static_cast<std::size_t>(received));
     }
     const std::string_view body(request.data() + body_start, content_length);
+    if (method == "GET" && path == "/api/mxl/v1/events") {
+      serve_events(client_socket, last_event_id);
+      return;
+    }
     send_response(client_socket, api_.handle(method, path, body));
   } catch (...) {
     send_response(client_socket, transport_error(500, "internal server error"));
+  }
+}
+
+void HttpServer::serve_events(
+    int client_socket,
+    std::optional<std::uint64_t> last_event_id) noexcept {
+  const std::string headers =
+      "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+      "Cache-Control: no-cache\r\nConnection: keep-alive\r\n"
+      "X-Accel-Buffering: no\r\n\r\n";
+  if (!send_all(client_socket, headers)) {
+    return;
+  }
+
+  auto send_event = [&](const ApiEvent& event) {
+    const auto bytes = "id: " + std::to_string(event.id) + "\n" +
+                       "event: " + event.type + "\n" +
+                       "data: " + event.data + "\n\n";
+    return send_all(client_socket, bytes);
+  };
+
+  std::uint64_t delivered_revision = 0;
+  if (!last_event_id) {
+    const auto event = api_.current_event();
+    delivered_revision = event.id;
+    if (!send_event(event)) {
+      return;
+    }
+  } else {
+    delivered_revision = *last_event_id;
+  }
+
+  std::size_t idle_seconds = 0;
+  while (running_) {
+    const auto event =
+        api_.wait_for_event(delivered_revision, std::chrono::seconds(1));
+    if (event) {
+      delivered_revision = event->id;
+      idle_seconds = 0;
+      if (!send_event(*event)) {
+        return;
+      }
+    } else if (++idle_seconds >= 15) {
+      idle_seconds = 0;
+      if (!send_all(client_socket, ": keepalive\n\n")) {
+        return;
+      }
+    }
   }
 }
 

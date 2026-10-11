@@ -5,6 +5,7 @@
 #include <mxl/time.h>
 
 #include <cstring>
+#include <mutex>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -160,8 +161,12 @@ class MxlBackend::Impl {
     const auto timestamp = mxlIndexToTimestamp(&rate, output_index);
     const auto status = mxlFlowSynchronizationGroupWaitForDataAt(
         sync_group_, timestamp, read_timeout_ns_);
-    ++stats_.sync_waits;
+    {
+      std::lock_guard lock(stats_mutex_);
+      ++stats_.sync_waits;
+    }
     if (status == MXL_ERR_TIMEOUT || status == MXL_ERR_OUT_OF_RANGE_TOO_EARLY) {
+      std::lock_guard lock(stats_mutex_);
       ++stats_.sync_timeouts;
       return;
     }
@@ -173,7 +178,6 @@ class MxlBackend::Impl {
   void route_grain(const FlowId& source_flow, const FlowId& output_flow,
                    std::uint64_t output_index) {
     auto& reader = get_reader(source_flow);
-    auto& source_stats = stats_.sources[source_flow];
     const auto writer_it = writers_.find(output_flow);
     if (writer_it == writers_.end()) {
       throw std::invalid_argument("output flow is not open: " + output_flow);
@@ -196,26 +200,38 @@ class MxlBackend::Impl {
       }
       mxlReleaseFlowReader(instance_, reader.handle);
       readers_.erase(source_flow);
-      ++stats_.reader_reopens;
-      ++source_stats.reader_reopens;
+      {
+        std::lock_guard lock(stats_mutex_);
+        ++stats_.reader_reopens;
+        ++stats_.sources[source_flow].reader_reopens;
+      }
       commit_invalid(writer_it->second.handle, output_index);
       return;
     }
     if (status == MXL_ERR_OUT_OF_RANGE_TOO_EARLY) {
-      ++stats_.too_early;
-      ++source_stats.too_early;
+      {
+        std::lock_guard lock(stats_mutex_);
+        ++stats_.too_early;
+        ++stats_.sources[source_flow].too_early;
+      }
       commit_invalid(writer_it->second.handle, output_index);
       return;
     }
     if (status == MXL_ERR_OUT_OF_RANGE_TOO_LATE) {
-      ++stats_.too_late;
-      ++source_stats.too_late;
+      {
+        std::lock_guard lock(stats_mutex_);
+        ++stats_.too_late;
+        ++stats_.sources[source_flow].too_late;
+      }
       commit_invalid(writer_it->second.handle, output_index);
       return;
     }
     if (status == MXL_ERR_TIMEOUT) {
-      ++stats_.timeouts;
-      ++source_stats.timeouts;
+      {
+        std::lock_guard lock(stats_mutex_);
+        ++stats_.timeouts;
+        ++stats_.sources[source_flow].timeouts;
+      }
       commit_invalid(writer_it->second.handle, output_index);
       return;
     }
@@ -234,22 +250,31 @@ class MxlBackend::Impl {
     if ((source_info.flags & MXL_GRAIN_FLAG_INVALID) != 0) {
       output_info.flags = MXL_GRAIN_FLAG_INVALID;
       output_info.validSlices = 0;
-      ++stats_.invalid;
-      ++source_stats.invalid;
+      {
+        std::lock_guard lock(stats_mutex_);
+        ++stats_.invalid;
+        ++stats_.sources[source_flow].invalid;
+      }
     } else {
       if (source_info.grainSize != output_info.grainSize ||
           source_info.totalSlices != output_info.totalSlices ||
           source_payload == nullptr || output_payload == nullptr) {
         output_info.flags = MXL_GRAIN_FLAG_INVALID;
         output_info.validSlices = 0;
-        ++stats_.invalid;
-        ++source_stats.invalid;
+        {
+          std::lock_guard lock(stats_mutex_);
+          ++stats_.invalid;
+          ++stats_.sources[source_flow].invalid;
+        }
       } else {
         std::memcpy(output_payload, source_payload, source_info.grainSize);
         output_info.flags = source_info.flags;
         output_info.validSlices = source_info.validSlices;
-        ++stats_.routed;
-        ++source_stats.routed;
+        {
+          std::lock_guard lock(stats_mutex_);
+          ++stats_.routed;
+          ++stats_.sources[source_flow].routed;
+        }
       }
     }
     write_status =
@@ -269,7 +294,10 @@ class MxlBackend::Impl {
     mxlSleepForNs(mxlGetNsUntilIndex(index, &rate));
   }
 
-  MxlBackendStats stats() const { return stats_; }
+  MxlBackendStats stats() const {
+    std::lock_guard lock(stats_mutex_);
+    return stats_;
+  }
 
  private:
   struct Reader {
@@ -321,6 +349,7 @@ class MxlBackend::Impl {
     if (status != MXL_STATUS_OK) {
       throw sdk_error("mxlFlowWriterCommitGrain(invalid)", status);
     }
+    std::lock_guard lock(stats_mutex_);
     ++stats_.invalid;
   }
 
@@ -332,6 +361,7 @@ class MxlBackend::Impl {
   std::unordered_map<FlowId, Reader> readers_;
   std::unordered_map<FlowId, Writer> writers_;
   std::unordered_set<FlowId> grouped_flows_;
+  mutable std::mutex stats_mutex_;
   MxlBackendStats stats_;
 };
 

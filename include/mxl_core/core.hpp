@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -96,6 +98,9 @@ class SwitcherCore {
   void process(std::uint64_t output_index);
 
   State state() const;
+  std::optional<State> wait_for_revision(
+      std::uint64_t after_revision,
+      std::chrono::milliseconds timeout) const;
   std::vector<Source> sources() const;
 
  private:
@@ -118,6 +123,7 @@ class SwitcherCore {
   OutputSpec preview_output_;
 
   mutable std::mutex mutex_;
+  mutable std::condition_variable state_changed_;
   State state_;
   std::deque<Command> pending_;
   std::uint64_t next_command_id_{1};

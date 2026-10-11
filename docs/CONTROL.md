@@ -20,15 +20,25 @@ The implemented request surface is:
 - `GET /api/mxl/v1/meta`
 - `GET /api/mxl/v1/state`
 - `GET /api/mxl/v1/sources`
+- `GET /api/mxl/v1/health`
 - `POST /api/mxl/v1/preview`
 - `POST /api/mxl/v1/cut`
 - `POST /api/mxl/v1/take`
-- `GET /api/mxl/v1/events` (reserved for the event-stream transport)
+- `GET /api/mxl/v1/events`
 
-The first six routes are covered by executable API and real-socket transport
-tests. Mutation routes
-return `202 Accepted` with the monotonic command id and accepted revision; the
-command still takes effect only at the next media grain boundary.
+The routes are covered by executable API and real-socket transport tests.
+Mutation routes return `202 Accepted` with the monotonic command id and accepted
+revision; the command still takes effect only at the next media grain boundary.
+
+`events` is a Server-Sent Events stream. It sends an initial `state` event and
+then one event for each applied revision, supports `Last-Event-ID` reconnection,
+and emits a keepalive comment while idle. An open event stream does not block
+reads or commands on other connections. The server limits concurrent control
+connections and shuts them down before the core exits.
+
+`health` reports live aggregate and per-flow MXL routing counters. Statistics
+snapshots are synchronized with the media thread, so a skin can poll health
+without racing counter updates.
 
 The live harness binds `127.0.0.1:8080` by default. `--control-host` and
 `--control-port` override that address. Binding a non-loopback address should be
