@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+
+output_dir=${1:-"run-ndi-pilot-$(date -u +%Y%m%dT%H%M%SZ)"}
+duration=${DURATION:-300}
+interval=${INTERVAL:-10}
+base_url=${BASE_URL:-http://127.0.0.1:18080/api/mxl/v1}
+
+mkdir -p "$output_dir"
+: >"$output_dir/samples.tsv"
+: >"$output_dir/controls.jsonl"
+: >"$output_dir/errors.log"
+
+printf 'timestamp\tcore\tingress\tresources\thealth\tstate\n' \
+  >>"$output_dir/samples.tsv"
+
+started=$(date +%s)
+deadline=$((started + duration))
+next_take=$((started + 60))
+samples=0
+takes=0
+monitor_errors=0
+
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  core=$(sudo -n docker inspect --format '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}/{{.RestartCount}}' mxl-core-pilot 2>>"$output_dir/errors.log" || true)
+  ingress=$(sudo -n docker inspect --format '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}/{{.RestartCount}}' mxl-ndi-core-ingress 2>>"$output_dir/errors.log" || true)
+  resources=$(sudo -n docker stats --no-stream --format '{{.Name}}={{.CPUPerc}},{{.MemUsage}}' mxl-core-pilot mxl-core-pilot-source mxl-ndi-core-ingress 2>>"$output_dir/errors.log" | tr '\n' ';' || true)
+  health=$(curl -fsS --connect-timeout 2 --max-time 3 "$base_url/health" 2>>"$output_dir/errors.log" || true)
+  state=$(curl -fsS --connect-timeout 2 --max-time 3 "$base_url/state" 2>>"$output_dir/errors.log" || true)
+  if [ -z "$core" ] || [ -z "$ingress" ] || [ -z "$health" ] || [ -z "$state" ]; then
+    monitor_errors=$((monitor_errors + 1))
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$timestamp" "$core" "$ingress" "$resources" "$health" "$state" >>"$output_dir/samples.tsv"
+  samples=$((samples + 1))
+
+  now=$(date +%s)
+  if [ "$now" -ge "$next_take" ]; then
+    receipt=$(curl -fsS -X POST --connect-timeout 2 --max-time 3 "$base_url/take" 2>>"$output_dir/errors.log" || true)
+    if [ -z "$receipt" ]; then
+      monitor_errors=$((monitor_errors + 1))
+    else
+      takes=$((takes + 1))
+    fi
+    printf '{"timestamp":"%s","receipt":%s}\n' "$timestamp" "${receipt:-null}" >>"$output_dir/controls.jsonl"
+    next_take=$((next_take + 60))
+  fi
+  sleep "$interval"
+done
+
+finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+final_health=$(curl -fsS --connect-timeout 2 --max-time 3 "$base_url/health" 2>>"$output_dir/errors.log" || true)
+final_state=$(curl -fsS --connect-timeout 2 --max-time 3 "$base_url/state" 2>>"$output_dir/errors.log" || true)
+{
+  printf 'finished=%s samples=%s takes=%s monitor_errors=%s\n' "$finished" "$samples" "$takes" "$monitor_errors"
+  printf 'health=%s\nstate=%s\n' "$final_health" "$final_state"
+} >"$output_dir/summary.txt"
+touch "$output_dir/done"
