@@ -43,6 +43,18 @@ std::string health_json(const MxlBackendStats& stats) {
          << ",\"reader_reopens\":" << stats.reader_reopens
          << ",\"sync_waits\":" << stats.sync_waits
          << ",\"sync_timeouts\":" << stats.sync_timeouts
+         << ",\"sync_too_early\":" << stats.sync_too_early
+         << ",\"sync_too_late\":" << stats.sync_too_late
+         << ",\"adaptive_selections\":" << stats.adaptive_selections
+         << ",\"no_common_window\":" << stats.no_common_window
+         << ",\"last_common_oldest_index\":"
+         << stats.last_common_oldest_index
+         << ",\"last_common_newest_index\":"
+         << stats.last_common_newest_index
+         << ",\"last_selected_input_index\":"
+         << stats.last_selected_input_index
+         << ",\"last_common_window_width\":"
+         << stats.last_common_window_width
          << ",\"sources\":[";
   bool first = true;
   for (const auto& [flow_id, source] : stats.sources) {
@@ -56,7 +68,11 @@ std::string health_json(const MxlBackendStats& stats) {
            << ",\"too_early\":" << source.too_early
            << ",\"too_late\":" << source.too_late
            << ",\"timeouts\":" << source.timeouts
-           << ",\"reader_reopens\":" << source.reader_reopens << '}';
+           << ",\"reader_reopens\":" << source.reader_reopens
+           << ",\"no_common_window\":" << source.no_common_window
+           << ",\"latest_head_index\":" << source.latest_head_index
+           << ",\"latest_oldest_index\":" << source.latest_oldest_index
+           << '}';
   }
   output << "]}";
   return output.str();
@@ -210,6 +226,18 @@ int main(int argc, char** argv) {
               << " reader_reopens=" << stats.reader_reopens
               << " sync_waits=" << stats.sync_waits
               << " sync_timeouts=" << stats.sync_timeouts
+              << " sync_too_early=" << stats.sync_too_early
+              << " sync_too_late=" << stats.sync_too_late
+              << " adaptive_selections=" << stats.adaptive_selections
+              << " no_common_window=" << stats.no_common_window
+              << " last_common_oldest_index="
+              << stats.last_common_oldest_index
+              << " last_common_newest_index="
+              << stats.last_common_newest_index
+              << " last_selected_input_index="
+              << stats.last_selected_input_index
+              << " last_common_window_width="
+              << stats.last_common_window_width
               << " revision=" << state.revision << '\n';
     for (const auto& source : core.sources()) {
       const auto found = stats.sources.find(source.flow_id);
@@ -222,7 +250,11 @@ int main(int argc, char** argv) {
                 << " too_early=" << source_stats.too_early
                 << " too_late=" << source_stats.too_late
                 << " timeouts=" << source_stats.timeouts
-                << " reader_reopens=" << source_stats.reader_reopens << '\n';
+                << " reader_reopens=" << source_stats.reader_reopens
+                << " no_common_window=" << source_stats.no_common_window
+                << " latest_head_index=" << source_stats.latest_head_index
+                << " latest_oldest_index="
+                << source_stats.latest_oldest_index << '\n';
     }
     return 0;
   } catch (const std::exception& error) {

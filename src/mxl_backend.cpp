@@ -1,4 +1,5 @@
 #include "mxl_core/mxl_backend.hpp"
+#include "mxl_core/read_window.hpp"
 
 #include <mxl/dataformat.h>
 #include <mxl/flow.h>
@@ -6,6 +7,7 @@
 
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -161,16 +163,75 @@ class MxlBackend::Impl {
       }
     }
 
-    const auto timestamp = mxlIndexToTimestamp(&rate, input_index(output_index));
+    std::vector<ReadWindowSource> windows;
+    windows.reserve(unique_flows.size());
+    for (const auto& flow_id : unique_flows) {
+      auto& reader = get_reader(flow_id);
+      mxlFlowRuntimeInfo runtime{};
+      const auto status =
+          mxlFlowReaderGetRuntimeInfo(reader.handle, &runtime);
+      if (status != MXL_STATUS_OK) {
+        throw sdk_error("mxlFlowReaderGetRuntimeInfo", status);
+      }
+      const auto grain_count = reader.config.discrete.grainCount;
+      const auto oldest = runtime.headIndex >= grain_count
+                              ? runtime.headIndex - grain_count + 2U
+                              : std::uint64_t{0};
+      windows.push_back({runtime.headIndex, grain_count});
+      std::lock_guard lock(stats_mutex_);
+      auto& source = stats_.sources[flow_id];
+      source.latest_head_index = runtime.headIndex;
+      source.latest_oldest_index = oldest;
+    }
+
+    const auto selection =
+        select_common_read_index(windows, input_delay_frames_);
+    prepared_output_index_ = output_index;
+    prepared_input_index_ = selection ? std::optional(selection->selected_index)
+                                      : std::nullopt;
+    if (!selection) {
+      std::lock_guard lock(stats_mutex_);
+      ++stats_.no_common_window;
+      for (const auto& flow_id : unique_flows) {
+        ++stats_.sources[flow_id].no_common_window;
+      }
+      return;
+    }
+
+    {
+      std::lock_guard lock(stats_mutex_);
+      ++stats_.adaptive_selections;
+      stats_.last_common_oldest_index = selection->oldest_index;
+      stats_.last_common_newest_index = selection->newest_index;
+      stats_.last_selected_input_index = selection->selected_index;
+      stats_.last_common_window_width =
+          selection->newest_index - selection->oldest_index + 1U;
+    }
+
+    const auto timestamp =
+        mxlIndexToTimestamp(&rate, selection->selected_index);
     const auto status = mxlFlowSynchronizationGroupWaitForDataAt(
         sync_group_, timestamp, read_timeout_ns_);
     {
       std::lock_guard lock(stats_mutex_);
       ++stats_.sync_waits;
     }
-    if (status == MXL_ERR_TIMEOUT || status == MXL_ERR_OUT_OF_RANGE_TOO_EARLY) {
+    if (status == MXL_ERR_TIMEOUT) {
       std::lock_guard lock(stats_mutex_);
       ++stats_.sync_timeouts;
+      prepared_input_index_.reset();
+      return;
+    }
+    if (status == MXL_ERR_OUT_OF_RANGE_TOO_EARLY) {
+      std::lock_guard lock(stats_mutex_);
+      ++stats_.sync_too_early;
+      prepared_input_index_.reset();
+      return;
+    }
+    if (status == MXL_ERR_OUT_OF_RANGE_TOO_LATE) {
+      std::lock_guard lock(stats_mutex_);
+      ++stats_.sync_too_late;
+      prepared_input_index_.reset();
       return;
     }
     if (status != MXL_STATUS_OK) {
@@ -185,13 +246,19 @@ class MxlBackend::Impl {
     if (writer_it == writers_.end()) {
       throw std::invalid_argument("output flow is not open: " + output_flow);
     }
+    if (!prepared_output_index_ || *prepared_output_index_ != output_index) {
+      throw std::logic_error("route requested without a prepared output frame");
+    }
+    if (!prepared_input_index_) {
+      commit_invalid(writer_it->second.handle, output_index);
+      return;
+    }
 
     mxlGrainInfo source_info{};
     std::uint8_t* source_payload = nullptr;
-    const auto status = mxlFlowReaderGetGrain(reader.handle,
-                                               input_index(output_index),
-                                               read_timeout_ns_, &source_info,
-                                               &source_payload);
+    const auto status = mxlFlowReaderGetGrain(
+        reader.handle, *prepared_input_index_, read_timeout_ns_, &source_info,
+        &source_payload);
     if (status == MXL_ERR_FLOW_INVALID) {
       if (grouped_flows_.contains(source_flow)) {
         const auto remove_status = mxlFlowSynchronizationGroupRemoveReader(
@@ -314,13 +381,6 @@ class MxlBackend::Impl {
     bool created;
   };
 
-  std::uint64_t input_index(std::uint64_t output_index) const {
-    if (output_index < input_delay_frames_) {
-      throw std::invalid_argument("input delay exceeds the output index");
-    }
-    return output_index - input_delay_frames_;
-  }
-
   Reader& get_reader(const FlowId& flow_id) {
     if (auto found = readers_.find(flow_id); found != readers_.end()) {
       return found->second;
@@ -373,6 +433,8 @@ class MxlBackend::Impl {
   std::unordered_map<FlowId, Reader> readers_;
   std::unordered_map<FlowId, Writer> writers_;
   std::unordered_set<FlowId> grouped_flows_;
+  std::optional<std::uint64_t> prepared_output_index_;
+  std::optional<std::uint64_t> prepared_input_index_;
   mutable std::mutex stats_mutex_;
   MxlBackendStats stats_;
 };

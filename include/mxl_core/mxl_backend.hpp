@@ -22,6 +22,9 @@ struct MxlSourceStats {
   std::uint64_t too_late{0};
   std::uint64_t timeouts{0};
   std::uint64_t reader_reopens{0};
+  std::uint64_t no_common_window{0};
+  std::uint64_t latest_head_index{0};
+  std::uint64_t latest_oldest_index{0};
 };
 
 struct MxlBackendStats {
@@ -33,6 +36,14 @@ struct MxlBackendStats {
   std::uint64_t reader_reopens{0};
   std::uint64_t sync_waits{0};
   std::uint64_t sync_timeouts{0};
+  std::uint64_t sync_too_early{0};
+  std::uint64_t sync_too_late{0};
+  std::uint64_t adaptive_selections{0};
+  std::uint64_t no_common_window{0};
+  std::uint64_t last_common_oldest_index{0};
+  std::uint64_t last_common_newest_index{0};
+  std::uint64_t last_selected_input_index{0};
+  std::uint64_t last_common_window_width{0};
   std::unordered_map<FlowId, MxlSourceStats> sources;
 };
 

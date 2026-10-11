@@ -66,10 +66,17 @@ Use `GET /api/mxl/v1/health` for the service probe and
 `GET /api/mxl/v1/events` for tally/state changes. Upstream invalid or late media
 is visible per input rather than being mistaken for a process failure.
 
-Set `input_delay_frames` to the facility's measured source latency. The core
-reads every selected input at that delayed grain index while publishing Program
-and Preview at the current output index. This provides deterministic frame sync
-without changing the stable output clock.
+Set `input_delay_frames` to the desired safety margin behind the oldest selected
+source head. The Core applies that margin to the common live window rather than
+subtracting it from wall clock. For
+each output frame it inspects every selected discrete ring and chooses the newest
+grain inside their common readable window. Program and Preview use that same
+prepared input index while retaining their stable output clock and flow IDs.
+
+If the source rings have no common readable grain, the Core publishes invalid
+output grains for that frame and increments `no_common_window` rather than
+waiting for an index that cannot succeed. Health also reports the latest source
+heads, oldest-readable indexes, selected input index, and common-window width.
 
 Set `read_timeout_ns` to the bounded wait allowed for a selected grain after its
 target time. Keep it below one frame period so transport jitter cannot stall the
