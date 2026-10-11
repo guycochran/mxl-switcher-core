@@ -2,6 +2,8 @@ CXX ?= c++
 CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Wpedantic -Werror
 CPPFLAGS ?= -Iinclude
 BUILD := build
+MXL_CFLAGS ?= $(shell pkg-config --cflags libmxl)
+MXL_LIBS ?= $(shell pkg-config --libs libmxl)
 CORE_OBJ := $(BUILD)/core.o
 CONTROL_OBJ := $(BUILD)/control_api.o
 HTTP_OBJ := $(BUILD)/http_server.o
@@ -55,10 +57,10 @@ soak: $(BUILD)/core-tests
 
 # Build this target on Linux after installing the official MXL SDK.
 live: $(CORE_OBJ) $(CONTROL_OBJ) $(HTTP_OBJ) $(CONFIG_OBJ) src/mxl_backend.cpp apps/mxl-core-live.cpp | $(BUILD)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ $$(pkg-config --cflags --libs libmxl) -o $(BUILD)/mxl-core-live
+	$(CXX) $(CPPFLAGS) $(MXL_CFLAGS) $(CXXFLAGS) $^ $(MXL_LIBS) -o $(BUILD)/mxl-core-live
 
 live-test-source: apps/mxl-test-source.cpp | $(BUILD)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< $$(pkg-config --cflags --libs libmxl) -o $(BUILD)/mxl-test-source
+	$(CXX) $(CPPFLAGS) $(MXL_CFLAGS) $(CXXFLAGS) $< $(MXL_LIBS) -o $(BUILD)/mxl-test-source
 
 # Local API compatibility check against an MXL source checkout. Usage:
 # make live-syntax MXL_INCLUDE=/path/to/mxl/lib/include
