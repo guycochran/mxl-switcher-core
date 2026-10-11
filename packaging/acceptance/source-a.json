@@ -1,0 +1,18 @@
+{
+  "id": "4d584c10-1001-4c10-8000-000000000001",
+  "description": "Isolated MXL Switcher Core acceptance source A",
+  "label": "MXL Core Acceptance Source A",
+  "parents": [],
+  "format": "urn:x-nmos:format:video",
+  "media_type": "video/v210",
+  "grain_rate": {"numerator": 30, "denominator": 1},
+  "frame_width": 1920,
+  "frame_height": 1080,
+  "interlace_mode": "progressive",
+  "colorspace": "BT709",
+  "components": [
+    {"name": "Y", "width": 1920, "height": 1080, "bit_depth": 10},
+    {"name": "Cb", "width": 960, "height": 1080, "bit_depth": 10},
+    {"name": "Cr", "width": 960, "height": 1080, "bit_depth": 10}
+  ]
+}
