@@ -3,6 +3,7 @@
   "description": "Isolated MXL Switcher Core acceptance source A",
   "label": "MXL Core Acceptance Source A",
   "parents": [],
+  "tags": {"urn:x-nmos:tag:grouphint/v1.0": ["MXLCoreAcceptanceSourceA:Video"]},
   "format": "urn:x-nmos:format:video",
   "media_type": "video/v210",
   "grain_rate": {"numerator": 30, "denominator": 1},
