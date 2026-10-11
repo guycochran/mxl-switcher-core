@@ -121,6 +121,10 @@ LiveConfig config_from_args(
       args.contains("input-delay-frames")
           ? std::stoull(args.at("input-delay-frames"))
           : 0ULL;
+  config.read_timeout_ns =
+      args.contains("read-timeout-ns")
+          ? std::stoull(args.at("read-timeout-ns"))
+          : 5'000'000ULL;
   config.format.rate_numerator =
       args.contains("rate-numerator")
           ? static_cast<std::uint32_t>(std::stoul(args.at("rate-numerator")))
@@ -169,7 +173,7 @@ int main(int argc, char** argv) {
         config.domain,
         {{config.program_id, read_file(config.program_definition_path)},
          {config.preview_id, read_file(config.preview_definition_path)}},
-        5'000'000, config.input_delay_frames);
+        config.read_timeout_ns, config.input_delay_frames);
     SwitcherCore core(
         media, std::move(sources),
         {config.program_id, "MXL Switcher Program", config.format},
@@ -230,6 +234,7 @@ int main(int argc, char** argv) {
            "--program-def FILE --program-id UUID --preview-def FILE "
            "--preview-id UUID [--frames N] [--take-every N] "
            "[--input-delay-frames N] "
+           "[--read-timeout-ns N] "
            "[--rate-numerator N] [--rate-denominator N] "
            "[--control-host IPv4] [--control-port N]\n";
     return 2;

@@ -57,6 +57,7 @@ rate_denominator=1
 frames=0
 take_every=0
 input_delay_frames=7
+read_timeout_ns=20000000
 control_host=127.0.0.1
 control_port=8080
 )CONFIG";
@@ -72,6 +73,7 @@ void test_valid_config() {
               config.format.rate_denominator == 1,
           "operating rate was parsed incorrectly");
   require(config.frames == 0 && config.input_delay_frames == 7 &&
+              config.read_timeout_ns == 20'000'000 &&
               config.control_port == 8080,
           "runtime settings were parsed incorrectly");
 }
@@ -92,6 +94,11 @@ void test_invalid_configs() {
                    "unknown key was accepted");
   require_rejected(kValidConfig + "control_port=9000\n",
                    "duplicate scalar key was accepted");
+
+  auto zero_timeout = kValidConfig;
+  const auto timeout = zero_timeout.find("read_timeout_ns=20000000");
+  zero_timeout.replace(timeout, 24, "read_timeout_ns=0");
+  require_rejected(zero_timeout, "zero read timeout was accepted");
 
   auto missing_source = kValidConfig;
   const auto source = missing_source.find(

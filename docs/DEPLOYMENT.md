@@ -71,6 +71,10 @@ reads every selected input at that delayed grain index while publishing Program
 and Preview at the current output index. This provides deterministic frame sync
 without changing the stable output clock.
 
+Set `read_timeout_ns` to the bounded wait allowed for a selected grain after its
+target time. Keep it below one frame period so transport jitter cannot stall the
+output cadence; the default is 5 ms.
+
 ## Hardware acceptance
 
 `scripts/run-acceptance.sh CONFIG OUTPUT_DIRECTORY` runs a bounded configuration

@@ -27,6 +27,7 @@ struct LiveConfig {
   std::uint64_t frames{0};
   std::uint64_t take_every{0};
   std::uint64_t input_delay_frames{0};
+  std::uint64_t read_timeout_ns{5'000'000};
   std::string control_host{"127.0.0.1"};
   std::uint16_t control_port{8080};
 };

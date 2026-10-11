@@ -140,6 +140,8 @@ LiveConfig load_live_config(const std::string& path) {
       config.take_every = unsigned_value(value, key, line_number);
     } else if (key == "input_delay_frames") {
       config.input_delay_frames = unsigned_value(value, key, line_number);
+    } else if (key == "read_timeout_ns") {
+      config.read_timeout_ns = unsigned_value(value, key, line_number);
     } else if (key == "control_host") {
       config.control_host = value;
     } else if (key == "control_port") {
@@ -182,6 +184,9 @@ void validate_live_config(const LiveConfig& config) {
   }
   if (config.control_port == 0) {
     throw std::invalid_argument("control_port must be between 1 and 65535");
+  }
+  if (config.read_timeout_ns == 0) {
+    throw std::invalid_argument("read_timeout_ns must be greater than zero");
   }
 
   std::unordered_set<SourceId> source_ids;
