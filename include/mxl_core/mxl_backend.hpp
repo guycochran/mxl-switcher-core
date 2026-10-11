@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace mxl_core {
@@ -12,6 +13,15 @@ namespace mxl_core {
 struct MxlOutputDefinition {
   FlowId flow_id;
   std::string flow_definition_json;
+};
+
+struct MxlSourceStats {
+  std::uint64_t routed{0};
+  std::uint64_t invalid{0};
+  std::uint64_t too_early{0};
+  std::uint64_t too_late{0};
+  std::uint64_t timeouts{0};
+  std::uint64_t reader_reopens{0};
 };
 
 struct MxlBackendStats {
@@ -23,6 +33,7 @@ struct MxlBackendStats {
   std::uint64_t reader_reopens{0};
   std::uint64_t sync_waits{0};
   std::uint64_t sync_timeouts{0};
+  std::unordered_map<FlowId, MxlSourceStats> sources;
 };
 
 // Production backend for the official DMF MXL Flow API. The header keeps SDK

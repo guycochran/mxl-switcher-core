@@ -112,6 +112,19 @@ int main(int argc, char** argv) {
               << " sync_waits=" << stats.sync_waits
               << " sync_timeouts=" << stats.sync_timeouts
               << " revision=" << state.revision << '\n';
+    for (const auto& source : core.sources()) {
+      const auto found = stats.sources.find(source.flow_id);
+      const auto source_stats = found == stats.sources.end()
+                                    ? MxlSourceStats{}
+                                    : found->second;
+      std::cout << "source=" << source.id << " flow=" << source.flow_id
+                << " routed=" << source_stats.routed
+                << " invalid=" << source_stats.invalid
+                << " too_early=" << source_stats.too_early
+                << " too_late=" << source_stats.too_late
+                << " timeouts=" << source_stats.timeouts
+                << " reader_reopens=" << source_stats.reader_reopens << '\n';
+    }
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "mxl-core-live: " << error.what() << '\n';

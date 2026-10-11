@@ -8,9 +8,9 @@ Program and Preview stable flow identities that do not disappear on a cut.
 
 This is an executable vertical slice. The switching engine, lifecycle rules,
 control sequencing, mock domain, demo, and invariant tests run on any C++20
-machine. A production backend and bounded live harness now target the official
-MXL Flow API; hardware compilation and verification remain to be completed on a
-Linux MXL domain. The HTTP control service follows that verification.
+machine. The production backend and bounded live harness have now been compiled
+and exercised against the official MXL Flow API on a Linux MXL domain. The HTTP
+control service is the next implementation slice.
 
 ## What works now
 
@@ -23,6 +23,8 @@ Linux MXL domain. The HTTP control service follows that verification.
 - dependency-free mock backend with bounded history and a fast soak test.
 - official `mxl/flow.h` backend with direct SDK-buffer-to-SDK-buffer routing;
 - bounded `mxl-core-live` harness with automatic TAKE cadence and metrics.
+- aggregate and per-source health counters that distinguish upstream invalid or
+  stale media from failures in the stable PGM/PVW outputs.
 
 ## Build and verify
 
@@ -68,14 +70,20 @@ The local engine must prove these invariants before live SDK work:
 See [the architecture](docs/ARCHITECTURE.md) and
 [control semantics](docs/CONTROL.md).
 
+The first hardware gate completed on a 1080p30 v210 domain: the core created and
+reused isolated stable PGM/PVW UUIDs, switched two live flows at frame
+boundaries, and both outputs were consumed concurrently through the GStreamer
+MXL source. A 900-frame run completed in 30.10 seconds at 29% of one CPU and
+about 131 MiB maximum RSS. Invalid output grains observed during that run were
+traced to an intermittent upstream guest flow; a continuously healthy clip flow
+ran clean in isolated source tests.
+
 ## Planned milestones
 
-1. **Hardware verification:** compile the included `mxl/flow.h` backend against
-   the installed SDK and run two live sources through isolated PGM/PVW flows.
-2. **Control service:** the versioned JSON API plus an event stream; no media in
+1. **Control service:** the versioned JSON API plus an event stream; no media in
    the web process.
-3. **Linux package:** one service, one config, health endpoint, graceful restart.
-4. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
+2. **Linux package:** one service, one config, health endpoint, graceful restart.
+3. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
    hours on the Supermicro, including cuts under load.
 
 License: MIT.
