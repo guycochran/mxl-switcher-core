@@ -73,6 +73,12 @@ each output frame it inspects every selected discrete ring and chooses the newes
 grain inside their common readable window. Program and Preview use that same
 prepared input index while retaining their stable output clock and flow IDs.
 
+Use zero when producers publish committed grains, as the MXL runtime head does:
+the newest common grain has the most remaining history before a faster producer
+can overwrite it. A nonzero margin is available for integrations whose reported
+head needs settling time, but it deliberately reduces overwrite headroom. The
+NDI pilot therefore uses zero.
+
 If the source rings have no common readable grain, the Core publishes invalid
 output grains for that frame and increments `no_common_window` rather than
 waiting for an index that cannot succeed. Health also reports the latest source
