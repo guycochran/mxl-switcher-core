@@ -1,6 +1,9 @@
 # Control semantics (engine v0)
 
-The current C++ API is the boundary that the HTTP service will wrap.
+The `ControlApi` C++ adapter implements the versioned request/response contract
+without linking an HTTP framework into the media engine. The small network
+transport remains a separate boundary and will not receive MXL handles or touch
+video buffers.
 
 | Operation | Accepted immediately | Applied | Result |
 |---|---|---|---|
@@ -12,7 +15,7 @@ Each accepted command receives a monotonic command id and the state revision at
 acceptance. Each applied command increments the state revision. Multiple commands
 queued before one grain are applied in order as one boundary transaction.
 
-The planned HTTP surface remains compatible with the existing switcher proposal:
+The implemented request surface is:
 
 - `GET /api/mxl/v1/meta`
 - `GET /api/mxl/v1/state`
@@ -20,7 +23,8 @@ The planned HTTP surface remains compatible with the existing switcher proposal:
 - `POST /api/mxl/v1/preview`
 - `POST /api/mxl/v1/cut`
 - `POST /api/mxl/v1/take`
-- `GET /api/mxl/v1/events`
+- `GET /api/mxl/v1/events` (reserved for the event-stream transport)
 
-The HTTP process is a control adapter. It will not touch video buffers.
-
+The first six routes are covered by executable contract tests. Mutation routes
+return `202 Accepted` with the monotonic command id and accepted revision; the
+command still takes effect only at the next media grain boundary.

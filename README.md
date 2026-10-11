@@ -25,6 +25,8 @@ control service is the next implementation slice.
 - bounded `mxl-core-live` harness with automatic TAKE cadence and metrics.
 - aggregate and per-source health counters that distinguish upstream invalid or
   stale media from failures in the stable PGM/PVW outputs.
+- dependency-free versioned control adapter for state, sources, Preview, Cut,
+  and Take, with contract tests preserving frame-boundary command semantics.
 
 ## Build and verify
 
@@ -80,8 +82,8 @@ ran clean in isolated source tests.
 
 ## Planned milestones
 
-1. **Control service:** the versioned JSON API plus an event stream; no media in
-   the web process.
+1. **Control transport:** expose the tested JSON contract over loopback HTTP and
+   add its event stream; no media in the web process.
 2. **Linux package:** one service, one config, health endpoint, graceful restart.
 3. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
    hours on the Supermicro, including cuts under load.

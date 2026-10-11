@@ -1,0 +1,111 @@
+#include "mxl_core/control_api.hpp"
+
+#include <iostream>
+#include <stdexcept>
+#include <string>
+
+using namespace mxl_core;
+
+namespace {
+
+constexpr const char* kProgramFlow = "11111111-1111-4111-8111-111111111111";
+constexpr const char* kPreviewFlow = "22222222-2222-4222-8222-222222222222";
+const VideoFormat kV210{1920, 1080, 30, 1, "video/v210"};
+
+void require(bool condition, const std::string& message) {
+  if (!condition) {
+    throw std::runtime_error(message);
+  }
+}
+
+struct Fixture {
+  MemoryBackend backend;
+  SwitcherCore core;
+  ControlApi api;
+
+  Fixture()
+      : core(add_sources(backend),
+             {{"src_a", "flow-a", "Camera \"A\"", kV210},
+              {"src_b", "flow-b", "Camera B", kV210}},
+             {kProgramFlow, "Program", kV210},
+             {kPreviewFlow, "Preview", kV210}, "src_a", "src_b"),
+        api(core) {}
+
+ private:
+  static MemoryBackend& add_sources(MemoryBackend& backend) {
+    backend.add_source("flow-a", kV210, 0xa1);
+    backend.add_source("flow-b", kV210, 0xb2);
+    return backend;
+  }
+};
+
+void test_reads() {
+  Fixture fixture;
+  const auto meta = fixture.api.handle("GET", "/api/mxl/v1/meta");
+  require(meta.status == 200 && meta.body.find("\"api_version\":\"v1\"") !=
+                                    std::string::npos,
+          "meta contract missing");
+  const auto state = fixture.api.handle("GET", "/api/mxl/v1/state");
+  require(state.status == 200 &&
+              state.body.find("\"program\":\"src_a\"") != std::string::npos &&
+              state.body.find("\"last_output_index\":null") !=
+                  std::string::npos,
+          "state response is wrong");
+  const auto sources = fixture.api.handle("GET", "/api/mxl/v1/sources");
+  require(sources.status == 200 &&
+              sources.body.find("Camera \\\"A\\\"") != std::string::npos &&
+              sources.body.find("\"encoding\":\"video/v210\"") !=
+                  std::string::npos,
+          "source response is incomplete or not escaped");
+}
+
+void test_commands_wait_for_frame_boundary() {
+  Fixture fixture;
+  const auto preview = fixture.api.handle(
+      "POST", "/api/mxl/v1/preview", "{\"source\":\"src_a\"}");
+  require(preview.status == 202 &&
+              preview.body.find("\"command_id\":1") != std::string::npos,
+          "preview command was not accepted");
+  require(fixture.core.state().preview == "src_b",
+          "control API applied a command between frames");
+  fixture.core.process(1);
+  require(fixture.core.state().preview == "src_a",
+          "preview command missed the frame boundary");
+
+  const auto take = fixture.api.handle("POST", "/api/mxl/v1/take");
+  require(take.status == 202, "take command was not accepted");
+  fixture.core.process(2);
+  require(fixture.core.state().program == "src_a" &&
+              fixture.core.state().preview == "src_a",
+          "take command was not applied");
+}
+
+void test_errors() {
+  Fixture fixture;
+  require(fixture.api.handle("POST", "/api/mxl/v1/cut", "{}").status == 400,
+          "missing source was accepted");
+  require(fixture.api
+              .handle("POST", "/api/mxl/v1/cut",
+                      "{\"source\":\"not-registered\"}")
+              .status == 400,
+          "unknown source was accepted");
+  require(fixture.api.handle("GET", "/nope").status == 404,
+          "unknown route did not return 404");
+  require(fixture.api.handle("DELETE", "/api/mxl/v1/state").status == 405,
+          "unsupported API method did not return 405");
+}
+
+}  // namespace
+
+int main() {
+  try {
+    test_reads();
+    test_commands_wait_for_frame_boundary();
+    test_errors();
+    std::cout << "All control API tests passed.\n";
+    return 0;
+  } catch (const std::exception& error) {
+    std::cerr << "Control API test failed: " << error.what() << '\n';
+    return 1;
+  }
+}

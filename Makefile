@@ -3,15 +3,19 @@ CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Wpedantic -Werror
 CPPFLAGS ?= -Iinclude
 BUILD := build
 CORE_OBJ := $(BUILD)/core.o
+CONTROL_OBJ := $(BUILD)/control_api.o
 
 .PHONY: all test demo soak live live-syntax clean
 
-all: $(BUILD)/mxl-core-demo $(BUILD)/core-tests
+all: $(BUILD)/mxl-core-demo $(BUILD)/core-tests $(BUILD)/control-api-tests
 
 $(BUILD):
 	mkdir -p $(BUILD)
 
 $(CORE_OBJ): src/core.cpp include/mxl_core/core.hpp | $(BUILD)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(CONTROL_OBJ): src/control_api.cpp include/mxl_core/control_api.hpp include/mxl_core/core.hpp | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/mxl-core-demo: apps/mxl-core-demo.cpp $(CORE_OBJ) | $(BUILD)
@@ -20,8 +24,12 @@ $(BUILD)/mxl-core-demo: apps/mxl-core-demo.cpp $(CORE_OBJ) | $(BUILD)
 $(BUILD)/core-tests: tests/core_tests.cpp $(CORE_OBJ) | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
-test: $(BUILD)/core-tests
+$(BUILD)/control-api-tests: tests/control_api_tests.cpp $(CORE_OBJ) $(CONTROL_OBJ) | $(BUILD)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
+
+test: $(BUILD)/core-tests $(BUILD)/control-api-tests
 	./$(BUILD)/core-tests
+	./$(BUILD)/control-api-tests
 
 demo: $(BUILD)/mxl-core-demo
 	./$(BUILD)/mxl-core-demo
