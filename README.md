@@ -9,8 +9,9 @@ Program and Preview stable flow identities that do not disappear on a cut.
 This is an executable vertical slice. The switching engine, lifecycle rules,
 control sequencing, mock domain, demo, and invariant tests run on any C++20
 machine. The production backend and bounded live harness have now been compiled
-and exercised against the official MXL Flow API on a Linux MXL domain. The HTTP
-control service is the next implementation slice.
+and exercised against the official MXL Flow API on a Linux MXL domain. A
+versioned HTTP/SSE control service and dependency-free reference operator Skin
+are included.
 
 ## What works now
 
@@ -31,6 +32,8 @@ control service is the next implementation slice.
   tests and no access to MXL handles or media buffers.
 - reconnectable Server-Sent Events for frame-applied state/tally revisions and a
   thread-safe live health endpoint with per-input routing counters.
+- a responsive reference Skin at `/` (also `/skin`) with Program and Preview
+  source buses, Cut, Preview, Take, tally, timing, and error telemetry.
 
 ## Build and verify
 
@@ -81,12 +84,14 @@ for the validated configuration format and non-root systemd service.
 The NDI pilot now has a documented loaded full-path result. The original
 30-minute run with two continuous NDI receivers exposed a fixed-index scheduling
 limitation under sustained CPU load. The adaptive common-window scheduler now
-passes the loaded five-minute gate with zero media or synchronization errors,
-zero selected-index regressions, and all seven containers at zero restarts. A
-separate systemd-logind IPC cleanup issue was identified and corrected on the
-dedicated test VM; the 30-minute and eight-hour confirmation gates remain. See the
-[NDI full-path acceptance findings](docs/NDI_FULL_PATH_FINDINGS.md) for exact
-measurements, remediation, VM sizing, and shared-memory lifecycle findings.
+passes the loaded five-minute, 30-minute, and eight-hour gates with zero media,
+synchronization, monitoring, or restart failures. The eight-hour gate made 479
+TAKEs while routing 1,727,460 source grains and producing 863,730 synchronized
+output decisions. A separate systemd-logind IPC cleanup issue was identified and
+corrected on the dedicated test VM before the final gates. See the
+[acceptance record](docs/ACCEPTANCE_2026-10-12.md) and
+[NDI full-path findings](docs/NDI_FULL_PATH_FINDINGS.md) for exact measurements,
+remediation, VM sizing, evidence hashes, and shared-memory lifecycle findings.
 
 The first hardware gate completed on a 1080p30 v210 domain: the core created and
 reused isolated stable PGM/PVW UUIDs, switched two live flows at frame
@@ -105,10 +110,14 @@ intermittent guest input while the clip input remained clean.
 
 ## Planned milestones
 
-1. **Adaptive live scheduling:** the loaded five-minute gate passes; complete
-   the loaded 30-minute and eight-hour confirmation gates.
-2. **Hardware acceptance:** two real v210 sources into stable PGM/PVW for eight
-   hours on the Supermicro, including cuts and two active NDI outputs under
-   load.
+1. **Accepted NDI/MXL profile:** complete. One real NDI ingress plus one local
+   synthetic v210 source passed eight loaded hours with two active NDI outputs.
+2. **Lifecycle resilience:** interrupt and restore a source, then independently
+   restart Core, ingress, and egress while checking UUID stability and receiver
+   reconnection.
+3. **Two-source hardware acceptance:** repeat with two independent real sources
+   into stable PGM/PVW on the Supermicro.
+4. **Deployment profiles:** package Core-only, Program-only NDI, and full
+   Program/Preview NDI profiles for fresh Linux hosts.
 
 License: MIT.

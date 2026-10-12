@@ -144,6 +144,25 @@ void test_http_limits_and_routes() {
           "oversized body was not rejected");
 }
 
+void test_reference_skin() {
+  Fixture fixture;
+  const auto skin = request(
+      fixture.server.port(),
+      "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  require(skin.find("HTTP/1.1 200 OK") == 0 &&
+              skin.find("Content-Type: text/html; charset=utf-8") !=
+                  std::string::npos &&
+              skin.find("Content-Security-Policy:") != std::string::npos &&
+              skin.find("MXL Switcher") != std::string::npos &&
+              skin.find("new EventSource") != std::string::npos,
+          "reference skin was not served with its security policy");
+  const auto alias = request(
+      fixture.server.port(),
+      "GET /skin HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  require(alias.find("HTTP/1.1 200 OK") == 0,
+          "reference skin alias was not served");
+}
+
 void test_event_stream() {
   Fixture fixture;
   const auto socket = open_client(fixture.server.port());
@@ -194,6 +213,7 @@ int main() {
   try {
     test_http_reads_and_writes();
     test_http_limits_and_routes();
+    test_reference_skin();
     test_event_stream();
     std::cout << "All HTTP transport tests passed.\n";
     return 0;

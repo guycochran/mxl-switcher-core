@@ -26,6 +26,13 @@ The implemented request surface is:
 - `POST /api/mxl/v1/take`
 - `GET /api/mxl/v1/events`
 
+The same HTTP listener serves a dependency-free reference operator Skin at `/`
+and `/skin`. It is an API client, not part of the media path: it uses ordinary
+JSON requests for initial state and health, the SSE stream for frame-applied
+state/tally revisions, and the mutation routes for Preview, Cut, and Take. The
+Skin intentionally provides no video proxy; monitoring remains an independent
+MXL or edge-I/O function.
+
 The routes are covered by executable API and real-socket transport tests.
 Mutation routes return `202 Accepted` with the monotonic command id and accepted
 revision; the command still takes effect only at the next media grain boundary.

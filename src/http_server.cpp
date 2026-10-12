@@ -1,4 +1,5 @@
 #include "mxl_core/http_server.hpp"
+#include "mxl_core/reference_skin.hpp"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -89,12 +90,20 @@ bool send_all(int socket, std::string_view bytes) {
 }
 
 void send_response(int socket, const ApiResponse& response) {
-  const auto header =
+  auto header =
       "HTTP/1.1 " + std::to_string(response.status) + " " +
       std::string(reason_phrase(response.status)) + "\r\nContent-Type: " +
       response.content_type + "\r\nContent-Length: " +
-      std::to_string(response.body.size()) +
-      "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
+      std::to_string(response.body.size()) + "\r\nCache-Control: no-store\r\n"
+      "X-Content-Type-Options: nosniff\r\n"
+      "X-Frame-Options: DENY\r\n";
+  if (response.content_type.starts_with("text/html")) {
+    header += "Content-Security-Policy: default-src 'self'; style-src "
+              "'unsafe-inline'; script-src 'unsafe-inline'; connect-src "
+              "'self'; img-src 'self' data:; frame-ancestors 'none'; "
+              "base-uri 'none'; form-action 'none'\r\n";
+  }
+  header += "Connection: close\r\n\r\n";
   if (send_all(socket, header)) {
     (void)send_all(socket, response.body);
   }
@@ -342,6 +351,12 @@ void HttpServer::handle_connection(int client_socket) noexcept {
     const std::string_view body(request.data() + body_start, content_length);
     if (method == "GET" && path == "/api/mxl/v1/events") {
       serve_events(client_socket, last_event_id);
+      return;
+    }
+    if (method == "GET" && (path == "/" || path == "/skin")) {
+      send_response(client_socket,
+                    {200, "text/html; charset=utf-8",
+                     std::string(reference_skin_html())});
       return;
     }
     send_response(client_socket, api_.handle(method, path, body));

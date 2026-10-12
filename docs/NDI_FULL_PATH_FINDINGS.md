@@ -284,5 +284,78 @@ Evidence directory on VM 101:
 This result isolates three previously conflated concerns: adaptive scheduling
 corrected grain selection, eight vCPUs removed artificial CPU starvation, and
 the logind policy preserved unprivileged MXL flow lifetime across administrative
-logouts. The loaded 30-minute and eight-hour gates remain the release evidence
-required before calling this deployment profile accepted.
+logouts. The loaded 30-minute and eight-hour gates described below complete the
+release evidence for this deployment profile.
+
+## Final lifecycle-fix confirmation
+
+The corrected eight-vCPU topology passed both confirmation gates on 2026-10-12.
+The topology contained one real NDI ingress, one VM-local synthetic v210 source,
+stable MXL Program and Preview flows, two continuous NDI egress encoders, and one
+sustained receiver on each output. This accepts that isolated profile; it does
+not substitute for the later two-independent-real-source gate.
+
+### Loaded 30-minute gate
+
+| Measure | Result |
+| --- | ---: |
+| Samples | 144 |
+| TAKEs / final revision | 29 / 33 |
+| Routed grains | 129,678 |
+| Routed from each source | 64,839 |
+| Invalid / too early / too late | 0 / 0 / 0 |
+| Read timeout / reader reopen | 0 / 0 |
+| Sync timeout / sync early / sync late | 0 / 0 / 0 |
+| No common window / selected-index regressions | 0 / 0 |
+| Repeat / skip events / skipped grains | 15 / 13 / 15 |
+| Common-window width | 26-28 grains |
+| Source-head skew | 0-2 grains |
+| Monitoring errors / gate failures | 0 / 0 |
+
+All seven containers were running with zero restarts. Core CPU was 8.28-19.91%
+with 309.2-311.4 MiB RSS. Source CPU was 8.85-20.38%, ingress 43.61-62.77%,
+Program egress 28.17-37.75%, and Preview egress 25.84-35.47%.
+
+### Loaded eight-hour gate
+
+The final gate ran from `2026-10-12T01:27:55Z` through
+`2026-10-12T09:28:17Z` and exited zero.
+
+| Measure | Result |
+| --- | ---: |
+| Samples | 885 |
+| TAKEs / revision movement | 479 / 33 to 512 |
+| Output selections during gate | 863,730 |
+| Routed source grains during gate | 1,727,460 |
+| Routed from each source during gate | 863,730 |
+| Final cumulative selections / routed grains | 930,566 / 1,861,132 |
+| Invalid / too early / too late | 0 / 0 / 0 |
+| Read timeout / reader reopen | 0 / 0 |
+| Sync timeout / sync early / sync late | 0 / 0 / 0 |
+| No common window / selected-index regressions | 0 / 0 |
+| Repeat / skip-event / skipped-grain delta | 97 / 66 / 97 |
+| Common-window width | 10-28 grains |
+| Source-head skew | 0-18 grains |
+| Monitoring errors / gate failures | 0 / 0 |
+
+The temporary reductions in common-window width and increases in source skew
+were absorbed by the adaptive scheduler without a read, validity, timing, or
+synchronization error. RSS remained bounded.
+
+| Service | CPU range | RSS range |
+| --- | ---: | ---: |
+| Core | 8.00-23.49% | 309.2-311.1 MiB |
+| Synthetic source | 8.12-28.17% | 308.5-310.5 MiB |
+| NDI ingress | 39.44-61.94% | 204.7-206.6 MiB |
+| Program NDI egress | 27.38-47.92% | 26.33-26.58 MiB |
+| Preview NDI egress | 25.31-40.63% | 26.33-26.58 MiB |
+
+At completion, Program was NDI and Preview was synthetic. All seven containers
+were running with zero restarts; Core, source, and ingress were healthy. The two
+temporary receiver probes were then removed and the five main services remained
+running.
+
+The raw evidence remains on VM 101 at
+`~/mxl-switcher-core-adaptive/run-logind-fix-8h-20261012T012755Z`. A concise,
+hash-indexed public record is in
+[`ACCEPTANCE_2026-10-12.md`](ACCEPTANCE_2026-10-12.md).

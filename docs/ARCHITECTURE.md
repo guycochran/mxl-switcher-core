@@ -14,6 +14,11 @@ It does not own contribution decoding, graphics, layouts, multiview, replay,
 encoding, monitoring, or operator presentation. Those are media functions or
 skins connected through MXL and the control contract.
 
+The repository ships a small reference Skin to prove that contract end to end.
+It is static HTML/CSS/JavaScript served by the control listener and has no MXL
+handles, media buffers, or video rendering. A production Skin can replace it
+without changing the switching engine.
+
 ## Hot path
 
 ```text
