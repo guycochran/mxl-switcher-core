@@ -226,3 +226,63 @@ Before the longer gates, cadence telemetry is being added for repeated selected
 indexes, skipped indexes and grains, regressions, source-head skew, and minimum
 and maximum common-window width. This distinguishes readable output from truly
 continuous temporal output.
+
+## VM sizing and login-lifecycle follow-up
+
+The first cadence gate was run on a four-vCPU VM while NDI ingress, two v210
+routes, two NDI encoders, and two sustained NDI receivers were active. The VM
+was CPU-saturated: load was approximately 15, with essentially zero idle CPU,
+I/O wait, or steal time. That run produced 2,522 invalid outputs, 58 late reads,
+and 1,232 no-common-window decisions. All containers remained alive. This was a
+capacity failure at the chosen VM allocation, not evidence of a storage,
+network, or memory limit.
+
+The dedicated VM was increased to eight vCPUs and the unrelated VM was stopped
+for the isolated capacity test. Under the same seven-container topology, the VM
+then retained roughly 75-81% idle CPU and about 6 GiB free memory. No storage or
+network changes were required.
+
+A separate lifecycle fault appeared after the VM restart: flows created by the
+unprivileged deployment user disappeared when short SSH sessions ended, while
+root-owned ingress flows persisted. A system-wide file-operation trace
+identified `systemd-logind` as the process recursively deleting the user's MXL
+flow directories. The VM still had logind's default `RemoveIPC=yes`, and the
+deployment user did not have lingering enabled.
+
+On this dedicated test VM, the validated correction was:
+
+- set `RemoveIPC=no` in a local logind drop-in;
+- enable lingering for the deployment user;
+- restart logind;
+- clean only the six UUID directories owned by the isolated pilot;
+- start ingress, synthetic source, Core, and NDI outputs in dependency order;
+- verify the flow directories from a new login before beginning a gate.
+
+The post-fix loaded five-minute gate passed:
+
+| Measure | Result |
+| --- | ---: |
+| Samples | 24 |
+| TAKEs / final revision | 4 / 4 |
+| Routed grains | 20,794 |
+| Routed from each source | 10,397 |
+| Invalid / too early / too late | 0 / 0 / 0 |
+| Read timeout / reader reopen | 0 / 0 |
+| Sync timeout / sync early / sync late | 0 / 0 / 0 |
+| No common window | 0 |
+| Selected-index regressions | 0 |
+| Repeat / skip events / skipped grains | 1 / 1 / 1 |
+| Common-window width | 27-28 grains |
+| Source-head skew | 0-1 grain |
+| Monitoring errors / gate failures | 0 / 0 |
+
+All seven containers finished running with zero restarts. The repeat and skip
+are cadence measurements, not failures; the selected input never regressed.
+Evidence directory on VM 101:
+`~/mxl-switcher-core-adaptive/run-logind-fix-5m-20261012T005133Z`.
+
+This result isolates three previously conflated concerns: adaptive scheduling
+corrected grain selection, eight vCPUs removed artificial CPU starvation, and
+the logind policy preserved unprivileged MXL flow lifetime across administrative
+logouts. The loaded 30-minute and eight-hour gates remain the release evidence
+required before calling this deployment profile accepted.

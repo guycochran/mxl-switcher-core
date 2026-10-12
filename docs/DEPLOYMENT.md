@@ -55,6 +55,41 @@ SupplementaryGroups=mxl
 After installing the unit and local configuration, reload systemd and enable the
 service using the host's normal administration workflow.
 
+## Shared-memory lifetime on systemd hosts
+
+MXL flow directories live under `/dev/shm`. On a dedicated test appliance where
+containers run as an interactive user, systemd-logind's default `RemoveIPC=yes`
+can recursively remove that user's MXL flow directories when the last login
+session closes. The publisher may still be running and holding shared locks, so
+this can look like an MXL reader, Core, or container restart defect even though
+the deletion was initiated by `systemd-logind`.
+
+Prefer a dedicated service identity and system service for a production
+deployment. For a dedicated MXL development appliance that intentionally runs
+long-lived publishers as a login user, preserve the user's IPC objects with a
+local logind drop-in:
+
+```ini
+# /etc/systemd/logind.conf.d/90-mxl.conf
+[Login]
+RemoveIPC=no
+```
+
+Also enable lingering for the deployment user so its user manager and runtime
+directory remain available without an interactive session:
+
+```sh
+sudo loginctl enable-linger DEPLOYMENT_USER
+sudo systemctl restart systemd-logind
+```
+
+`RemoveIPC=no` is host-wide, so use it only on a dedicated media appliance whose
+shared-memory lifecycle is understood. Enabling linger is per user. Verify both
+settings, end the administrative login, and confirm that the publisher-owned
+flow directories still exist before starting an acceptance gate. Never solve
+this problem by making the MXL domain world-writable or by deleting the entire
+shared-memory domain; clean only the UUIDs owned by the isolated deployment.
+
 ## Shutdown and restart
 
 SIGTERM stops acceptance of new control connections, finishes the current media
