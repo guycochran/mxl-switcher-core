@@ -93,3 +93,59 @@ Core held 212 Program/Preview output grains using the last valid pictures and
 emitted zero invalid grains. All too-early, too-late, timeout, synchronization,
 and regression counters remained zero. The five services and two probes were
 still running with zero restarts at completion.
+
+## Two-real-NDI-source addendum
+
+The next milestone replaced the synthetic source with an independent real NDI
+sender at `192.168.1.107:5961`. Its native 30/1 video was normalized at the I/O
+boundary to the Core operating point of 30000/1001. The sender was video-only;
+disabling the unused audio branch was required to prevent that combined ingest
+pipeline from stopping after its first 29-grain ring.
+
+The five-minute loaded gate passed on 2026-10-12:
+
+| Measure | Result |
+| --- | ---: |
+| Samples | 24 |
+| TAKEs / final revision | 5 / 5 |
+| Final routed source grains | 23,276 |
+| Routed grains per source | 11,638 |
+| Invalid / too early / too late | 0 / 0 / 0 |
+| Read timeout / reader reopen | 0 / 0 |
+| Sync timeout / sync early / sync late | 0 / 0 / 0 |
+| No common window / regression | 0 / 0 |
+| Monitoring errors / gate failures | 0 / 0 |
+| Common-window width | 28 grains |
+| Source-head skew | 0 grains |
+
+Both sustained NDI receivers remained running with zero restarts. Program
+rendered at least 11,203 frames and Preview at least 11,199 frames, each with
+zero decoder drops and approximately 29.98 and 29.97 average fps respectively.
+All five active service containers were healthy with zero restarts at cleanup;
+only the two temporary probes were removed. The stopped synthetic container was
+retained as a rollback source.
+
+Resource ranges:
+
+| Service | CPU range | RSS range |
+| --- | ---: | ---: |
+| Core | 13.56-25.88% | 319.9-320.2 MiB |
+| NDI ingress A | 43.28-58.81% | 183.3-191.7 MiB |
+| NDI ingress B | 20.36-26.11% | 183.2-187.4 MiB |
+| Program NDI output | 32.76-43.60% | 25.19-27.64 MiB |
+| Preview NDI output | 31.18-40.33% | 25.82-27.36 MiB |
+
+Raw evidence on VM 101:
+
+```text
+/home/guycochran/mxl-switcher-core-adaptive/run-two-real-ndi-5m-20261012T122000Z
+```
+
+SHA-256 hashes:
+
+```text
+379656d52f8fbedc6ed33413c300430691a36cdb1ee1fe22a986ad830732069f  summary.txt
+9413da8b602f6bd93d6917758c0cdeb6f97c81ba63a9b0e12168fbf5faa6d9ea  samples.tsv
+1c266961e03265cba2aa627eea27bc82aca06735913a167957b1101b87b6899e  controls.jsonl
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  errors.log
+```

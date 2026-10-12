@@ -43,7 +43,7 @@ services:
     command:
       - /opt/core/build/mxl-core-live
       - --config
-      - /opt/core/packaging/ndi-pilot/core.conf
+      - ${CORE_CONFIG_PATH:-/opt/core/packaging/ndi-pilot/core.conf}
     init: true
     restart: unless-stopped
     security_opt:
