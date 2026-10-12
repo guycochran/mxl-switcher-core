@@ -359,3 +359,27 @@ The raw evidence remains on VM 101 at
 `~/mxl-switcher-core-adaptive/run-logind-fix-8h-20261012T012755Z`. A concise,
 hash-indexed public record is in
 [`ACCEPTANCE_2026-10-12.md`](ACCEPTANCE_2026-10-12.md).
+
+## Post-acceptance restart recovery
+
+Deploying the reference Skin provided a controlled Core-restart resilience test.
+Program and Preview returned under the same configured UUIDs, but their
+shared-memory directories were new objects. The original MXL-Lab egress
+pipelines remained running while attached to the obsolete objects, and both
+sustained NDI receiver probes exited. Restarting the two egress containers
+restored both outputs, confirming that grain routing and NDI encoding were
+healthy and isolating the fault to egress flow reopening.
+
+The MXL-Lab egress wrapper was changed to watch the configured flow-directory
+inode and rebuild its GStreamer pipeline whenever Core replaces that object.
+Program and Preview egress also gained health checks requiring both the flow
+directory and a live publisher process. The fix is public in
+[`guycochran/MXL-Lab`](https://github.com/guycochran/MXL-Lab/tree/codex/ndi-core-ingress)
+at commit `fecd186`.
+
+The restart test was then repeated with both NDI receiver probes already
+running. Both egress wrappers detected the replacement, reopened the new flows,
+returned healthy, and kept both receivers running. After a 30-second hold, Core,
+source, ingress, Program egress, and Preview egress were all healthy with zero
+restarts; Core reported zero validity, timing, synchronization, overlap, or
+regression errors. Only the two temporary probes were removed afterward.
