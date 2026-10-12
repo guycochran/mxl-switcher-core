@@ -383,3 +383,28 @@ returned healthy, and kept both receivers running. After a 30-second hold, Core,
 source, ingress, Program egress, and Preview egress were all healthy with zero
 restarts; Core reported zero validity, timing, synchronization, overlap, or
 regression errors. Only the two temporary probes were removed afterward.
+
+## Post-acceptance source-loss recovery
+
+A controlled stop/start of the real NDI ingress exposed a separate same-UUID
+input lifecycle defect: the recreated input had a new shared-memory inode, while
+Core's reader still referenced the obsolete object. Because the stale reader
+continued returning its old runtime head, the common-window check failed before
+the existing `MXL_ERR_FLOW_INVALID` reopen path could run.
+
+Core now records the device/inode identity of each Linux MXL flow object,
+rebuilds its synchronization group when an object is replaced, retries while a
+new reader is not ready, and reopens only the affected reader. It also repeats
+each output's last valid picture while a selected source is unavailable. This
+keeps downstream transports alive without changing the stable Program/Preview
+UUIDs; the new `held` counter makes that failure policy observable.
+
+The final test used two direct NDI receiver probes under active decode load. The
+real NDI ingress was stopped for three seconds and recreated its input object
+from inode `2654` to `2761`. During the loss both probes remained running, Core
+published no invalid grains, and every timing, timeout, synchronization, and
+regression counter remained zero. Core held 212 output grains, recorded 78
+no-common-window decisions, reopened the affected reader once, skipped forward
+105 source grains on recovery, and resumed aligned routing. Core, the synthetic
+source, ingress, both NDI publishers, and both receiver probes all remained
+running with zero restarts.

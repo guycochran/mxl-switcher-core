@@ -36,6 +36,7 @@ std::string json_string(std::string_view value) {
 std::string health_json(const MxlBackendStats& stats) {
   std::ostringstream output;
   output << "{\"status\":\"running\",\"routed\":" << stats.routed
+         << ",\"held\":" << stats.held
          << ",\"invalid\":" << stats.invalid
          << ",\"too_early\":" << stats.too_early
          << ",\"too_late\":" << stats.too_late
@@ -237,6 +238,7 @@ int main(int argc, char** argv) {
     const auto stats = media.stats();
     const auto state = core.state();
     std::cout << "frames=" << processed << " routed=" << stats.routed
+              << " held=" << stats.held
               << " invalid=" << stats.invalid
               << " too_early=" << stats.too_early
               << " too_late=" << stats.too_late

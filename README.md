@@ -26,6 +26,8 @@ are included.
 - bounded `mxl-core-live` harness with automatic TAKE cadence and metrics.
 - aggregate and per-source health counters that distinguish upstream invalid or
   stale media from failures in the stable PGM/PVW outputs.
+- automatic reader replacement detection and a measured hold-last-output policy
+  that preserves Program/Preview cadence through a transient source restart.
 - dependency-free versioned control adapter for state, sources, Preview, Cut,
   and Take, with contract tests preserving frame-boundary command semantics.
 - bounded HTTP/1.1 control transport, loopback-only by default, with real-socket
@@ -112,9 +114,9 @@ intermittent guest input while the clip input remained clean.
 
 1. **Accepted NDI/MXL profile:** complete. One real NDI ingress plus one local
    synthetic v210 source passed eight loaded hours with two active NDI outputs.
-2. **Lifecycle resilience:** interrupt and restore a source, then independently
-   restart Core, ingress, and egress while checking UUID stability and receiver
-   reconnection.
+2. **Lifecycle resilience:** complete for Core, ingress, and egress replacement.
+   A controlled NDI-ingress interruption preserved both decoded NDI outputs,
+   reopened the recreated MXL input, and recovered without process restarts.
 3. **Two-source hardware acceptance:** repeat with two independent real sources
    into stable PGM/PVW on the Supermicro.
 4. **Deployment profiles:** package Core-only, Program-only NDI, and full

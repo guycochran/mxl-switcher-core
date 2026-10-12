@@ -5,14 +5,17 @@
 #include <mxl/flow.h>
 #include <mxl/time.h>
 
+#include <cerrno>
 #include <cstring>
 #include <limits>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <sys/stat.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace mxl_core {
 namespace {
@@ -112,7 +115,8 @@ class MxlBackend::Impl {
       throw std::invalid_argument(
           "output MXL flow does not match host-memory v210 operating point");
     }
-    writers_.emplace(output.flow_id, Writer{writer, config, created});
+    writers_.emplace(output.flow_id,
+                     Writer{writer, config, created, {}, 0, 0});
   }
 
   void prepare_frame(const std::vector<FlowId>& source_flows,
@@ -129,6 +133,8 @@ class MxlBackend::Impl {
       throw std::invalid_argument("a frame requires at least one source flow");
     }
 
+    refresh_replaced_readers(unique_flows);
+
     if (desired != grouped_flows_) {
       for (const auto& flow_id : grouped_flows_) {
         const auto reader = readers_.find(flow_id);
@@ -143,9 +149,20 @@ class MxlBackend::Impl {
       grouped_flows_.clear();
 
       for (const auto& flow_id : unique_flows) {
-        auto& reader = get_reader(flow_id);
+        auto* reader = try_get_reader(flow_id);
+        if (reader == nullptr) {
+          reset_sync_group();
+          prepared_output_index_ = output_index;
+          prepared_input_index_.reset();
+          std::lock_guard lock(stats_mutex_);
+          ++stats_.no_common_window;
+          for (const auto& missing_flow : unique_flows) {
+            ++stats_.sources[missing_flow].no_common_window;
+          }
+          return;
+        }
         const auto status =
-            mxlFlowSynchronizationGroupAddReader(sync_group_, reader.handle);
+            mxlFlowSynchronizationGroupAddReader(sync_group_, reader->handle);
         if (status != MXL_STATUS_OK) {
           throw sdk_error("mxlFlowSynchronizationGroupAddReader", status);
         }
@@ -203,6 +220,7 @@ class MxlBackend::Impl {
       return;
     }
 
+    bool repeat_selection = false;
     {
       std::lock_guard lock(stats_mutex_);
       const auto first_selection = stats_.adaptive_selections == 0;
@@ -230,6 +248,7 @@ class MxlBackend::Impl {
       switch (cadence.kind) {
         case InputIndexStepKind::Repeat:
           ++stats_.selected_input_repeats;
+          repeat_selection = true;
           break;
         case InputIndexStepKind::Skip:
           ++stats_.selected_input_skip_events;
@@ -243,6 +262,11 @@ class MxlBackend::Impl {
           break;
       }
       last_selected_input_index_ = selection->selected_index;
+    }
+
+    if (repeat_selection) {
+      prepared_input_index_.reset();
+      return;
     }
 
     const auto timestamp =
@@ -278,7 +302,6 @@ class MxlBackend::Impl {
 
   void route_grain(const FlowId& source_flow, const FlowId& output_flow,
                    std::uint64_t output_index) {
-    auto& reader = get_reader(source_flow);
     const auto writer_it = writers_.find(output_flow);
     if (writer_it == writers_.end()) {
       throw std::invalid_argument("output flow is not open: " + output_flow);
@@ -287,9 +310,11 @@ class MxlBackend::Impl {
       throw std::logic_error("route requested without a prepared output frame");
     }
     if (!prepared_input_index_) {
-      commit_invalid(writer_it->second.handle, output_index);
+      commit_unavailable(writer_it->second, output_index);
       return;
     }
+
+    auto& reader = get_reader(source_flow);
 
     mxlGrainInfo source_info{};
     std::uint8_t* source_payload = nullptr;
@@ -297,23 +322,8 @@ class MxlBackend::Impl {
         reader.handle, *prepared_input_index_, read_timeout_ns_, &source_info,
         &source_payload);
     if (status == MXL_ERR_FLOW_INVALID) {
-      if (grouped_flows_.contains(source_flow)) {
-        const auto remove_status = mxlFlowSynchronizationGroupRemoveReader(
-            sync_group_, reader.handle);
-        if (remove_status != MXL_STATUS_OK) {
-          throw sdk_error("mxlFlowSynchronizationGroupRemoveReader",
-                          remove_status);
-        }
-        grouped_flows_.erase(source_flow);
-      }
-      mxlReleaseFlowReader(instance_, reader.handle);
-      readers_.erase(source_flow);
-      {
-        std::lock_guard lock(stats_mutex_);
-        ++stats_.reader_reopens;
-        ++stats_.sources[source_flow].reader_reopens;
-      }
-      commit_invalid(writer_it->second.handle, output_index);
+      discard_reader(source_flow);
+      commit_unavailable(writer_it->second, output_index);
       return;
     }
     if (status == MXL_ERR_OUT_OF_RANGE_TOO_EARLY) {
@@ -322,7 +332,7 @@ class MxlBackend::Impl {
         ++stats_.too_early;
         ++stats_.sources[source_flow].too_early;
       }
-      commit_invalid(writer_it->second.handle, output_index);
+      commit_unavailable(writer_it->second, output_index);
       return;
     }
     if (status == MXL_ERR_OUT_OF_RANGE_TOO_LATE) {
@@ -331,7 +341,7 @@ class MxlBackend::Impl {
         ++stats_.too_late;
         ++stats_.sources[source_flow].too_late;
       }
-      commit_invalid(writer_it->second.handle, output_index);
+      commit_unavailable(writer_it->second, output_index);
       return;
     }
     if (status == MXL_ERR_TIMEOUT) {
@@ -340,7 +350,7 @@ class MxlBackend::Impl {
         ++stats_.timeouts;
         ++stats_.sources[source_flow].timeouts;
       }
-      commit_invalid(writer_it->second.handle, output_index);
+      commit_unavailable(writer_it->second, output_index);
       return;
     }
     if (status != MXL_STATUS_OK) {
@@ -356,39 +366,43 @@ class MxlBackend::Impl {
     }
 
     if ((source_info.flags & MXL_GRAIN_FLAG_INVALID) != 0) {
-      output_info.flags = MXL_GRAIN_FLAG_INVALID;
-      output_info.validSlices = 0;
       {
         std::lock_guard lock(stats_mutex_);
-        ++stats_.invalid;
         ++stats_.sources[source_flow].invalid;
       }
+      commit_unavailable(writer_it->second, output_index, &output_info,
+                         output_payload);
+      return;
     } else {
       if (source_info.grainSize != output_info.grainSize ||
           source_info.totalSlices != output_info.totalSlices ||
           source_payload == nullptr || output_payload == nullptr) {
-        output_info.flags = MXL_GRAIN_FLAG_INVALID;
-        output_info.validSlices = 0;
         {
           std::lock_guard lock(stats_mutex_);
-          ++stats_.invalid;
           ++stats_.sources[source_flow].invalid;
         }
+        commit_unavailable(writer_it->second, output_index, &output_info,
+                           output_payload);
+        return;
       } else {
         std::memcpy(output_payload, source_payload, source_info.grainSize);
         output_info.flags = source_info.flags;
         output_info.validSlices = source_info.validSlices;
-        {
-          std::lock_guard lock(stats_mutex_);
-          ++stats_.routed;
-          ++stats_.sources[source_flow].routed;
-        }
       }
     }
     write_status =
         mxlFlowWriterCommitGrain(writer_it->second.handle, &output_info);
     if (write_status != MXL_STATUS_OK) {
       throw sdk_error("mxlFlowWriterCommitGrain", write_status);
+    }
+    writer_it->second.last_payload.assign(
+        source_payload, source_payload + source_info.grainSize);
+    writer_it->second.last_flags = source_info.flags;
+    writer_it->second.last_valid_slices = source_info.validSlices;
+    {
+      std::lock_guard lock(stats_mutex_);
+      ++stats_.routed;
+      ++stats_.sources[source_flow].routed;
     }
   }
 
@@ -408,31 +422,51 @@ class MxlBackend::Impl {
   }
 
  private:
+  struct FlowIdentity {
+    dev_t device;
+    ino_t inode;
+
+    bool operator==(const FlowIdentity&) const = default;
+  };
+
   struct Reader {
     mxlFlowReader handle;
     mxlFlowConfigInfo config;
+    std::optional<FlowIdentity> identity;
   };
   struct Writer {
     mxlFlowWriter handle;
     mxlFlowConfigInfo config;
     bool created;
+    std::vector<std::uint8_t> last_payload;
+    std::uint32_t last_flags{0};
+    std::uint32_t last_valid_slices{0};
   };
 
   Reader& get_reader(const FlowId& flow_id) {
+    auto* reader = try_get_reader(flow_id);
+    if (reader == nullptr) {
+      throw std::runtime_error("MXL source flow is temporarily unavailable: " +
+                               flow_id);
+    }
+    return *reader;
+  }
+
+  Reader* try_get_reader(const FlowId& flow_id) {
     if (auto found = readers_.find(flow_id); found != readers_.end()) {
-      return found->second;
+      return &found->second;
     }
     mxlFlowReader handle = nullptr;
     auto status =
         mxlCreateFlowReader(instance_, flow_id.c_str(), nullptr, &handle);
     if (status != MXL_STATUS_OK) {
-      throw sdk_error("mxlCreateFlowReader", status);
+      return nullptr;
     }
     mxlFlowConfigInfo config{};
     status = mxlFlowReaderGetConfigInfo(handle, &config);
     if (status != MXL_STATUS_OK) {
       mxlReleaseFlowReader(instance_, handle);
-      throw sdk_error("mxlFlowReaderGetConfigInfo", status);
+      return nullptr;
     }
     if (config.common.format != MXL_DATA_FORMAT_VIDEO ||
         config.common.payloadLocation != MXL_PAYLOAD_LOCATION_HOST_MEMORY) {
@@ -440,25 +474,119 @@ class MxlBackend::Impl {
       throw std::invalid_argument(
           "source is not a host-memory MXL video flow: " + flow_id);
     }
-    return readers_.emplace(flow_id, Reader{handle, config}).first->second;
+    return &readers_
+                .emplace(flow_id,
+                         Reader{handle, config, flow_identity(flow_id)})
+                .first->second;
   }
 
-  void commit_invalid(mxlFlowWriter writer, std::uint64_t output_index) {
-    mxlGrainInfo info{};
-    std::uint8_t* unused = nullptr;
-    auto status =
-        mxlFlowWriterOpenGrain(writer, output_index, &info, &unused);
-    if (status != MXL_STATUS_OK) {
-      throw sdk_error("mxlFlowWriterOpenGrain(invalid)", status);
+  std::optional<FlowIdentity> flow_identity(const FlowId& flow_id) const {
+    const auto path = domain_ + "/" + flow_id + ".mxl-flow";
+    struct stat metadata {};
+    if (::stat(path.c_str(), &metadata) == 0) {
+      return FlowIdentity{metadata.st_dev, metadata.st_ino};
     }
-    info.flags = MXL_GRAIN_FLAG_INVALID;
-    info.validSlices = 0;
-    status = mxlFlowWriterCommitGrain(writer, &info);
+    if (errno == ENOENT) {
+      return std::nullopt;
+    }
+    throw std::runtime_error("could not inspect MXL flow object: " + path +
+                             ": " + std::strerror(errno));
+  }
+
+  void reset_sync_group() {
+    if (sync_group_ != nullptr) {
+      mxlReleaseFlowSynchronizationGroup(instance_, sync_group_);
+      sync_group_ = nullptr;
+    }
+    const auto status =
+        mxlCreateFlowSynchronizationGroup(instance_, &sync_group_);
     if (status != MXL_STATUS_OK) {
-      throw sdk_error("mxlFlowWriterCommitGrain(invalid)", status);
+      throw sdk_error("mxlCreateFlowSynchronizationGroup", status);
+    }
+    grouped_flows_.clear();
+  }
+
+  void discard_reader(const FlowId& flow_id) {
+    const auto found = readers_.find(flow_id);
+    if (found == readers_.end()) {
+      return;
+    }
+    if (grouped_flows_.contains(flow_id)) {
+      reset_sync_group();
+    }
+    mxlReleaseFlowReader(instance_, found->second.handle);
+    readers_.erase(found);
+    std::lock_guard lock(stats_mutex_);
+    ++stats_.reader_reopens;
+    ++stats_.sources[flow_id].reader_reopens;
+  }
+
+  void refresh_replaced_readers(const std::vector<FlowId>& flow_ids) {
+    std::vector<FlowId> replaced;
+    for (const auto& flow_id : flow_ids) {
+      const auto found = readers_.find(flow_id);
+      if (found == readers_.end()) {
+        continue;
+      }
+      const auto current = flow_identity(flow_id);
+      if (!current) {
+        continue;
+      }
+      if (!found->second.identity) {
+        found->second.identity = current;
+      } else if (*found->second.identity != *current) {
+        replaced.push_back(flow_id);
+      }
+    }
+    if (replaced.empty()) {
+      return;
+    }
+    reset_sync_group();
+    for (const auto& flow_id : replaced) {
+      const auto found = readers_.find(flow_id);
+      if (found != readers_.end()) {
+        mxlReleaseFlowReader(instance_, found->second.handle);
+        readers_.erase(found);
+      }
+      std::lock_guard lock(stats_mutex_);
+      ++stats_.reader_reopens;
+      ++stats_.sources[flow_id].reader_reopens;
+    }
+  }
+
+  void commit_unavailable(Writer& writer, std::uint64_t output_index,
+                          mxlGrainInfo* opened_info = nullptr,
+                          std::uint8_t* opened_payload = nullptr) {
+    mxlGrainInfo local_info{};
+    auto* info = opened_info == nullptr ? &local_info : opened_info;
+    std::uint8_t* payload = opened_payload;
+    auto status = opened_info == nullptr
+                      ? mxlFlowWriterOpenGrain(writer.handle, output_index,
+                                               info, &payload)
+                      : MXL_STATUS_OK;
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowWriterOpenGrain(unavailable)", status);
+    }
+    const auto can_hold = payload != nullptr && !writer.last_payload.empty() &&
+                          writer.last_payload.size() == info->grainSize;
+    if (can_hold) {
+      std::memcpy(payload, writer.last_payload.data(), writer.last_payload.size());
+      info->flags = writer.last_flags;
+      info->validSlices = writer.last_valid_slices;
+    } else {
+      info->flags = MXL_GRAIN_FLAG_INVALID;
+      info->validSlices = 0;
+    }
+    status = mxlFlowWriterCommitGrain(writer.handle, info);
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowWriterCommitGrain(unavailable)", status);
     }
     std::lock_guard lock(stats_mutex_);
-    ++stats_.invalid;
+    if (can_hold) {
+      ++stats_.held;
+    } else {
+      ++stats_.invalid;
+    }
   }
 
   std::string domain_;

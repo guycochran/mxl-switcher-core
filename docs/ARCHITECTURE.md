@@ -49,10 +49,11 @@ halfway through an output frame.
 
 ## Failure contract
 
-Missing source grains must become invalid output grains for the same index; the
-adapter must not hold an old picture indefinitely or recreate output flows. SDK
-`TOO_EARLY` should retry within the current deadline. SDK `TOO_LATE` should
-resynchronize to the current domain index and report discontinuity metrics.
+After an output has routed its first valid grain, transient missing source media
+must preserve output cadence by repeating that output's last valid picture. The
+adapter measures every held grain and must not recreate output flows. Before a
+valid picture exists, unavailable media is committed invalid. SDK timing errors
+and reader replacement remain visible in health telemetry.
 
 ## Live adapter
 
@@ -65,8 +66,10 @@ resynchronize to the current domain index and report discontinuity metrics.
    Synchronization Group;
 5. copies directly from the SDK-owned input payload into the SDK-owned output
    payload, avoiding an intermediate allocation or second copy;
-6. commits invalid grains for missing/late input so output timing advances;
-7. reopens a reader after `MXL_ERR_FLOW_INVALID` without recreating PGM/PVW;
+6. repeats each output's last valid payload for unavailable or repeated input so
+   output timing advances without dropping downstream transports;
+7. detects a same-UUID shared-memory object replacement and reopens that reader
+   without recreating PGM/PVW;
 8. closes handles at shutdown without deleting/recreating flows during operation.
 
 This is deliberately isolated from the engine so development and contract tests

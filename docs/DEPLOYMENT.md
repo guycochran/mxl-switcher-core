@@ -114,9 +114,10 @@ can overwrite it. A nonzero margin is available for integrations whose reported
 head needs settling time, but it deliberately reduces overwrite headroom. The
 NDI pilot therefore uses zero.
 
-If the source rings have no common readable grain, the Core publishes invalid
-output grains for that frame and increments `no_common_window` rather than
-waiting for an index that cannot succeed. Health also reports the latest source
+If the source rings have no common readable grain, the Core repeats each
+output's last valid picture and increments `held` and `no_common_window` rather
+than waiting for an index that cannot succeed. Before the first valid picture is
+available, it publishes an invalid grain. Health also reports the latest source
 heads, oldest-readable indexes, selected input index, and common-window width.
 
 Set `read_timeout_ns` to the bounded wait allowed for a selected grain after its

@@ -29,6 +29,7 @@ struct MxlSourceStats {
 
 struct MxlBackendStats {
   std::uint64_t routed{0};
+  std::uint64_t held{0};
   std::uint64_t invalid{0};
   std::uint64_t too_early{0};
   std::uint64_t too_late{0};

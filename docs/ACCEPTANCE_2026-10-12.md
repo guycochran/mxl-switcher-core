@@ -80,3 +80,16 @@ fa4846f3c163f49a06d9a7d16d8db060456eb5eab69bb13f1aa1dcb0f1e4e0a0  samples.tsv
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  errors.log
 9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  exit-status.txt
 ```
+
+## Source-loss recovery addendum
+
+After acceptance, a controlled three-second interruption recreated the real NDI
+input flow under the same UUID with a new shared-memory inode (`2654` to `2761`).
+Core automatically detected the replacement, retried until the new reader was
+ready, reopened it once, and resumed synchronized routing.
+
+Both direct NDI receiver probes remained under active decode load throughout.
+Core held 212 Program/Preview output grains using the last valid pictures and
+emitted zero invalid grains. All too-early, too-late, timeout, synchronization,
+and regression counters remained zero. The five services and two probes were
+still running with zero restarts at completion.

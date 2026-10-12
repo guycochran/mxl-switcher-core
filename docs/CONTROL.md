@@ -43,9 +43,10 @@ and emits a keepalive comment while idle. An open event stream does not block
 reads or commands on other connections. The server limits concurrent control
 connections and shuts them down before the core exits.
 
-`health` reports live aggregate and per-flow MXL routing counters. Statistics
-snapshots are synchronized with the media thread, so a skin can poll health
-without racing counter updates.
+`health` reports live aggregate and per-flow MXL routing counters. The aggregate
+`held` counter records output grains that repeated the last valid picture while
+input was unavailable or had not advanced. Statistics snapshots are synchronized
+with the media thread, so a skin can poll health without racing counter updates.
 
 The live harness binds `127.0.0.1:8080` by default. `--control-host` and
 `--control-port` override that address. Binding a non-loopback address should be
