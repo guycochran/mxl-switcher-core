@@ -90,6 +90,7 @@ class App:
         core = self.state()["core"]
         active = {core.get("program"), core.get("preview")}
         bank = "b" if "supersource-a" in active else "a"
+        engine = {}
         if self.helper:
             result = subprocess.run(
                 [self.helper, bank, str(count), *[str(item) for item in sources]],
@@ -100,13 +101,23 @@ class App:
             )
             if result.returncode:
                 raise RuntimeError((result.stderr or result.stdout or "SuperSource launch failed").strip())
+            try:
+                engine = json.loads(result.stdout.strip().splitlines()[-1])
+            except (IndexError, json.JSONDecodeError):
+                engine = {}
         with self.lock:
             self.banks[bank] = {"count": count, "sources": sources, "ready": True}
             self.persist()
         status, _kind, receipt = self.core_json(
             "/api/mxl/v1/preview", "POST", {"source": f"supersource-{bank}"}
         )
-        return {"bank": bank, "scene": self.banks[bank], "receipt": json.loads(receipt), "status": status}
+        return {
+            "bank": bank,
+            "scene": self.banks[bank],
+            "receipt": json.loads(receipt),
+            "status": status,
+            "engine": engine,
+        }
 
 
 class Handler(BaseHTTPRequestHandler):

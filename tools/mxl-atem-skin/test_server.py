@@ -46,7 +46,9 @@ class AppTests(unittest.TestCase):
     @mock.patch.object(subprocess, "run")
     def test_prepare_uses_bank_b_when_a_is_in_preview(self, run):
         app = self.app()
-        run.return_value = subprocess.CompletedProcess([], 0, "", "")
+        run.return_value = subprocess.CompletedProcess(
+            [], 0, '{"bank":"b","layout":3,"state":"ready","ready_ms":640}\n', ""
+        )
 
         def core_json(path, method="GET", body=None):
             if path.endswith("/state"):
@@ -59,6 +61,7 @@ class AppTests(unittest.TestCase):
         app.core_json = core_json
         result = app.prepare({"count": 3, "sources": [3, 4, 5]})
         self.assertEqual(result["bank"], "b")
+        self.assertEqual(result["engine"]["ready_ms"], 640)
         self.assertEqual(app.banks["b"]["sources"], [3, 4, 5])
         self.assertTrue(app.state_file.is_file())
         run.assert_called_once_with(

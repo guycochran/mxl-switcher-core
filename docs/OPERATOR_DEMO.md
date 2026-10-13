@@ -45,15 +45,21 @@ ssh -N \
 Open `http://127.0.0.1:13010/` for the operator Skin. The optional NMOS Node API
 is then visible at `http://127.0.0.1:13021/x-nmos/node/v1.3/`.
 
-For a Stream Deck, install the developer module in
-`companion-module-mxl-core`, add an `mxl-core` connection, and use
-`http://127.0.0.1:13010` as its base URL. The supplied presets provide:
+For a Stream Deck, build `companion-module-mxl-core` with `npm run package`,
+import the resulting `.tgz` from Companion's Modules page, add an MXL Core
+connection, and use `http://127.0.0.1:13010` as its base URL. The supplied
+presets provide:
 
 - Program 1-8 with red tally;
 - Preview 1-8 with green tally;
 - TAKE;
 - safe off-air preparation of 2-up through 8-up layouts;
 - SuperSource A/B status and TAKE.
+
+The recommended Stream Deck XL page is Program 1–8 on row one, Preview 1–8 on
+row two, 2-up through 8-up Look buttons on row three, and TAKE / TAKE SS / bank
+controls on row four. The same controls remain usable from Companion's browser
+button grid when a physical surface is not attached.
 
 ## Rehearsal
 
@@ -74,9 +80,12 @@ latency and reduced decode cost. CPU use grows primarily with the number of
 active SuperSource boxes because both A/B banks stay live for seamless cuts.
 This is expected compositing work, not MXL transport overhead.
 
-For the cleanest live presentation, prebuild only the two layouts needed for the
-next demonstration segment. Very dense layouts in both A and B simultaneously
-are a useful stress test, but leave less safety margin than a typical show state.
+For the cleanest live presentation, keep the two A/B banks warm and punch the
+next Look into the inactive bank. Scene changes do not rebuild Docker; the
+validated path changes 2-up through 8-up layouts in about 0.9–1.8 seconds while
+the on-air bank remains untouched. Very dense layouts in both A and B
+simultaneously are a useful stress test, but leave less safety margin than a
+typical show state.
 
 ## Standards boundary
 

@@ -18,14 +18,19 @@ The module's default base URL is `http://127.0.0.1:13010`.
 
 ## Install
 
-Use a current Companion release with developer-module support. Companion 1.x is
-too old for this Node 18 module API.
+Use Companion 5 or newer. Build a signed-local module package and import it
+through **Modules → Import module package**:
 
-1. Run `npm install` in this directory.
-2. In Companion, open **Settings → Developer** and set the developer modules
-   path to the parent directory containing `companion-module-mxl-core`.
-3. Add the **mxl-core** connection and confirm its status becomes OK.
-4. Drag the ready-made presets onto a Stream Deck XL page.
+```sh
+npm install
+npm run package
+```
+
+Import `mxl-core-0.2.0.tgz`, add the **MXL Core** connection, and confirm its
+status becomes green/OK. Its default URL is already the secure local tunnel at
+`http://127.0.0.1:13010`.
+
+Drag the ready-made presets onto a Stream Deck XL page.
 
 Recommended layout:
 
@@ -34,8 +39,8 @@ Recommended layout:
 - Row 3: Prepare 2-up through 8-up
 - Row 4: TAKE, TAKE SS, SuperSource A/B, and operator utility keys
 
-The SuperSource preset buttons build the selected layout on the safe inactive
-bank and place it in Preview. Use TAKE or TAKE SS to put it on air.
+The SuperSource preset buttons punch the selected layout on the safe inactive
+warm bank and place it in Preview. Use TAKE or TAKE SS to put it on air.
 
 ## NMOS boundary
 

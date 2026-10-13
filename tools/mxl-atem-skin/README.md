@@ -51,7 +51,15 @@ source=supersource-a|2cbb8ee0-b44a-5f31-a5d0-00000000000a|SuperSource A
 source=supersource-b|2cbb8ee0-b44a-5f31-a5d0-00000000000b|SuperSource B
 ```
 
-The helper rebuilds only the inactive A/B bank and leaves every prepared bank
-running with an automatic restart policy. A bank currently assigned to Program
-or Preview is never rebuilt. This preserves the on-air flow while the alternate
-composition is prepared and attached off air.
+Each A/B bank is a persistent warm container controlled only over a loopback
+HTTP endpoint. A Look change replaces the compositor child inside the inactive
+bank instead of tearing down and recreating Docker. A bank currently assigned
+to Program or Preview is never changed. This preserves the on-air flow while
+the alternate composition is prepared and attached off air.
+
+The first migration or recovery start warms the container once. Measured warm
+2-up through 8-up changes complete in roughly 0.9–1.8 seconds on the validated
+Azure host, versus roughly 12–13 seconds when Docker was recreated for every
+button press. The compositor must set `automatic-eos=false` on each live
+`appsrc`; the scene supervisor also retries a transient fixed-flow handoff
+without restarting its bank container.
