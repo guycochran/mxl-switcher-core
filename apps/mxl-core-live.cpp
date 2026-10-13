@@ -35,7 +35,11 @@ std::string json_string(std::string_view value) {
 
 std::string health_json(const MxlBackendStats& stats) {
   std::ostringstream output;
-  output << "{\"status\":\"running\",\"routed\":" << stats.routed
+  const auto status = stats.sustained_unavailable_active == 0
+                          ? "running"
+                          : "degraded";
+  output << "{\"status\":" << json_string(status)
+         << ",\"routed\":" << stats.routed
          << ",\"held\":" << stats.held
          << ",\"invalid\":" << stats.invalid
          << ",\"too_early\":" << stats.too_early
@@ -47,7 +51,19 @@ std::string health_json(const MxlBackendStats& stats) {
          << ",\"sync_too_early\":" << stats.sync_too_early
          << ",\"sync_too_late\":" << stats.sync_too_late
          << ",\"adaptive_selections\":" << stats.adaptive_selections
+         << ",\"independent_selections\":"
+         << stats.independent_selections
          << ",\"no_common_window\":" << stats.no_common_window
+         << ",\"observed_common_window_empty\":"
+         << stats.observed_common_window_empty
+         << ",\"input_timeline_resets\":"
+         << stats.input_timeline_resets
+         << ",\"recovery_index_clamps\":"
+         << stats.recovery_index_clamps
+         << ",\"sustained_unavailable_alarms\":"
+         << stats.sustained_unavailable_alarms
+         << ",\"sustained_unavailable_active\":"
+         << stats.sustained_unavailable_active
          << ",\"last_common_oldest_index\":"
          << stats.last_common_oldest_index
          << ",\"last_common_newest_index\":"
@@ -249,7 +265,16 @@ int main(int argc, char** argv) {
               << " sync_too_early=" << stats.sync_too_early
               << " sync_too_late=" << stats.sync_too_late
               << " adaptive_selections=" << stats.adaptive_selections
+              << " independent_selections=" << stats.independent_selections
               << " no_common_window=" << stats.no_common_window
+              << " observed_common_window_empty="
+              << stats.observed_common_window_empty
+              << " input_timeline_resets=" << stats.input_timeline_resets
+              << " recovery_index_clamps=" << stats.recovery_index_clamps
+              << " sustained_unavailable_alarms="
+              << stats.sustained_unavailable_alarms
+              << " sustained_unavailable_active="
+              << stats.sustained_unavailable_active
               << " last_common_oldest_index="
               << stats.last_common_oldest_index
               << " last_common_newest_index="

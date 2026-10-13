@@ -169,10 +169,13 @@ std::optional<State> SwitcherCore::wait_for_revision(
 std::vector<Source> SwitcherCore::sources() const { return sources_; }
 
 void MemoryBackend::add_source(FlowId flow_id, VideoFormat format,
-                               std::uint8_t marker) {
+                               std::uint8_t marker,
+                               std::uint64_t source_index_base) {
   validate_format(format);
   if (!synthetic_sources_
-           .emplace(std::move(flow_id), SyntheticSource{std::move(format), marker})
+           .emplace(std::move(flow_id),
+                    SyntheticSource{std::move(format), marker,
+                                    source_index_base})
            .second) {
     throw std::invalid_argument("source flow already exists");
   }
@@ -210,7 +213,9 @@ Grain MemoryBackend::read_grain(const FlowId& source_flow,
   // visible without allocating full 1080p v210 frames in unit tests.
   (*bytes)[1] = static_cast<std::uint8_t>(output_index & 0xffU);
   (*bytes)[2] = static_cast<std::uint8_t>((output_index >> 8U) & 0xffU);
-  return Grain{output_index, static_cast<std::int64_t>(output_index) * 33'366'667,
+  const auto source_index = found->second.source_index_base + output_index;
+  return Grain{source_index,
+               static_cast<std::int64_t>(source_index) * 33'366'667,
                true, std::move(bytes)};
 }
 

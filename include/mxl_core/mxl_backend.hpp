@@ -40,7 +40,13 @@ struct MxlBackendStats {
   std::uint64_t sync_too_early{0};
   std::uint64_t sync_too_late{0};
   std::uint64_t adaptive_selections{0};
+  std::uint64_t independent_selections{0};
   std::uint64_t no_common_window{0};
+  std::uint64_t observed_common_window_empty{0};
+  std::uint64_t input_timeline_resets{0};
+  std::uint64_t recovery_index_clamps{0};
+  std::uint64_t sustained_unavailable_alarms{0};
+  std::uint64_t sustained_unavailable_active{0};
   std::uint64_t last_common_oldest_index{0};
   std::uint64_t last_common_newest_index{0};
   std::uint64_t last_selected_input_index{0};

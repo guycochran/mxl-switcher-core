@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace mxl_core {
@@ -33,5 +35,51 @@ std::optional<ReadWindowSelection> select_common_read_index(
 InputIndexStep classify_input_index_step(
     std::optional<std::uint64_t> previous_index,
     std::uint64_t selected_index);
+
+// Select the newest safely delayed grain from one source ring. Unlike the
+// common-window selector, this is the normal CUT path: PGM and PVW do not need
+// to sample unrelated sources at one shared input index.
+ReadWindowSelection select_independent_read_index(
+    const ReadWindowSource& source, std::uint64_t safety_margin_frames);
+
+struct OutputReadSelection {
+  ReadWindowSelection window;
+  InputIndexStep cadence;
+  bool timeline_reset{false};
+  bool forward_clamped{false};
+};
+
+// Owns the forward-only input cursor for each (output, source) timeline. A CUT
+// changes timeline identity, so the new source begins at its current safe
+// index and is never compared with the prior source's unrelated counter.
+class OutputReadTimelines {
+ public:
+  std::optional<OutputReadSelection> select(
+      const std::string& output_flow, const std::string& source_flow,
+      const ReadWindowSource& source, std::uint64_t safety_margin_frames);
+  void reset_source(const std::string& source_flow);
+
+ private:
+  std::unordered_map<std::string, std::string> active_source_by_output_;
+  std::unordered_map<std::string,
+                     std::unordered_map<std::string, std::uint64_t>>
+      last_index_by_output_source_;
+};
+
+// Converts a run of unavailable frames into one latched alarm. Availability
+// resets the run counter, but an emitted alarm stays latched so a persistent
+// fault cannot spam health counters once per frame.
+class SustainedUnavailableAlarm {
+ public:
+  bool note_unavailable(std::uint64_t threshold_frames);
+  // Returns true when this recovery clears an active alarm episode.
+  bool note_available();
+  [[nodiscard]] std::uint64_t consecutive_frames() const;
+  [[nodiscard]] bool latched() const;
+
+ private:
+  std::uint64_t consecutive_frames_{0};
+  bool latched_{false};
+};
 
 }  // namespace mxl_core

@@ -28,6 +28,10 @@ are included.
   stale media from failures in the stable PGM/PVW outputs.
 - automatic reader replacement detection and a measured hold-last-output policy
   that preserves Program/Preview cadence through a transient source restart.
+- independent per-output CUT timelines with forward-only recovery floors, so
+  unrelated source-index drift cannot collapse Program and Preview routing.
+- one-shot sustained-unavailable alarms that clear on media recovery without
+  fault-spamming every held output frame.
 - dependency-free versioned control adapter for state, sources, Preview, Cut,
   and Take, with contract tests preserving frame-boundary command semantics.
 - bounded HTTP/1.1 control transport, loopback-only by default, with real-socket
@@ -82,6 +86,14 @@ The local engine must prove these invariants before live SDK work:
 See [the architecture](docs/ARCHITECTURE.md) and
 [control semantics](docs/CONTROL.md). See [Linux deployment](docs/DEPLOYMENT.md)
 for the validated configuration format and non-root systemd service.
+
+The independent-CUT timing change has also passed live ZoomISO MXL validation
+with four simultaneous 1920x1080p30 v210 inputs plus stable Program and Preview.
+Clean 10-minute and 30-minute confirmations held every monitored stream at an
+average 30.00 fps with zero probe drops, zero Core timing/read/synchronization
+errors, and no active sustained-unavailable alarms while executing CUT,
+Preview, and TAKE commands. See the
+[ZoomISO MXL acceptance record](docs/ZOOMISO_MXL_ACCEPTANCE_2026-10-12.md).
 
 The NDI pilot now has a documented loaded full-path result. The original
 30-minute run with two continuous NDI receivers exposed a fixed-index scheduling
