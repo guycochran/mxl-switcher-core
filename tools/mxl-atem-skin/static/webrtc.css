@@ -68,3 +68,41 @@
 .multiview-screen .screen-name {
   bottom: 4px;
 }
+
+.monitor.wall {
+  grid-column: 1 / -1;
+}
+
+.monitor.wall .screen {
+  outline: 2px solid var(--blue);
+}
+
+.monitor.wall .screen-label {
+  color: var(--blue);
+}
+
+.layout-row button {
+  min-height: 48px;
+}
+
+.layout-row button strong,
+.layout-row button small {
+  display: block;
+}
+
+.layout-row button small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: .08em;
+}
+
+.layout-row button.selected small {
+  color: #ffe3a1;
+}
+
+@media (max-width: 850px) {
+  .monitor.wall {
+    grid-column: auto;
+  }
+}

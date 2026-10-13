@@ -8,13 +8,14 @@
 <main class="console">
   <header><div><span class="brand">MXL</span><strong> LIVE CONTROL</strong><small>ATEM-style operator skin</small></div><div id="connection" class="status"><i></i>CONNECTING</div></header>
   <section class="monitors">
-    <article class="monitor preview"><div class="screen multiview-screen" id="previewScreen"><iframe id="multiviewVideo" title="Live eight-source multiview" allow="autoplay; fullscreen"></iframe><div class="multiview-grid" id="multiviewGrid"></div><div class="screen-label">MULTIVIEW · CLICK A TILE FOR PREVIEW</div><div class="screen-name" id="previewName">—</div><div class="scene-mini" id="previewScene"></div></div></article>
+    <article class="monitor wall"><div class="screen multiview-screen" id="multiviewScreen"><iframe id="multiviewVideo" title="Live eight-source multiview" allow="autoplay; fullscreen"></iframe><div class="multiview-grid" id="multiviewGrid"></div><div class="screen-label">MULTIVIEW · CLICK A TILE FOR PREVIEW</div><div class="screen-name" id="selectionName">—</div></div></article>
+    <article class="monitor preview"><div class="screen" id="previewScreen"><iframe id="previewVideo" title="Live Preview output" allow="autoplay; fullscreen"></iframe><div class="screen-label">PREVIEW</div><div class="screen-name" id="previewName">—</div><div class="scene-mini" id="previewScene"></div></div></article>
     <article class="monitor program"><div class="screen" id="programScreen"><iframe id="programVideo" title="Live Program output" allow="autoplay; fullscreen"></iframe><div class="screen-label">PROGRAM</div><div class="screen-name" id="programName">—</div><div class="scene-mini" id="programScene"></div></div></article>
   </section>
   <section class="switcher-panel">
     <div class="bus-label">PROGRAM</div><div class="bus" id="programBus"></div>
     <div class="bus-label">PREVIEW</div><div class="bus" id="previewBus"></div>
-    <div class="transition"><div><span>TRANSITION</span><small>Frame-boundary switching</small></div><button class="cut" id="cut">CUT</button><button class="auto" disabled title="Transitions are the next milestone">AUTO</button></div>
+    <div class="transition"><div><span>TRANSITION</span><small>CUT is live · MIX requires the planned dual-source sampler</small></div><button class="cut" id="cut">CUT</button><button class="auto" disabled title="Requires a true two-source transition sampler in Core">MIX 12F</button></div>
   </section>
   <section class="supersource">
     <div class="ss-head"><div><span class="eyebrow">SUPER SOURCE</span><h1>Composition Matrix</h1><p>Choose a layout, assign each box, then prepare it safely off air.</p></div><div class="bank" id="bankState">BANK —</div></div>

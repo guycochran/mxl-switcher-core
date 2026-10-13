@@ -22,12 +22,14 @@ class App:
         helper: str | None,
         state_file: pathlib.Path,
         program_url: str | None = None,
+        preview_url: str | None = None,
         multiview_url: str | None = None,
     ):
         self.root = root
         self.core = core.rstrip("/")
         self.helper = helper
         self.program_url = program_url
+        self.preview_url = preview_url
         self.multiview_url = multiview_url
         self.state_file = state_file
         self.lock = threading.Lock()
@@ -66,6 +68,7 @@ class App:
             "banks": banks,
             "live": bool(self.helper),
             "program_url": self.program_url,
+            "preview_url": self.preview_url,
             "multiview_url": self.multiview_url,
         }
 
@@ -176,7 +179,8 @@ def main():
     parser.add_argument("--core", default="http://127.0.0.1:18085")
     parser.add_argument("--supersource-helper")
     parser.add_argument("--program-url", help="WebRTC confidence-player URL to embed in Program")
-    parser.add_argument("--multiview-url", help="WebRTC operator-multiview URL to embed in Preview")
+    parser.add_argument("--preview-url", help="WebRTC confidence-player URL to embed in Preview")
+    parser.add_argument("--multiview-url", help="WebRTC operator-multiview URL to embed in the source wall")
     parser.add_argument("--state-file")
     args = parser.parse_args()
     root = pathlib.Path(__file__).with_name("static").resolve()
@@ -187,6 +191,7 @@ def main():
         args.supersource_helper,
         state_file,
         args.program_url,
+        args.preview_url,
         args.multiview_url,
     )
     server = ThreadingHTTPServer((args.host, args.port), Handler)

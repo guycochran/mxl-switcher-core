@@ -12,6 +12,7 @@ unique source numbers 1–8.
 ```sh
 python3 server.py --core http://127.0.0.1:18085 \
   --program-url http://127.0.0.1:13089/mxl-program/ \
+  --preview-url http://127.0.0.1:13089/mxl-preview/ \
   --multiview-url http://127.0.0.1:13089/mxl-multiview/ \
   --supersource-helper /home/guy/mxl-atem-skin/run-supersource-bank.sh
 ```
@@ -21,10 +22,16 @@ operation; do not expose it directly to a public network.
 
 ## Confidence monitoring
 
-The Program monitor can embed a MediaMTX WebRTC player with `--program-url`.
-The player is fed by one MXL-to-H.264 adapter subscribed to Core's stable
-Program flow. Video remains on the media plane; the skin carries control and
-status only.
+The Program and Preview monitors embed MediaMTX WebRTC players with
+`--program-url` and `--preview-url`. Each player is fed by one MXL-to-H.264
+adapter subscribed to Core's corresponding stable output flow. Video remains
+on the media plane; the skin carries control and status only.
+
+The named 2-up through 8-up presets are starting points for the composition
+matrix; every box remains independently assignable. MIX is deliberately
+disabled: Core currently routes one selected source per output, so a real
+dissolve requires the planned dual-source sampler rather than a browser-side
+simulation.
 
 For an eight-source operator multiview, follow the proven first-switcher
 pattern: use low-rate JPEG thumbnails for the source grid, or produce one
