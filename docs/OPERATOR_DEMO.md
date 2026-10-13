@@ -67,21 +67,82 @@ preparation. This is a validated operator path rather than a UI mock-up.
 
 ## Rehearsal
 
-1. Confirm ZoomISO, Core, both SuperSource banks, multiview, MediaMTX, and all
-   three confidence adapters are running with zero restarts.
+Run `scripts/demo-preflight.sh` on the production node immediately before the
+session. It is deliberately read-only: it opens no additional MXL readers and
+does not change routing, meetings, or containers.
+
+1. Confirm ZoomISO A and B, Core, both SuperSource banks, multiview, the audio
+   mixer, MediaMTX, and all three confidence adapters are running with zero
+   restarts.
 2. Confirm all eight input tiles move and Program and Preview are distinct.
-3. Preview inputs 1 through 8; TAKE at least twice and confirm tally follows.
-4. Prepare a 2-up on the inactive bank, TAKE it, then repeat with 4-up and 8-up.
+3. Preview inputs 1 through 8; CUT at least twice and confirm tally follows.
+4. Prepare a 2-up on the inactive bank, CUT it, then repeat with 4-up and 8-up.
 5. Show that the NMOS Node advertises ten senders (eight inputs and two
    SuperSource banks) and two receivers (Program and Preview).
 6. End on a direct source in Program and a prepared composition in Preview.
 
+Do not run deep ring probes, the staged compositor gate, or the experimental
+Program clock-correction candidate during the live demonstration. A
+non-dropping diagnostic reader can backpressure ZoomISO's small audio ring and
+make a healthy production path look stalled. The preflight checks existing
+service state and HTTP surfaces without attaching another reader.
+
+## Tonight's run of show
+
+Target eight to ten minutes and leave the system in a simple direct-source
+state when questions begin.
+
+1. **Frame the point (45 seconds).** Eight isolated Zoom participants enter the
+   node once as native MXL video and audio flows. Core, compositors, confidence
+   monitors, and control surfaces share that media without another internal
+   encode/decode hop.
+2. **Prove the sources (60 seconds).** Show the 4x2 multiview, click several
+   tiles into Preview, and confirm that all eight pictures are live.
+3. **Prove deterministic switching (90 seconds).** Use Companion or the Skin to
+   select Preview 1-8 and press CUT two or three times. Point out Program and
+   Preview tally and the stable Program identity.
+4. **Prove off-air composition (three minutes).** Prepare 2-up on the inactive
+   ME bank, CUT it to air, then repeat with 4-up and 8-up. Explain that a Look
+   change takes roughly 0.9-1.8 seconds off air while the CUT between already
+   warm ME banks is immediate.
+5. **Prove control separation (60 seconds).** Make one cut from the browser and
+   one from Companion/Stream Deck. Both operate the same Core state; neither is
+   in the media path.
+6. **Show output direction (60 seconds).** Use the architecture slide to show
+   the Program Master feeding WebRTC confidence today and isolated meeting,
+   NDI, SRT, SDI, recording, and RTMP adapters as the output roadmap.
+7. **Close on the claim (30 seconds).** One native media plane, multiple useful
+   production functions, and fewer codec boundaries inside the node.
+
+### Demo-safe defaults
+
+- Keep Companion visible as the fastest operational fallback.
+- Keep one ME bank simple (2-up or 4-up) while demonstrating a dense 8-up on
+  the other bank.
+- Use CUT terminology consistently. Do not rebuild a compositor on air.
+- Treat browser Program audio as optional confidence monitoring. If it is
+  rough, mute the browser player and continue the video/control proof.
+- Do not map the experimental reclocked Program Audio flow into ZoomISO B
+  during the session.
+
+### Recovery without heroics
+
+- If the Skin becomes slow, continue from Companion; the control surface is not
+  the media path.
+- If a dense Look is not ready, CUT to a direct source or the known-good 2-up
+  bank. Do not restart ZoomISO or Core during the session.
+- If browser confidence stalls but Program tally continues, explain the edge
+  monitor boundary and keep switching from Companion.
+- If audio becomes scratchy, mute the browser and state the measured result:
+  native 48 kHz PCM is present and metered; the clock-correct meeting-return
+  path is a validated candidate, not tonight's default.
+
 ## Suggested live story
 
 1. Punch all eight sources through Preview to establish that they are live.
-2. TAKE two or three direct cuts and point out frame-boundary switching and
+2. CUT two or three direct sources and point out frame-boundary switching and
    Companion tally.
-3. Punch a 2-up Look into the inactive SuperSource bank, then TAKE it.
+3. Punch a 2-up Look into the inactive SuperSource bank, then CUT it.
 4. Repeat with 4-up and 8-up to show that Program remains undisturbed while the
    next Look is prepared off air.
 5. Show the browser Skin and Companion controlling the same Core state.
@@ -134,10 +195,13 @@ The next acceptance gates are intentionally separate:
 Audio should be described precisely during the demonstration. ZoomISO exposes
 eight native 48 kHz stereo Float32 MXL audio flows, their ring indices advance,
 and live program material produced measurable RMS and peak levels. The browser
-multiview now displays per-source stereo VU meters from those rings. This proves
-source audio presence and silence without adding an encode/decode stage. It
-does not yet prove Core audio-follow-video, output channel mapping, or measured
-A/V synchronization.
+multiview displays per-source stereo VU meters, and the Program mixer provides
+AFV and manual modes. An isolated Program Master candidate measured the source
+clock and produced a clock-paced exact-48-kHz output with zero PTS
+discontinuities and zero hard sample corrections during its clean live trace.
+That candidate remains deliberately outside the meeting-return mapping. This
+is strong clock-recovery evidence, not yet a finished end-to-end A/V-sync or
+audience-meeting acceptance result.
 
 The browser confidence encodes are also not the production outputs. Program,
 Preview, inputs, and SuperSource flows remain native 1080p; the lower-resolution
@@ -159,6 +223,9 @@ choice.
 - **What happens on failure?** The A/B design protects the on-air Look during
   off-air changes; controlled restart and recovery-time evidence remains a
   release gate.
+- **Is audio finished?** Native 48 kHz source audio, metering, mixing, and an
+  isolated clock-correct output candidate are working. The final meeting-return
+  mapping and measured end-to-end A/V sync remain the next acceptance gate.
 - **Can existing systems control it?** The browser Skin and Companion use the
   same control API, while NMOS provides the standards-facing discovery path.
 - **What does cloud cost?** VM size, runtime, egress, and edge codecs dominate;
