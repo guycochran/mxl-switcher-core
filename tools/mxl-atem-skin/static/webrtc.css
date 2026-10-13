@@ -27,6 +27,10 @@
   pointer-events: none;
 }
 
+.monitors .scene-mini {
+  display: none;
+}
+
 .multiview-grid {
   position: absolute;
   z-index: 4;

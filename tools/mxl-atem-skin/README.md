@@ -43,3 +43,8 @@ Core must include these two stable sources before live SuperSource preparation:
 source=supersource-a|2cbb8ee0-b44a-5f31-a5d0-00000000000a|SuperSource A
 source=supersource-b|2cbb8ee0-b44a-5f31-a5d0-00000000000b|SuperSource B
 ```
+
+The helper rebuilds only the inactive A/B bank and leaves every prepared bank
+running with an automatic restart policy. A bank currently assigned to Program
+or Preview is never rebuilt. This preserves the on-air flow while the alternate
+composition is prepared and attached off air.

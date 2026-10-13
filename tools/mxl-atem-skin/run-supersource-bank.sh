@@ -36,13 +36,14 @@ for _remove_attempt in $(seq 1 20); do
   sleep 0.1
 done
 set +e
-timeout 20s sudo docker run -d --name "$CONTAINER" --restart=no \
+timeout 20s sudo docker run -d --name "$CONTAINER" --restart=unless-stopped \
   -v "${DOMAIN_VOLUME}:/mxl-domain" -v "${BASE}:/opt/compositor" \
   "$IMAGE" python3 /opt/compositor/mxl_isolated_compositor.py \
   --domain /mxl-domain "${ARGS[@]}" \
   --output-flow-id "$OUTPUT_ID" \
   --output-label "MXL SUPERSOURCE ${BANK^^} ${COUNT}-UP" \
   --assets-dir "/opt/compositor/supersource-${BANK}-assets" \
+  --rate 30000/1001 \
   --reader-stale-seconds 8 >/dev/null
 RUN_RESULT=$?
 set -e
