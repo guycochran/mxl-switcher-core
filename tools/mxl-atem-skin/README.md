@@ -36,6 +36,12 @@ Program cuts, while Manual builds a multi-participant mix for ME/SuperSource
 layouts. The Program WebRTC publisher subscribes to this stable output so its
 H.264 + Opus session stays intact across video cuts.
 
+For a ZoomISO return-feed instance, the stable Program video and Program Audio
+flows must share the same NMOS group-hint prefix. The validated Azure pair uses
+`AzureZoomISOMXLProgram:Video` and `AzureZoomISOMXLProgram:Audio`; matching the
+prefix makes ZoomISO present one combined Program input instead of separate
+"video only" and "audio only" entries.
+
 The mixer preserves ZoomISO's native 48 kHz MXL timestamps, uses non-dropping
 one-second input queues and a 250 ms live-mixer latency, and does not insert a
 sample-rate conversion when the input already matches the 48 kHz Program bus.

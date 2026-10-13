@@ -61,7 +61,7 @@ class Mixer:
             "queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 ! "
             f"mxlsink name=out domain={self.domain} flow-id={self.output} "
             'label="Program Audio Mix" description="ATEM skin program audio bus" '
-            'group-hint="Program:Audio" sync=false '
+            'group-hint="AzureZoomISOMXLProgram:Audio" sync=false '
             f"audiotestsrc wave=silence is-live=true ! audioconvert ! {CAPS} ! "
             "queue ! mix.sink_0 "
         )
