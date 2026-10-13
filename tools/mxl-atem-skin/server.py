@@ -15,10 +15,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class App:
-    def __init__(self, root: pathlib.Path, core: str, helper: str | None, state_file: pathlib.Path):
+    def __init__(
+        self,
+        root: pathlib.Path,
+        core: str,
+        helper: str | None,
+        state_file: pathlib.Path,
+        program_url: str | None = None,
+    ):
         self.root = root
         self.core = core.rstrip("/")
         self.helper = helper
+        self.program_url = program_url
         self.state_file = state_file
         self.lock = threading.Lock()
         self.banks = {
@@ -51,7 +59,12 @@ class App:
         core = json.loads(raw)
         with self.lock:
             banks = json.loads(json.dumps(self.banks))
-        return {"core": core, "banks": banks, "live": bool(self.helper)}
+        return {
+            "core": core,
+            "banks": banks,
+            "live": bool(self.helper),
+            "program_url": self.program_url,
+        }
 
     def prepare(self, payload):
         if not self.helper:
@@ -159,11 +172,12 @@ def main():
     parser.add_argument("--port", type=int, default=9700)
     parser.add_argument("--core", default="http://127.0.0.1:18085")
     parser.add_argument("--supersource-helper")
+    parser.add_argument("--program-url", help="WebRTC confidence-player URL to embed in Program")
     parser.add_argument("--state-file")
     args = parser.parse_args()
     root = pathlib.Path(__file__).with_name("static").resolve()
     state_file = pathlib.Path(args.state_file).resolve() if args.state_file else root.parent / "state.json"
-    Handler.app = App(root, args.core, args.supersource_helper, state_file)
+    Handler.app = App(root, args.core, args.supersource_helper, state_file, args.program_url)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(json.dumps({"event": "skin_ready", "url": f"http://{args.host}:{args.port}", "live_supersource": bool(args.supersource_helper)}), flush=True)
     server.serve_forever()

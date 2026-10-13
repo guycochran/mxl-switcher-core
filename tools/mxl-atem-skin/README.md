@@ -11,11 +11,24 @@ unique source numbers 1–8.
 
 ```sh
 python3 server.py --core http://127.0.0.1:18085 \
+  --program-url http://127.0.0.1:13089/mxl-program/ \
   --supersource-helper /home/guy/mxl-atem-skin/run-supersource-bank.sh
 ```
 
 The server binds `127.0.0.1:9700` by default. Use an SSH tunnel for remote
 operation; do not expose it directly to a public network.
+
+## Confidence monitoring
+
+The Program monitor can embed a MediaMTX WebRTC player with `--program-url`.
+The player is fed by one MXL-to-H.264 adapter subscribed to Core's stable
+Program flow. Video remains on the media plane; the skin carries control and
+status only.
+
+For an eight-source operator multiview, follow the proven first-switcher
+pattern: use low-rate JPEG thumbnails for the source grid, or produce one
+MXL-native multiview flow and encode that single result at the edge. Do not
+create eight independent browser encodes.
 
 Core must include these two stable sources before live SuperSource preparation:
 

@@ -20,6 +20,12 @@ class AppTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "persistent SuperSource"):
             app.prepare({"count": 2, "sources": [1, 2]})
 
+    def test_state_exposes_program_confidence_url(self):
+        app = self.app()
+        app.program_url = "http://127.0.0.1:13089/mxl-program/"
+        app.core_json = lambda *args, **kwargs: (200, "application/json", b'{"revision":4}')
+        self.assertEqual(app.state()["program_url"], app.program_url)
+
     def test_prepare_rejects_duplicate_sources(self):
         app = self.app()
         with self.assertRaisesRegex(ValueError, "different source"):

@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MXL Control Surface</title><link rel="stylesheet" href="/style.css">
+  <title>MXL Control Surface</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/webrtc.css">
 </head>
 <body>
 <main class="console">
   <header><div><span class="brand">MXL</span><strong> LIVE CONTROL</strong><small>ATEM-style operator skin</small></div><div id="connection" class="status"><i></i>CONNECTING</div></header>
   <section class="monitors">
     <article class="monitor preview"><div class="screen" id="previewScreen"><div class="screen-label">PREVIEW</div><div class="screen-name" id="previewName">—</div><div class="scene-mini" id="previewScene"></div></div></article>
-    <article class="monitor program"><div class="screen" id="programScreen"><div class="screen-label">PROGRAM</div><div class="screen-name" id="programName">—</div><div class="scene-mini" id="programScene"></div></div></article>
+    <article class="monitor program"><div class="screen" id="programScreen"><iframe id="programVideo" title="Live Program output" allow="autoplay; fullscreen"></iframe><div class="screen-label">PROGRAM</div><div class="screen-name" id="programName">—</div><div class="scene-mini" id="programScene"></div></div></article>
   </section>
   <section class="switcher-panel">
     <div class="bus-label">PROGRAM</div><div class="bus" id="programBus"></div>
