@@ -42,12 +42,43 @@
 }
 
 .multiview-grid button {
+  position: relative;
   margin: 2px;
   border: 3px solid transparent;
   border-radius: 3px;
   background: transparent;
   cursor: pointer;
   pointer-events: auto;
+}
+
+.vu-meter {
+  position: absolute;
+  right: 6px;
+  bottom: 7px;
+  width: 15px;
+  height: 58%;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #ffffff66;
+  border-radius: 2px;
+  background: #080a0bd9;
+  box-shadow: 0 1px 5px #000;
+}
+
+.vu-meter span {
+  width: 5px;
+  min-height: 1px;
+  background: linear-gradient(to top, #19cf5b 0 68%, #f1ca30 68% 88%, #ef3b3f 88% 100%);
+  transition: height 120ms linear;
+}
+
+.vu-meter.silent span,
+.vu-meter.stale span,
+.vu-meter.error span {
+  height: 1px !important;
+  opacity: .35;
 }
 
 .multiview-grid button:hover {

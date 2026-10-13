@@ -2,8 +2,8 @@
 
 This developer module turns an Elgato Stream Deck XL into a physical control
 surface for MXL Core. It provides eight-source Program and Preview buses,
-frame-boundary TAKE, 2-up through 8-up SuperSource preparation, A/B-bank
-status, and live red/green tally feedback.
+frame-boundary CUT, 2-up through 8-up Mix Effects preparation, two persistent
+ME layers, and live red/green tally feedback.
 
 ## Secure connection
 
@@ -26,7 +26,7 @@ npm install
 npm run package
 ```
 
-Import `mxl-core-0.2.0.tgz`, add the **MXL Core** connection, and confirm its
+Import `mxl-core-0.2.1.tgz`, add the **MXL Core** connection, and confirm its
 status becomes green/OK. Its default URL is already the secure local tunnel at
 `http://127.0.0.1:13010`.
 
@@ -37,13 +37,13 @@ Recommended layout:
 - Row 1: Program 1–8 (red tally)
 - Row 2: Preview 1–8 (green tally; Program red overrides)
 - Row 3: Prepare 2-up through 8-up
-- Row 4: TAKE, TAKE SS, SuperSource A/B, and operator utility keys
+- Row 4: CUT ME, ME 1 Preview, ME 2 Preview, utilities, and CUT at far right
 
-The SuperSource preset buttons punch the selected layout on the safe inactive
-warm bank and place it in Preview. Use TAKE or TAKE SS to put it on air.
+The ME preset buttons punch the selected layout on the safe inactive warm
+layer and place it in Preview. Use CUT or CUT ME to put it on air.
 
 The operator rehearsal validated this packaged module on Companion 5.1:
-Program and Preview selection, TAKE, tally feedback, and the 2-up through 8-up
+Program and Preview selection, CUT, tally feedback, and the 2-up through 8-up
 Look presets all controlled the live Core instance.
 
 ## NMOS boundary

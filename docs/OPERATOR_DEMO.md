@@ -16,7 +16,7 @@ ZoomISO (8 x 1080p29.97 v210 MXL sources)
     |                    +--> Program confidence: 1080p29.97 WebRTC
     |                    +--> Preview confidence: 720p15 WebRTC
     |
-    +--> SuperSource A/B (2-up through 8-up)
+    +--> ME 1 / ME 2 (persistent 2-up through 8-up layers)
     |
     +--> eight-source multiview --> 720p15 WebRTC
 
@@ -52,17 +52,17 @@ presets provide:
 
 - Program 1-8 with red tally;
 - Preview 1-8 with green tally;
-- TAKE;
+- CUT;
 - safe off-air preparation of 2-up through 8-up layouts;
-- SuperSource A/B status and TAKE.
+- ME 1 / ME 2 status and CUT.
 
 The recommended Stream Deck XL page is Program 1–8 on row one, Preview 1–8 on
-row two, 2-up through 8-up Look buttons on row three, and TAKE / TAKE SS / bank
-controls on row four. The same controls remain usable from Companion's browser
+row two, 2-up through 8-up Look buttons on row three, and CUT ME / ME 1 Preview /
+ME 2 Preview with CUT at the far-right of row four. The same controls remain usable from Companion's browser
 button grid when a physical surface is not attached.
 
 The October 2026 rehearsal confirmed this page on Companion 5.1 with live
-switching, Preview selection, TAKE, tally feedback, and 2-up through 8-up Look
+switching, Preview selection, CUT, tally feedback, and 2-up through 8-up Look
 preparation. This is a validated operator path rather than a UI mock-up.
 
 ## Rehearsal
@@ -113,7 +113,7 @@ Validated in the current demonstration profile:
 
 - eight ZoomISO-derived 1920x1080p29.97 MXL video inputs;
 - stable Program and Preview identities with frame-boundary direct cuts;
-- persistent SuperSource A/B banks and 2-up through 8-up compositions;
+- persistent ME 1 / ME 2 layers and 2-up through 8-up compositions;
 - approximately 0.9–1.8 second off-air Look reconfiguration;
 - browser Program, Preview, and eight-input multiview confidence monitoring;
 - Companion 5.1 button-grid switching with live tally; and
@@ -121,8 +121,8 @@ Validated in the current demonstration profile:
 
 The next acceptance gates are intentionally separate:
 
-- end-to-end audio transport, channel mapping, metering, audio-follow-video,
-  and measured A/V synchronization;
+- Core audio-follow-video, output channel mapping, and measured A/V
+  synchronization;
 - matched MXL-versus-NDI compute and latency benchmarks on identical hardware;
 - measured camera-to-display latency rather than an inferred transport claim;
 - controlled component-failure and recovery testing;
@@ -131,12 +131,13 @@ The next acceptance gates are intentionally separate:
 - multi-operator conflict feedback and locking; and
 - transitions, key/fill, graphics, borders, crops, and reusable named Looks.
 
-Audio should be described precisely during the demonstration: this acceptance
-proves the MXL video production path, switching, compositing, monitoring, and
-control. It does not yet prove embedded audio or audio-follow-video. A silent
-audio observation appeared on both local and higher-capacity hosts, so it
-should not be presented as evidence of CPU starvation without a dedicated
-audio-path test.
+Audio should be described precisely during the demonstration. ZoomISO exposes
+eight native 48 kHz stereo Float32 MXL audio flows, their ring indices advance,
+and live program material produced measurable RMS and peak levels. The browser
+multiview now displays per-source stereo VU meters from those rings. This proves
+source audio presence and silence without adding an encode/decode stage. It
+does not yet prove Core audio-follow-video, output channel mapping, or measured
+A/V synchronization.
 
 The browser confidence encodes are also not the production outputs. Program,
 Preview, inputs, and SuperSource flows remain native 1080p; the lower-resolution

@@ -1,17 +1,243 @@
-const $=id=>document.getElementById(id);let state=null,sources=[],layout=4,slots=[1,2,3,4],busy=false;
-const api=async(path,options={})=>{const r=await fetch(path,{cache:'no-store',headers:{'Content-Type':'application/json'},...options});const data=await r.json().catch(()=>({}));if(!r.ok)throw Error(data.error||r.statusText);return data};
-function notice(text,error=false){$('notice').textContent=text;$('notice').style.color=error?'#ff8589':''}
-function sceneFor(id){if(id==='supersource-a')return state?.banks.a;if(id==='supersource-b')return state?.banks.b;return null}
-function nameFor(id){if(id?.startsWith('supersource-'))return `SUPER SOURCE ${id.slice(-1).toUpperCase()}`;return sources.find(s=>s.id===id)?.label||id||'—'}
-function grid(el,scene){el.replaceChildren();if(!scene?.ready)return;el.style.gridTemplateColumns=`repeat(${scene.count<=2?scene.count:scene.count<=4?2:4},1fr)`;for(const s of scene.sources){const t=document.createElement('div');t.className='tile';t.textContent=s;el.append(t)}}
-function render(){if(!state)return;const c=state.core;if(state.program_url&&!$('programVideo').getAttribute('src'))$('programVideo').src=state.program_url;if(state.preview_url&&!$('previewVideo').getAttribute('src'))$('previewVideo').src=state.preview_url;if(state.multiview_url&&!$('multiviewVideo').getAttribute('src'))$('multiviewVideo').src=state.multiview_url;$('programName').textContent=nameFor(c.program);$('previewName').textContent=nameFor(c.preview);$('selectionName').textContent=`SELECTED · ${nameFor(c.preview)}`;renderMultiview(c);grid($('programScene'),sceneFor(c.program));grid($('previewScene'),sceneFor(c.preview));$('revision').textContent=`REV ${c.revision}`;$('connection').className='status live';$('connection').innerHTML='<i></i>LIVE';for(const bus of ['program','preview']){const box=$(bus+'Bus');box.replaceChildren();for(let i=1;i<=8;i++){const b=document.createElement('button');b.textContent=i;b.className=c[bus]===`zoomiso-${i}`?(bus==='program'?'program-on':'preview-on'):'';b.disabled=busy;b.onclick=()=>command(bus==='program'?'cut':'preview',{source:`zoomiso-${i}`});box.append(b)}const ss=document.createElement('button');const bank=ssBank(bus);ss.textContent='SS';ss.className='ss';if(c[bus]?.startsWith('supersource-'))ss.classList.add(bus==='program'?'program-on':'preview-on');ss.title=`SuperSource ${bank.toUpperCase()}`;ss.disabled=busy||!state.banks[bank].ready;ss.onclick=()=>command(bus==='program'?'cut':'preview',{source:`supersource-${bank}`});box.append(ss)}$('bankState').textContent=state.live?`OFF-AIR BANK ${offAirBank().toUpperCase()}`:'SCENE ENGINE PENDING';$('prepare').disabled=busy||!state.live;$('prepare').textContent=state.live?'PUNCH LOOK TO PREVIEW':'SCENE ENGINE PENDING';$('takeSS').disabled=busy||!bankOf(c.preview)}
-function renderMultiview(core){const wall=$('multiviewGrid');wall.replaceChildren();for(let i=1;i<=8;i++){const b=document.createElement('button');b.type='button';b.title=`Preview ${nameFor(`zoomiso-${i}`)}`;b.setAttribute('aria-label',b.title);if(core.program===`zoomiso-${i}`)b.classList.add('program-tally');if(core.preview===`zoomiso-${i}`)b.classList.add('preview-tally');b.disabled=busy;b.onclick=()=>command('preview',{source:`zoomiso-${i}`});wall.append(b)}}
-function bankOf(id){return id?.startsWith('supersource-')?id.slice(-1):null}
-function offAirBank(){const active=new Set([state?.core.program,state?.core.preview]);return active.has('supersource-a')?'b':'a'}
-function ssBank(bus){const current=bankOf(state.core[bus]);if(current)return current;if(bus==='program'){const preview=bankOf(state.core.preview);if(preview)return preview}return state.banks.a.ready?'a':state.banks.b.ready?'b':offAirBank()}
-async function command(kind,body){busy=true;render();try{const out=await api(`/api/mxl/v1/${kind}`,{method:'POST',body:body?JSON.stringify(body):undefined});notice(`Accepted command ${out.command_id}; waiting for frame boundary…`);setTimeout(refresh,250)}catch(e){notice(e.message,true)}finally{busy=false;render()}}
-function layoutGrid(){const cols=layout<=2?layout:layout<=4?2:4;$('canvas').style.gridTemplateColumns=`repeat(${cols},1fr)`;$('canvas').replaceChildren();for(let i=0;i<layout;i++){const t=document.createElement('div');t.className='tile';t.textContent=slots[i];$('canvas').append(t)}$('slots').replaceChildren();for(let i=0;i<layout;i++){const d=document.createElement('div');d.className='slot';const l=document.createElement('label');l.innerHTML=`<span>BOX ${i+1}</span><span>${sources[slots[i]-1]?.label||'INPUT '+slots[i]}</span>`;const punch=document.createElement('div');punch.className='source-punch';for(let n=1;n<=8;n++){const b=document.createElement('button');b.textContent=n;b.title=`Put ${sources[n-1]?.label||'Input '+n} in box ${i+1}`;if(slots[i]===n)b.className='selected';b.disabled=busy;b.onclick=()=>{const other=slots.indexOf(n);if(other>=0&&other!==i)[slots[i],slots[other]]=[slots[other],slots[i]];else slots[i]=n;layoutGrid()};punch.append(b)}d.append(l,punch);$('slots').append(d)}}
-function buildLayouts(){const names={2:'INTERVIEW',3:'PANEL',4:'GRID',5:'PANEL',6:'GRID',7:'FORUM',8:'WALL'};$('layouts').replaceChildren();for(let n=2;n<=8;n++){const b=document.createElement('button');b.innerHTML=`<strong>${n}-UP</strong><small>${names[n]}</small>`;b.title=`${n}-up ${names[n].toLowerCase()} preset`;b.className=n===layout?'selected':'';b.onclick=()=>{layout=n;while(slots.length<n)slots.push((slots.length%8)+1);slots=slots.slice(0,n);buildLayouts();layoutGrid()};$('layouts').append(b)}}
-async function prepare(){if(new Set(slots).size!==slots.length)return notice('Each box needs a different input.',true);busy=true;render();notice(`Punching ${layout}-up on off-air bank ${offAirBank().toUpperCase()}…`);try{const result=await api('/api/skin/supersource/prepare',{method:'POST',body:JSON.stringify({count:layout,sources:slots})});const timing=result.engine?.ready_ms?` in ${(result.engine.ready_ms/1000).toFixed(1)}s`:'';notice(`SuperSource ${result.bank.toUpperCase()} is ready in Preview${timing}.`);await refresh()}catch(e){notice(e.message,true)}finally{busy=false;render()}}
-async function refresh(){try{state=await api('/api/skin/state');sources=await api('/api/mxl/v1/sources');render()}catch(e){$('connection').className='status';$('connection').innerHTML='<i></i>OFFLINE';notice(e.message,true)}}
-$('cut').onclick=()=>command('take');$('takeSS').onclick=()=>command('take');$('prepare').onclick=prepare;buildLayouts();layoutGrid();refresh();setInterval(refresh,1000);
+const $ = (id) => document.getElementById(id)
+let state = null
+let sources = []
+let layout = 4
+let slots = [1, 2, 3, 4]
+let busy = false
+
+const api = async (path, options = {}) => {
+  const response = await fetch(path, { cache: 'no-store', headers: { 'Content-Type': 'application/json' }, ...options })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw Error(data.error || response.statusText)
+  return data
+}
+
+function notice(text, error = false) {
+  $('notice').textContent = text
+  $('notice').style.color = error ? '#ff8589' : ''
+}
+
+function bankOf(id) { return id?.startsWith('supersource-') ? id.slice(-1) : null }
+function meNumber(bank) { return bank === 'a' ? 1 : 2 }
+
+function sceneFor(id) {
+  if (id === 'supersource-a') return state?.banks.a
+  if (id === 'supersource-b') return state?.banks.b
+  return null
+}
+
+function nameFor(id) {
+  const bank = bankOf(id)
+  if (bank) {
+    const count = state?.banks?.[bank]?.count
+    return `ME ${meNumber(bank)}${count ? ` · ${count}-UP` : ''}`
+  }
+  return sources.find((source) => source.id === id)?.label || id || '—'
+}
+
+function grid(element, scene) {
+  element.replaceChildren()
+  if (!scene?.ready) return
+  element.style.gridTemplateColumns = `repeat(${scene.count <= 2 ? scene.count : scene.count <= 4 ? 2 : 4},1fr)`
+  for (const source of scene.sources) {
+    const tile = document.createElement('div')
+    tile.className = 'tile'
+    tile.textContent = source
+    element.append(tile)
+  }
+}
+
+function meterHeight(db) {
+  if (!Number.isFinite(db)) return '1%'
+  return `${Math.max(1, Math.min(100, ((db + 60) / 60) * 100))}%`
+}
+
+function renderMultiview(core) {
+  const wall = $('multiviewGrid')
+  wall.replaceChildren()
+  for (let i = 1; i <= 8; i++) {
+    const id = `zoomiso-${i}`
+    const meter = state?.audio?.meters?.[id]
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.title = `Preview ${nameFor(id)}`
+    button.setAttribute('aria-label', button.title)
+    if (core.program === id) button.classList.add('program-tally')
+    if (core.preview === id) button.classList.add('preview-tally')
+    button.disabled = busy
+    button.onclick = () => command('preview', { source: id })
+
+    const vu = document.createElement('div')
+    vu.className = `vu-meter ${meter?.state || 'unavailable'}`
+    vu.setAttribute('aria-label', meter ? `${meter.rms_dbfs?.join(', ')} dBFS` : 'Audio unavailable')
+    for (let channel = 0; channel < 2; channel++) {
+      const bar = document.createElement('span')
+      bar.style.height = meterHeight(meter?.peak_dbfs?.[channel] ?? meter?.channels?.[channel]?.peak_dbfs)
+      vu.append(bar)
+    }
+    button.append(vu)
+    wall.append(button)
+  }
+}
+
+function offAirBank() {
+  const active = new Set([state?.core.program, state?.core.preview])
+  return active.has('supersource-a') ? 'b' : 'a'
+}
+
+function render() {
+  if (!state) return
+  const core = state.core
+  if (state.program_url && !$('programVideo').getAttribute('src')) $('programVideo').src = state.program_url
+  if (state.preview_url && !$('previewVideo').getAttribute('src')) $('previewVideo').src = state.preview_url
+  if (state.multiview_url && !$('multiviewVideo').getAttribute('src')) $('multiviewVideo').src = state.multiview_url
+  $('programName').textContent = nameFor(core.program)
+  $('previewName').textContent = nameFor(core.preview)
+  $('selectionName').textContent = `SELECTED · ${nameFor(core.preview)}`
+  renderMultiview(core)
+  grid($('programScene'), sceneFor(core.program))
+  grid($('previewScene'), sceneFor(core.preview))
+  $('revision').textContent = `REV ${core.revision}`
+  $('connection').className = 'status live'
+  $('connection').innerHTML = '<i></i>LIVE'
+
+  for (const bus of ['program', 'preview']) {
+    const box = $(bus + 'Bus')
+    box.replaceChildren()
+    for (let i = 1; i <= 8; i++) {
+      const button = document.createElement('button')
+      button.textContent = i
+      button.className = core[bus] === `zoomiso-${i}` ? (bus === 'program' ? 'program-on' : 'preview-on') : ''
+      button.disabled = busy
+      button.onclick = () => command(bus === 'program' ? 'cut' : 'preview', { source: `zoomiso-${i}` })
+      box.append(button)
+    }
+    for (const bank of ['a', 'b']) {
+      const source = `supersource-${bank}`
+      const button = document.createElement('button')
+      button.textContent = `ME ${meNumber(bank)}`
+      button.className = 'ss'
+      if (core[bus] === source) button.classList.add(bus === 'program' ? 'program-on' : 'preview-on')
+      const scene = state.banks[bank]
+      button.title = `ME ${meNumber(bank)}${scene?.ready ? ` · ${scene.count}-UP · ${scene.sources.join('/')}` : ' · not ready'}`
+      button.disabled = busy || !scene?.ready
+      button.onclick = () => command(bus === 'program' ? 'cut' : 'preview', { source })
+      box.append(button)
+    }
+  }
+
+  $('bankState').textContent = state.live ? `OFF-AIR ME ${meNumber(offAirBank())}` : 'SCENE ENGINE PENDING'
+  $('prepare').disabled = busy || !state.live
+  $('prepare').textContent = state.live ? 'PUNCH LOOK TO PREVIEW' : 'SCENE ENGINE PENDING'
+  $('takeSS').disabled = busy || !bankOf(core.preview)
+}
+
+async function command(kind, body) {
+  busy = true
+  render()
+  try {
+    const output = await api(`/api/mxl/v1/${kind}`, { method: 'POST', body: body ? JSON.stringify(body) : undefined })
+    notice(`Accepted command ${output.command_id}; waiting for frame boundary…`)
+    setTimeout(refresh, 250)
+  } catch (error) {
+    notice(error.message, true)
+  } finally {
+    busy = false
+    render()
+  }
+}
+
+function layoutGrid() {
+  const cols = layout <= 2 ? layout : layout <= 4 ? 2 : 4
+  $('canvas').style.gridTemplateColumns = `repeat(${cols},1fr)`
+  $('canvas').replaceChildren()
+  for (let i = 0; i < layout; i++) {
+    const tile = document.createElement('div')
+    tile.className = 'tile'
+    tile.textContent = slots[i]
+    $('canvas').append(tile)
+  }
+  $('slots').replaceChildren()
+  for (let i = 0; i < layout; i++) {
+    const slot = document.createElement('div')
+    slot.className = 'slot'
+    const label = document.createElement('label')
+    label.innerHTML = `<span>BOX ${i + 1}</span><span>${sources[slots[i] - 1]?.label || 'INPUT ' + slots[i]}</span>`
+    const punch = document.createElement('div')
+    punch.className = 'source-punch'
+    for (let number = 1; number <= 8; number++) {
+      const button = document.createElement('button')
+      button.textContent = number
+      button.title = `Put ${sources[number - 1]?.label || 'Input ' + number} in box ${i + 1}`
+      if (slots[i] === number) button.className = 'selected'
+      button.disabled = busy
+      button.onclick = () => {
+        const other = slots.indexOf(number)
+        if (other >= 0 && other !== i) [slots[i], slots[other]] = [slots[other], slots[i]]
+        else slots[i] = number
+        layoutGrid()
+      }
+      punch.append(button)
+    }
+    slot.append(label, punch)
+    $('slots').append(slot)
+  }
+}
+
+function buildLayouts() {
+  const names = { 2: 'INTERVIEW', 3: 'PANEL', 4: 'GRID', 5: 'PANEL', 6: 'GRID', 7: 'FORUM', 8: 'WALL' }
+  $('layouts').replaceChildren()
+  for (let count = 2; count <= 8; count++) {
+    const button = document.createElement('button')
+    button.innerHTML = `<strong>${count}-UP</strong><small>${names[count]}</small>`
+    button.title = `${count}-up ${names[count].toLowerCase()} preset`
+    button.className = count === layout ? 'selected' : ''
+    button.onclick = () => {
+      layout = count
+      while (slots.length < count) slots.push((slots.length % 8) + 1)
+      slots = slots.slice(0, count)
+      buildLayouts()
+      layoutGrid()
+    }
+    $('layouts').append(button)
+  }
+}
+
+async function prepare() {
+  if (new Set(slots).size !== slots.length) return notice('Each box needs a different input.', true)
+  busy = true
+  render()
+  const bank = offAirBank()
+  notice(`Punching ${layout}-up on off-air ME ${meNumber(bank)}…`)
+  try {
+    const result = await api('/api/skin/supersource/prepare', { method: 'POST', body: JSON.stringify({ count: layout, sources: slots }) })
+    const timing = result.engine?.ready_ms ? ` in ${(result.engine.ready_ms / 1000).toFixed(1)}s` : ''
+    notice(`ME ${meNumber(result.bank)} is ready in Preview${timing}.`)
+    await refresh()
+  } catch (error) {
+    notice(error.message, true)
+  } finally {
+    busy = false
+    render()
+  }
+}
+
+async function refresh() {
+  try {
+    state = await api('/api/skin/state')
+    sources = await api('/api/mxl/v1/sources')
+    render()
+  } catch (error) {
+    $('connection').className = 'status'
+    $('connection').innerHTML = '<i></i>OFFLINE'
+    notice(error.message, true)
+  }
+}
+
+$('cut').onclick = () => command('take')
+$('takeSS').onclick = () => command('take')
+$('prepare').onclick = prepare
+buildLayouts()
+layoutGrid()
+refresh()
+setInterval(refresh, 1000)

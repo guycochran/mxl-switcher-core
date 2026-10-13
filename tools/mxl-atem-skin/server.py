@@ -24,6 +24,7 @@ class App:
         program_url: str | None = None,
         preview_url: str | None = None,
         multiview_url: str | None = None,
+        audio_meter_url: str | None = None,
     ):
         self.root = root
         self.core = core.rstrip("/")
@@ -31,6 +32,7 @@ class App:
         self.program_url = program_url
         self.preview_url = preview_url
         self.multiview_url = multiview_url
+        self.audio_meter_url = audio_meter_url.rstrip("/") if audio_meter_url else None
         self.state_file = state_file
         self.lock = threading.Lock()
         self.banks = {
@@ -70,7 +72,19 @@ class App:
             "program_url": self.program_url,
             "preview_url": self.preview_url,
             "multiview_url": self.multiview_url,
+            "audio": self.audio_state(),
         }
+
+    def audio_state(self):
+        if not self.audio_meter_url:
+            return {"state": "disabled", "meters": {}}
+        try:
+            with urllib.request.urlopen(self.audio_meter_url + "/meters", timeout=1) as response:
+                value = json.loads(response.read())
+            value["state"] = "ok"
+            return value
+        except (OSError, TimeoutError, json.JSONDecodeError) as error:
+            return {"state": "unavailable", "meters": {}, "error": str(error)}
 
     def prepare(self, payload):
         if not self.helper:
@@ -192,6 +206,7 @@ def main():
     parser.add_argument("--program-url", help="WebRTC confidence-player URL to embed in Program")
     parser.add_argument("--preview-url", help="WebRTC confidence-player URL to embed in Preview")
     parser.add_argument("--multiview-url", help="WebRTC operator-multiview URL to embed in the source wall")
+    parser.add_argument("--audio-meter-url", help="Loopback MXL audio meter service URL")
     parser.add_argument("--state-file")
     args = parser.parse_args()
     root = pathlib.Path(__file__).with_name("static").resolve()
@@ -204,6 +219,7 @@ def main():
         args.program_url,
         args.preview_url,
         args.multiview_url,
+        args.audio_meter_url,
     )
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(json.dumps({"event": "skin_ready", "url": f"http://{args.host}:{args.port}", "live_supersource": bool(args.supersource_helper)}), flush=True)

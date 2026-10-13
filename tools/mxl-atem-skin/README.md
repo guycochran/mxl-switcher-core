@@ -1,8 +1,9 @@
 # MXL ATEM-style Skin
 
 A localhost-only operator surface for MXL Core. It provides separate Program
-and Preview buses for inputs 1–8, frame-boundary CUT/TAKE, and an A/B-bank
-SuperSource builder for arbitrary 2-up through 8-up compositions.
+and Preview buses for inputs 1–8, frame-boundary CUT, and two persistent Mix
+Effects layers for arbitrary 2-up through 8-up compositions. The operator UI
+calls the internal `supersource-a` and `supersource-b` sources ME 1 and ME 2.
 
 The web server is deliberately outside the media path. It proxies only the
 bounded Core v1 control API and invokes one validated helper for SuperSource
@@ -14,11 +15,18 @@ python3 server.py --core http://127.0.0.1:18085 \
   --program-url http://127.0.0.1:13089/mxl-program/ \
   --preview-url http://127.0.0.1:13089/mxl-preview/ \
   --multiview-url http://127.0.0.1:13089/mxl-multiview/ \
+  --audio-meter-url http://127.0.0.1:9730 \
   --supersource-helper /home/guy/mxl-atem-skin/run-supersource-bank.sh
 ```
 
 The server binds `127.0.0.1:9700` by default. Use an SSH tunnel for remote
 operation; do not expose it directly to a public network.
+
+`mxl_audio_meter.py` reads the native planar Float32 audio rings without
+decoding video or inserting a media conversion. Its loopback-only `/meters`
+endpoint drives stereo VU bars over each multiview tile. This demonstrates
+source audio presence and silence; it does not by itself claim Core
+audio-follow-video or end-to-end A/V synchronization.
 
 ## Confidence monitoring
 
