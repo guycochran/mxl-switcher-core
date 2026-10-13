@@ -86,6 +86,9 @@ The local engine must prove these invariants before live SDK work:
 See [the architecture](docs/ARCHITECTURE.md) and
 [control semantics](docs/CONTROL.md). See [Linux deployment](docs/DEPLOYMENT.md)
 for the validated configuration format and non-root systemd service.
+The clock-correct Program Master and independent Meeting, NDI, SRT, SDI,
+WebRTC, recording, and RTMP/RTMPS output roadmap is documented in the
+[output-node plan](docs/OUTPUT_ARCHITECTURE.md).
 For the complete ZoomISO/Core/SuperSource operator demonstration, including the
 confidence-monitor performance profile, Stream Deck controls, secure tunnels,
 and NMOS discovery view, see the [operator demo profile](docs/OPERATOR_DEMO.md).
@@ -127,14 +130,22 @@ intermittent guest input while the clip input remained clean.
 
 ## Planned milestones
 
-1. **Accepted NDI/MXL profile:** complete. One real NDI ingress plus one local
+1. **Program Master clock recovery:** normalize the paired Program video/audio
+   flows to one monotonic epoch, exact 48 kHz audio, and the selected video
+   cadence before any distribution adapter.
+2. **Meeting-to-meeting proof:** complete an audience-side receive gate with
+   switched/composited video and clock-correct audio.
+3. **Independent output nodes:** add NDI, SRT, WebRTC, recording, YouTube
+   RTMPS, and scheduled DeckLink SDI/HDMI adapters without adding codecs or
+   hardware dependencies to Core's hot path.
+4. **Accepted NDI/MXL profile:** complete. One real NDI ingress plus one local
    synthetic v210 source passed eight loaded hours with two active NDI outputs.
-2. **Lifecycle resilience:** complete for Core, ingress, and egress replacement.
+5. **Lifecycle resilience:** complete for Core, ingress, and egress replacement.
    A controlled NDI-ingress interruption preserved both decoded NDI outputs,
    reopened the recreated MXL input, and recovered without process restarts.
-3. **Two-source hardware acceptance:** repeat with two independent real sources
+6. **Two-source hardware acceptance:** repeat with two independent real sources
    into stable PGM/PVW on the Supermicro.
-4. **Deployment profiles:** package Core-only, Program-only NDI, and full
+7. **Deployment profiles:** package Core-only, Program-only NDI, and full
    Program/Preview NDI profiles for fresh Linux hosts.
 
 License: MIT.
