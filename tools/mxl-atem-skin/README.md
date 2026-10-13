@@ -12,6 +12,7 @@ unique source numbers 1–8.
 ```sh
 python3 server.py --core http://127.0.0.1:18085 \
   --program-url http://127.0.0.1:13089/mxl-program/ \
+  --multiview-url http://127.0.0.1:13089/mxl-multiview/ \
   --supersource-helper /home/guy/mxl-atem-skin/run-supersource-bank.sh
 ```
 
@@ -29,6 +30,12 @@ For an eight-source operator multiview, follow the proven first-switcher
 pattern: use low-rate JPEG thumbnails for the source grid, or produce one
 MXL-native multiview flow and encode that single result at the edge. Do not
 create eight independent browser encodes.
+
+`mxl_operator_multiview.py` is the low-rate operator-wall entry point. Deploy
+it beside the proven isolated compositor modules, run the eight readers at
+15 fps, publish the resulting v210 wall as one MXL flow, and attach one WebRTC
+adapter to that flow. The skin overlays clickable 4x2 hit areas with Program
+and Preview tally borders; clicking a tile arms that source in Preview.
 
 Core must include these two stable sources before live SuperSource preparation:
 

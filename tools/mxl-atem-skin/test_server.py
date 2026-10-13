@@ -26,6 +26,12 @@ class AppTests(unittest.TestCase):
         app.core_json = lambda *args, **kwargs: (200, "application/json", b'{"revision":4}')
         self.assertEqual(app.state()["program_url"], app.program_url)
 
+    def test_state_exposes_multiview_url(self):
+        app = self.app()
+        app.multiview_url = "http://127.0.0.1:13089/mxl-multiview/"
+        app.core_json = lambda *args, **kwargs: (200, "application/json", b'{"revision":5}')
+        self.assertEqual(app.state()["multiview_url"], app.multiview_url)
+
     def test_prepare_rejects_duplicate_sources(self):
         app = self.app()
         with self.assertRaisesRegex(ValueError, "different source"):
