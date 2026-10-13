@@ -80,6 +80,63 @@ function renderMultiview(core) {
   }
 }
 
+async function audioCommand(body) {
+  try {
+    await api('/api/skin/audio', { method: 'POST', body: JSON.stringify(body) })
+    await refresh()
+  } catch (error) {
+    notice(error.message, true)
+  }
+}
+
+function renderAudioMixer() {
+  const mixer = state?.audio_mixer
+  const box = $('audioChannels')
+  box.replaceChildren()
+  const online = mixer?.state === 'ok'
+  $('audioStatus').textContent = online ? `${mixer.mode.toUpperCase()} · ${nameFor(mixer.program)}` : 'MIXER OFFLINE'
+  $('afv').className = online && mixer.mode === 'afv' ? 'selected' : ''
+  $('manualAudio').className = online && mixer.mode === 'manual' ? 'selected' : ''
+  $('afv').disabled = !online
+  $('manualAudio').disabled = !online
+  $('masterGain').disabled = !online
+  if (online && document.activeElement !== $('masterGain')) $('masterGain').value = Math.round(mixer.master_gain * 100)
+  for (let number = 1; number <= 8; number++) {
+    const channel = mixer?.channels?.[String(number)] || {}
+    const meter = state?.audio?.meters?.[`zoomiso-${number}`]
+    const strip = document.createElement('div')
+    strip.className = `audio-strip${channel.active ? ' active' : ''}`
+    const vu = document.createElement('div')
+    vu.className = 'audio-vu'
+    for (let side = 0; side < 2; side++) {
+      const rail = document.createElement('i')
+      const bar = document.createElement('span')
+      bar.style.height = meterHeight(meter?.peak_dbfs?.[side])
+      rail.append(bar)
+      vu.append(rail)
+    }
+    const fader = document.createElement('input')
+    fader.type = 'range'; fader.min = 0; fader.max = 150
+    fader.value = Math.round((channel.gain ?? 1) * 100)
+    fader.disabled = !online
+    fader.onchange = () => audioCommand({ channel: number, gain: Number(fader.value) / 100 })
+    const on = document.createElement('button')
+    on.textContent = channel.active ? 'ON' : (channel.on ? 'ON*' : 'OFF')
+    on.className = channel.active ? 'on' : ''
+    on.disabled = !online || mixer.mode === 'afv'
+    on.onclick = () => audioCommand({ channel: number, on: !channel.on })
+    const mute = document.createElement('button')
+    mute.textContent = 'M'
+    mute.className = channel.mute ? 'muted' : ''
+    mute.disabled = !online
+    mute.onclick = () => audioCommand({ channel: number, mute: !channel.mute })
+    const label = document.createElement('strong')
+    label.textContent = number
+    strip.append(vu, fader, on, mute, label)
+    box.append(strip)
+  }
+}
+
 function offAirBank() {
   const active = new Set([state?.core.program, state?.core.preview])
   return active.has('supersource-a') ? 'b' : 'a'
@@ -95,6 +152,7 @@ function render() {
   $('previewName').textContent = nameFor(core.preview)
   $('selectionName').textContent = `SELECTED · ${nameFor(core.preview)}`
   renderMultiview(core)
+  renderAudioMixer()
   grid($('programScene'), sceneFor(core.program))
   grid($('previewScene'), sceneFor(core.preview))
   $('revision').textContent = `REV ${core.revision}`
@@ -237,6 +295,9 @@ async function refresh() {
 $('cut').onclick = () => command('take')
 $('takeSS').onclick = () => command('take')
 $('prepare').onclick = prepare
+$('afv').onclick = () => audioCommand({ mode: 'afv' })
+$('manualAudio').onclick = () => audioCommand({ mode: 'manual' })
+$('masterGain').onchange = () => audioCommand({ master_gain: Number($('masterGain').value) / 100 })
 buildLayouts()
 layoutGrid()
 refresh()

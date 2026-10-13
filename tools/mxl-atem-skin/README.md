@@ -16,6 +16,7 @@ python3 server.py --core http://127.0.0.1:18085 \
   --preview-url http://127.0.0.1:13089/mxl-preview/ \
   --multiview-url http://127.0.0.1:13089/mxl-multiview/ \
   --audio-meter-url http://127.0.0.1:9730 \
+  --audio-mixer-url http://127.0.0.1:9740 \
   --supersource-helper /home/guy/mxl-atem-skin/run-supersource-bank.sh
 ```
 
@@ -27,6 +28,13 @@ decoding video or inserting a media conversion. Its loopback-only `/meters`
 endpoint drives stereo VU bars over each multiview tile. This demonstrates
 source audio presence and silence; it does not by itself claim Core
 audio-follow-video or end-to-end A/V synchronization.
+
+`mxl_audio_mixer.py` reads the eight stereo ZoomISO Float32 audio flows and
+writes one stable Program Audio MXL flow. The browser surface exposes eight
+faders, ON/mute buttons, a master fader, and two modes: AFV follows direct
+Program cuts, while Manual builds a multi-participant mix for ME/SuperSource
+layouts. The Program WebRTC publisher subscribes to this stable output so its
+H.264 + Opus session stays intact across video cuts.
 
 ## Confidence monitoring
 

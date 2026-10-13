@@ -25,6 +25,7 @@ class App:
         preview_url: str | None = None,
         multiview_url: str | None = None,
         audio_meter_url: str | None = None,
+        audio_mixer_url: str | None = None,
     ):
         self.root = root
         self.core = core.rstrip("/")
@@ -33,6 +34,7 @@ class App:
         self.preview_url = preview_url
         self.multiview_url = multiview_url
         self.audio_meter_url = audio_meter_url.rstrip("/") if audio_meter_url else None
+        self.audio_mixer_url = audio_mixer_url.rstrip("/") if audio_mixer_url else None
         self.state_file = state_file
         self.lock = threading.Lock()
         self.banks = {
@@ -73,6 +75,7 @@ class App:
             "preview_url": self.preview_url,
             "multiview_url": self.multiview_url,
             "audio": self.audio_state(),
+            "audio_mixer": self.audio_mixer_state(),
         }
 
     def audio_state(self):
@@ -85,6 +88,27 @@ class App:
             return value
         except (OSError, TimeoutError, json.JSONDecodeError) as error:
             return {"state": "unavailable", "meters": {}, "error": str(error)}
+
+    def audio_mixer_state(self):
+        if not self.audio_mixer_url:
+            return {"state": "disabled"}
+        try:
+            with urllib.request.urlopen(self.audio_mixer_url + "/state", timeout=1) as response:
+                return json.loads(response.read())
+        except (OSError, TimeoutError, json.JSONDecodeError) as error:
+            return {"state": "unavailable", "error": str(error)}
+
+    def audio_mixer_control(self, payload):
+        if not self.audio_mixer_url:
+            raise RuntimeError("audio mixer is not enabled")
+        request = urllib.request.Request(
+            self.audio_mixer_url + "/control",
+            data=json.dumps(payload).encode(),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            return json.loads(response.read())
 
     def prepare(self, payload):
         if not self.helper:
@@ -180,6 +204,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/skin/supersource/take":
                 status, _kind, data = self.app.core_json("/api/mxl/v1/take", "POST")
                 return self.send_bytes(status, "application/json", data)
+            if self.path == "/api/skin/audio":
+                return self.send_json(200, self.app.audio_mixer_control(self.read_json()))
             if self.path.startswith("/api/mxl/v1/"):
                 body = self.read_json()
                 status, kind, data = self.app.core_json(self.path, "POST", body or None)
@@ -207,6 +233,7 @@ def main():
     parser.add_argument("--preview-url", help="WebRTC confidence-player URL to embed in Preview")
     parser.add_argument("--multiview-url", help="WebRTC operator-multiview URL to embed in the source wall")
     parser.add_argument("--audio-meter-url", help="Loopback MXL audio meter service URL")
+    parser.add_argument("--audio-mixer-url", help="Loopback MXL audio mixer service URL")
     parser.add_argument("--state-file")
     args = parser.parse_args()
     root = pathlib.Path(__file__).with_name("static").resolve()
@@ -220,6 +247,7 @@ def main():
         args.preview_url,
         args.multiview_url,
         args.audio_meter_url,
+        args.audio_mixer_url,
     )
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(json.dumps({"event": "skin_ready", "url": f"http://{args.host}:{args.port}", "live_supersource": bool(args.supersource_helper)}), flush=True)

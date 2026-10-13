@@ -38,6 +38,11 @@ class AppTests(unittest.TestCase):
         app.core_json = lambda *args, **kwargs: (200, "application/json", b'{"revision":6}')
         self.assertEqual(app.state()["preview_url"], app.preview_url)
 
+    def test_state_reports_disabled_audio_mixer(self):
+        app = self.app()
+        app.core_json = lambda *args, **kwargs: (200, "application/json", b'{"revision":7}')
+        self.assertEqual(app.state()["audio_mixer"]["state"], "disabled")
+
     def test_prepare_rejects_duplicate_sources(self):
         app = self.app()
         with self.assertRaisesRegex(ValueError, "different source"):

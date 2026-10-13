@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MXL Control Surface</title><link rel="stylesheet" href="/style.css?v=3"><link rel="stylesheet" href="/webrtc.css?v=3"><link rel="stylesheet" href="/buttons.css?v=3"><link rel="stylesheet" href="/overrides.css?v=1">
+  <title>MXL Control Surface</title><link rel="stylesheet" href="/style.css?v=3"><link rel="stylesheet" href="/webrtc.css?v=3"><link rel="stylesheet" href="/buttons.css?v=3"><link rel="stylesheet" href="/overrides.css?v=1"><link rel="stylesheet" href="/audio.css?v=1">
 </head>
 <body>
 <main class="console">
@@ -17,6 +17,11 @@
     <div class="bus-label">PREVIEW</div><div class="bus" id="previewBus"></div>
     <div class="transition"><div><span>TRANSITION</span><small>CUT is live · MIX requires the planned dual-source sampler</small></div><button class="cut" id="cut">CUT</button><button class="auto" disabled title="Requires a true two-source transition sampler in Core">MIX 12F</button></div>
   </section>
+  <section class="audio-mixer">
+    <div class="mixer-head"><div><span class="eyebrow">PROGRAM AUDIO</span><h1>Audio Mixer</h1><p>AFV follows direct Program cuts. Use Manual ON buttons for SuperSource mixes.</p></div><div class="audio-mode"><button id="afv">AFV</button><button id="manualAudio">MANUAL</button></div></div>
+    <div class="audio-channels" id="audioChannels"></div>
+    <div class="audio-master"><span>MASTER</span><input id="masterGain" type="range" min="0" max="150" value="100"><strong id="audioStatus">—</strong></div>
+  </section>
   <section class="supersource">
     <div class="ss-head"><div><span class="eyebrow">MIX EFFECTS</span><h1>SuperSource Look Builder</h1><p>ME 1 and ME 2 are persistent layers. Build off air, then CUT.</p></div><div class="bank" id="bankState">ME —</div></div>
     <div class="layout-row" id="layouts"></div>
@@ -24,5 +29,5 @@
     <div class="ss-actions"><button id="prepare" class="prepare">PUNCH LOOK TO PREVIEW</button><button id="takeSS" class="take">CUT ME PREVIEW</button></div>
   </section>
   <footer><span id="notice">Commands apply on the next MXL grain boundary.</span><span>CONFIDENCE · PGM 1080p30 · PVW/MV 720p15</span><span id="revision">REV —</span></footer>
-</main><script src="/app.js?v=3"></script>
+</main><script src="/app.js?v=4"></script>
 </body></html>
