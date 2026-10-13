@@ -42,6 +42,10 @@ Recommended layout:
 The SuperSource preset buttons punch the selected layout on the safe inactive
 warm bank and place it in Preview. Use TAKE or TAKE SS to put it on air.
 
+The operator rehearsal validated this packaged module on Companion 5.1:
+Program and Preview selection, TAKE, tally feedback, and the 2-up through 8-up
+Look presets all controlled the live Core instance.
+
 ## NMOS boundary
 
 The Companion module is the physical control and tally path. NMOS IS-04 with
