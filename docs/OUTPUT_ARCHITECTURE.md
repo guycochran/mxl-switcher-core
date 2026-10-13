@@ -203,9 +203,12 @@ Minimum initial gates:
 
 ### Phase 0 — contract and measurement
 
-- Land this architecture and a versioned output-profile schema.
-- Add reusable clock-rate, buffer-depth, correction, and A/V-skew telemetry.
-- Capture the existing meeting-return drift as a regression fixture.
+- Land this architecture and the versioned
+  [`output-profiles.schema.json`](../config/output-profiles.schema.json) contract.
+- Add reusable clock-rate, buffer-depth, correction, and A/V-skew telemetry in
+  [`program_clock.py`](../tools/mxl-atem-skin/program_clock.py).
+- Capture the measured meeting-return drift and burst delivery as regression
+  tests before connecting the controller to the live media pipeline.
 
 ### Phase 1 — Program Master clock recovery
 
@@ -246,4 +249,3 @@ Program and audio continuity are the product. Under resource pressure:
 3. reduce non-critical output resolution/bitrate;
 4. shed optional outputs according to operator priority;
 5. never silently change Program audio rate, channel mapping, or clock source.
-

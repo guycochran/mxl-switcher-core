@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mxl-switcher-core:output-profiles:v1",
+  "title": "MXL output profiles",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "program", "outputs"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["video_flow", "audio_flow", "video", "audio", "clock"],
+      "properties": {
+        "video_flow": {"type": "string", "format": "uuid"},
+        "audio_flow": {"type": "string", "format": "uuid"},
+        "video": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height", "pixel_format", "rate"],
+          "properties": {
+            "width": {"type": "integer", "minimum": 16},
+            "height": {"type": "integer", "minimum": 16},
+            "pixel_format": {"enum": ["v210", "uyvy", "rgba"]},
+            "rate": {"type": "string", "pattern": "^[1-9][0-9]*/[1-9][0-9]*$"}
+          }
+        },
+        "audio": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "sample_rate", "channels"],
+          "properties": {
+            "format": {"const": "f32le"},
+            "sample_rate": {"const": 48000},
+            "channels": {"type": "integer", "minimum": 1, "maximum": 64}
+          }
+        },
+        "clock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority", "target_audio_buffer_ms", "max_resample_correction_ppm"],
+          "properties": {
+            "authority": {"const": "monotonic"},
+            "target_audio_buffer_ms": {"type": "number", "minimum": 20, "maximum": 1000},
+            "max_resample_correction_ppm": {"type": "number", "minimum": 50, "maximum": 10000},
+            "max_av_skew_ms": {"type": "number", "minimum": 1, "maximum": 1000}
+          }
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/output"}
+    }
+  },
+  "$defs": {
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "enabled", "priority", "profile"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$"},
+        "kind": {
+          "enum": ["meeting_return", "ndi", "srt", "decklink", "rtmp", "webrtc", "recorder"]
+        },
+        "enabled": {"type": "boolean"},
+        "priority": {"type": "integer", "minimum": 0, "maximum": 100},
+        "profile": {"type": "object"},
+        "secret_ref": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
