@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
+import struct
 import threading
 import time
 import urllib.request
@@ -20,7 +22,11 @@ CAPS = (
     "audio/x-raw,format=F32LE,layout=interleaved,rate=48000,"
     "channels=2,channel-mask=(bitmask)0x3"
 )
-MARGIN_NS = 66_000_000
+HEAD_INDEX_OFFSET = 0xC8
+PIPELINE_LATENCY_NS = 250_000_000
+OUTPUT_BUFFER_DURATION_NS = 10_000_000
+OUTPUT_STALL_SECONDS = 3.0
+STARTUP_GRACE_SECONDS = 8.0
 
 
 class Mixer:
@@ -37,15 +43,22 @@ class Mixer:
             str(index): {"gain": 1.0, "on": False, "mute": False}
             for index in range(1, len(inputs) + 1)
         }
+        self.pipeline_generation = 0
+        self.pipeline_restarts = 0
+        self.last_restart_reason = None
+        self.output_head_index = None
+        self.output_progress_at = time.monotonic()
+        self.pipeline_started_at = time.monotonic()
         self.pipeline = self._make_pipeline()
         self._apply()
 
     def _make_pipeline(self):
         desc = (
             "audiomixer name=mix force-live=true ignore-inactive-pads=true "
-            "latency=120000000 output-buffer-duration=10000000 ! "
-            f"audioconvert ! audioresample ! {CAPS} ! "
-            "volume name=master ! queue max-size-buffers=32 ! "
+            f"latency={PIPELINE_LATENCY_NS} "
+            f"output-buffer-duration={OUTPUT_BUFFER_DURATION_NS} ! "
+            f"{CAPS} ! volume name=master ! "
+            "queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 ! "
             f"mxlsink name=out domain={self.domain} flow-id={self.output} "
             'label="Program Audio Mix" description="ATEM skin program audio bus" '
             'group-hint="Program:Audio" sync=false '
@@ -55,8 +68,10 @@ class Mixer:
         for index, flow in enumerate(self.inputs, 1):
             desc += (
                 f"mxlsrc name=src{index} domain={self.domain} audio-flow-id={flow} "
-                "automatic-eos=false do-timestamp=true ! audioconvert ! audioresample ! "
-                f"{CAPS} ! queue max-size-buffers=32 leaky=downstream ! mix.sink_{index} "
+                "automatic-eos=false ! "
+                f"{CAPS} ! queue max-size-time=1000000000 "
+                "max-size-buffers=0 max-size-bytes=0 ! "
+                f"mix.sink_{index} "
             )
         pipeline = Gst.parse_launch(desc)
         self.mix = pipeline.get_by_name("mix")
@@ -66,44 +81,63 @@ class Mixer:
             str(index): self.mix.get_static_pad(f"sink_{index}")
             for index in range(1, len(self.inputs) + 1)
         }
-        self._next_pts = None
-        self.output_sink.get_static_pad("sink").add_probe(
-            Gst.PadProbeType.BUFFER, self._restamp
-        )
-        for index in range(1, len(self.inputs) + 1):
-            pipeline.get_by_name(f"src{index}").get_static_pad("src").add_probe(
-                Gst.PadProbeType.BUFFER, self._normalizer()
-            )
+        self.bus = pipeline.get_bus()
+        self.pipeline_generation += 1
+        self.pipeline_started_at = time.monotonic()
         return pipeline
 
-    def _normalizer(self):
-        state = {"offset": None}
+    @property
+    def output_data_path(self) -> pathlib.Path:
+        return pathlib.Path(self.domain) / f"{self.output}.mxl-flow" / "data"
 
-        def normalize(_pad, info):
-            buffer = info.get_buffer()
-            clock = self.pipeline.get_clock()
-            if not clock or buffer.pts == Gst.CLOCK_TIME_NONE:
-                return Gst.PadProbeReturn.OK
-            target = clock.get_time() - self.pipeline.get_base_time() + MARGIN_NS
-            if state["offset"] is None or abs(buffer.pts + state["offset"] - target) > 500_000_000:
-                state["offset"] = target - buffer.pts
-            buffer.pts += state["offset"]
-            return Gst.PadProbeReturn.OK
+    def _read_output_head(self):
+        payload = self.output_data_path.read_bytes()
+        return struct.unpack_from("<Q", payload, HEAD_INDEX_OFFSET)[0]
 
-        return normalize
+    def _restart_pipeline(self, reason: str):
+        old_pipeline = self.pipeline
+        old_pipeline.set_state(Gst.State.NULL)
+        self.pipeline = self._make_pipeline()
+        self._apply()
+        result = self.pipeline.set_state(Gst.State.PLAYING)
+        if result == Gst.StateChangeReturn.FAILURE:
+            raise RuntimeError(f"audio mixer pipeline restart failed: {reason}")
+        self.pipeline_restarts += 1
+        self.last_restart_reason = reason
+        self.output_head_index = None
+        self.output_progress_at = time.monotonic()
 
-    def _restamp(self, _pad, info):
-        buffer = info.get_buffer()
-        clock = self.pipeline.get_clock()
-        if not clock:
-            return Gst.PadProbeReturn.OK
-        target = clock.get_time() - self.pipeline.get_base_time() + MARGIN_NS
-        if self._next_pts is None or abs(target - self._next_pts) > 500_000_000:
-            self._next_pts = target
-        buffer.pts = self._next_pts
-        if buffer.duration != Gst.CLOCK_TIME_NONE:
-            self._next_pts += buffer.duration
-        return Gst.PadProbeReturn.OK
+    def monitor_pipeline(self):
+        while True:
+            time.sleep(0.5)
+            with self.lock:
+                message = self.bus.pop_filtered(
+                    Gst.MessageType.ERROR | Gst.MessageType.EOS
+                )
+                if message is not None:
+                    if message.type == Gst.MessageType.ERROR:
+                        error, debug = message.parse_error()
+                        reason = f"gstreamer error: {error}; {debug or ''}".strip()
+                    else:
+                        reason = "unexpected end of stream"
+                    self._restart_pipeline(reason)
+                    continue
+
+                now = time.monotonic()
+                try:
+                    head = self._read_output_head()
+                except (OSError, struct.error):
+                    head = None
+                if head is not None and head != self.output_head_index:
+                    self.output_head_index = head
+                    self.output_progress_at = now
+                if (
+                    now - self.pipeline_started_at > STARTUP_GRACE_SECONDS
+                    and now - self.output_progress_at > OUTPUT_STALL_SECONDS
+                ):
+                    self._restart_pipeline(
+                        f"output ring stalled for {now - self.output_progress_at:.1f}s"
+                    )
 
     def _enabled(self, number: str) -> bool:
         channel = self.channels[number]
@@ -141,6 +175,13 @@ class Mixer:
             "program": self.program,
             "master_gain": self.master_gain,
             "output_flow": self.output,
+            "pipeline_generation": self.pipeline_generation,
+            "pipeline_restarts": self.pipeline_restarts,
+            "last_restart_reason": self.last_restart_reason,
+            "output_head_index": self.output_head_index,
+            "output_progress_age_seconds": round(
+                time.monotonic() - self.output_progress_at, 3
+            ),
             "channels": {
                 number: {**channel, "active": self._enabled(number)}
                 for number, channel in self.channels.items()
@@ -178,6 +219,7 @@ class Mixer:
         if result == Gst.StateChangeReturn.FAILURE:
             raise RuntimeError("audio mixer pipeline failed to start")
         threading.Thread(target=self.poll_program, daemon=True).start()
+        threading.Thread(target=self.monitor_pipeline, daemon=True).start()
 
 
 MIXER: Mixer

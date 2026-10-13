@@ -36,6 +36,14 @@ Program cuts, while Manual builds a multi-participant mix for ME/SuperSource
 layouts. The Program WebRTC publisher subscribes to this stable output so its
 H.264 + Opus session stays intact across video cuts.
 
+The mixer preserves ZoomISO's native 48 kHz MXL timestamps, uses non-dropping
+one-second input queues and a 250 ms live-mixer latency, and does not insert a
+sample-rate conversion when the input already matches the 48 kHz Program bus.
+Its loopback `/state` response includes the output-ring head index, progress
+age, pipeline generation, and restart count. A bus/error and progress watchdog
+rebuilds the GStreamer pipeline if the Program Audio ring stops advancing; a
+running container alone is not considered proof of healthy audio.
+
 ## Confidence monitoring
 
 The Program and Preview monitors embed MediaMTX WebRTC players with
