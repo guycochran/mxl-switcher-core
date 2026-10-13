@@ -216,6 +216,22 @@ Minimum initial gates:
 - Publish stable paired Program Master flows.
 - Add synthetic drift/burst/stall tests and a live measurement harness.
 
+The first isolated audio candidate is implemented in
+[`mxl_program_reclock.py`](../tools/mxl-atem-skin/mxl_program_reclock.py). It
+uses cumulative received sample frames—not source PTS—as its input clock
+measurement, applies a bounded rate correction, resamples to 48 kHz, and
+generates continuous output timestamps from emitted bytes. A clean live trace
+converged to −3.15 ppm input and −4.22 ppm output with a +0.18 ppm correction,
+zero output PTS discontinuities, zero bridge restarts, and zero hard sample
+corrections. This remains a candidate flow and is not yet the meeting-return
+default.
+
+The live work also established an instrumentation rule: a deep, non-dropping
+`appsink` can backpressure a small MXL audio ring and create the outage it is
+trying to measure. Exact output cadence and PTS-continuity counters therefore
+run inside the bridge on its existing sink pad. External health readers must
+use a small dropping queue and report their own observation loss separately.
+
 ### Phase 2 — meeting-to-meeting proof
 
 - Feed the corrected Program Master into the return meeting.

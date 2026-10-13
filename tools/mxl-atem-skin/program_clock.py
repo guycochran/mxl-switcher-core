@@ -82,9 +82,17 @@ class ClockRateEstimator:
     def rate(self) -> float | None:
         if not self.ready:
             return None
-        first = self.samples[0]
-        last = self.samples[-1]
-        return (last.media_ns - first.media_ns) / (last.monotonic_ns - first.monotonic_ns)
+        origin = self.samples[0]
+        wall = [sample.monotonic_ns - origin.monotonic_ns for sample in self.samples]
+        media = [sample.media_ns - origin.media_ns for sample in self.samples]
+        wall_mean = sum(wall) / len(wall)
+        media_mean = sum(media) / len(media)
+        covariance = sum(
+            (wall_value - wall_mean) * (media_value - media_mean)
+            for wall_value, media_value in zip(wall, media)
+        )
+        variance = sum((wall_value - wall_mean) ** 2 for wall_value in wall)
+        return covariance / variance if variance else None
 
     @property
     def drift_ppm(self) -> float | None:

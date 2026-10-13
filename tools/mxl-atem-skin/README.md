@@ -50,6 +50,27 @@ age, pipeline generation, and restart count. A bus/error and progress watchdog
 rebuilds the GStreamer pipeline if the Program Audio ring stops advancing; a
 running container alone is not considered proof of healthy audio.
 
+`mxl_program_reclock.py` is the isolated Phase 1 Program Master candidate. It
+reads the stable Program Audio mix, measures its timeline against monotonic
+time from cumulative received sample frames on a steady observation cadence
+(rather than trusting regressing source PTS or mistaking scheduler bursts for
+clock movement), and uses a bounded software PLL to make small continuous tempo
+changes. Source PTS regressions remain visible as a separate counter. The first
+candidate applies rate feed-forward only: GStreamer
+queue levels remain visible but do not drive correction because they are not a
+sample-accurate FIFO occupancy measurement.
+High-quality resampling returns the result to exact 48 kHz; byte-accumulated
+timestamps are rooted at one monotonic epoch and the sink is clock-paced. The
+candidate publishes a different flow and group hint, so evaluation cannot
+silently replace the meeting-return input. Its `/state` endpoint exposes input
+drift, correction ratio, queue depth, ignored scheduler-burst samples, output
+production rate, PTS discontinuities, progress, restart/reopen count, and
+hard-correction count. These exact output measurements run on the existing sink
+pad and do not add an MXL reader. If the upstream MXL
+ring is replaced, the candidate rebuilds only its reader pipeline and advances
+the new retimestamping epoch by the audio it already emitted, preventing a PTS
+rewind across recovery.
+
 ## Confidence monitoring
 
 The Program and Preview monitors embed MediaMTX WebRTC players with

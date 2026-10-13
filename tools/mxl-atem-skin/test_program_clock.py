@@ -44,6 +44,17 @@ class ClockRateEstimatorTest(unittest.TestCase):
         self.assertEqual(estimator.ignored_samples, 1)
         self.assertAlmostEqual(estimator.rate, 1.0)
 
+    def test_regression_rejects_endpoint_phase_noise(self):
+        estimator = ClockRateEstimator(window_seconds=60, minimum_span_seconds=1)
+        expected_rate = 1.000872452
+        for index in range(121):
+            wall_ns = index * 100_000_000
+            phase_ns = (0, 4_000_000, -3_000_000, 2_000_000, -2_000_000)[index % 5]
+            media_ns = round(index * 100_000_000 * expected_rate + phase_ns)
+            estimator.observe(media_ns, wall_ns)
+
+        self.assertAlmostEqual(estimator.drift_ppm, 872.452, delta=50)
+
 
 class AdaptiveResampleControllerTest(unittest.TestCase):
     def test_fast_source_converges_below_unity_without_hard_drop(self):
