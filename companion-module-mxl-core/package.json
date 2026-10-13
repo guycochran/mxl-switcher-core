@@ -1,0 +1,13 @@
+{
+  "name": "companion-module-mxl-core",
+  "version": "0.2.0",
+  "main": "main.js",
+  "license": "MIT",
+  "description": "Bitfocus Companion control for MXL Core with Program, Preview, SuperSource, and live tally",
+  "scripts": {
+    "test": "node --check main.js"
+  },
+  "dependencies": {
+    "@companion-module/base": "~1.10.0"
+  }
+}

@@ -86,6 +86,9 @@ The local engine must prove these invariants before live SDK work:
 See [the architecture](docs/ARCHITECTURE.md) and
 [control semantics](docs/CONTROL.md). See [Linux deployment](docs/DEPLOYMENT.md)
 for the validated configuration format and non-root systemd service.
+For the complete ZoomISO/Core/SuperSource operator demonstration, including the
+confidence-monitor performance profile, Stream Deck controls, secure tunnels,
+and NMOS discovery view, see the [operator demo profile](docs/OPERATOR_DEMO.md).
 
 The independent-CUT timing change has also passed live ZoomISO MXL validation
 with four simultaneous 1920x1080p30 v210 inputs plus stable Program and Preview.

@@ -1,0 +1,21 @@
+{
+  "id": "mxl-core",
+  "name": "mxl-core",
+  "shortname": "mxl",
+  "description": "MXL Core Program, Preview, SuperSource preparation, TAKE, and live tally",
+  "version": "0.2.0",
+  "license": "MIT",
+  "repository": "https://github.com/guycochran/mxl-switcher-core",
+  "bugs": "https://github.com/guycochran/mxl-switcher-core/issues",
+  "maintainers": [{ "name": "Guy Cochran" }],
+  "legacyIds": ["mxl-switcher"],
+  "runtime": {
+    "type": "node18",
+    "api": "nodejs-ipc",
+    "apiVersion": "0.0.0",
+    "entrypoint": "../main.js"
+  },
+  "manufacturer": "MXL",
+  "products": ["MXL Core"],
+  "keywords": ["mxl", "switcher", "ebu", "zoomiso", "tally", "supersource"]
+}
