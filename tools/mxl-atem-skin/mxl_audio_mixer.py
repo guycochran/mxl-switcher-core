@@ -23,7 +23,7 @@ CAPS = (
     "channels=2,channel-mask=(bitmask)0x3"
 )
 HEAD_INDEX_OFFSET = 0xC8
-PIPELINE_LATENCY_NS = 250_000_000
+DEFAULT_PIPELINE_LATENCY_MS = 250.0
 OUTPUT_BUFFER_DURATION_NS = 10_000_000
 OUTPUT_STALL_SECONDS = 3.0
 STARTUP_GRACE_SECONDS = 8.0
@@ -37,12 +37,15 @@ class Mixer:
         inputs: list[str],
         core: str,
         group_hint: str,
+        pipeline_latency_ms: float,
     ):
         self.domain = domain
         self.output = output
         self.inputs = inputs
         self.core = core.rstrip("/")
         self.group_hint = group_hint
+        self.pipeline_latency_ms = pipeline_latency_ms
+        self.pipeline_latency_ns = round(pipeline_latency_ms * 1_000_000)
         self.lock = threading.Lock()
         self.mode = "afv"
         self.program = None
@@ -63,7 +66,7 @@ class Mixer:
     def _make_pipeline(self):
         desc = (
             "audiomixer name=mix force-live=true ignore-inactive-pads=true "
-            f"latency={PIPELINE_LATENCY_NS} "
+            f"latency={self.pipeline_latency_ns} "
             f"output-buffer-duration={OUTPUT_BUFFER_DURATION_NS} ! "
             f"{CAPS} ! volume name=master ! "
             "queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 ! "
@@ -184,6 +187,7 @@ class Mixer:
             "program": self.program,
             "master_gain": self.master_gain,
             "output_flow": self.output,
+            "pipeline_latency_ms": self.pipeline_latency_ms,
             "pipeline_generation": self.pipeline_generation,
             "pipeline_restarts": self.pipeline_restarts,
             "last_restart_reason": self.last_restart_reason,
@@ -269,12 +273,20 @@ def main():
     parser.add_argument("--input", action="append", required=True)
     parser.add_argument("--core", default="http://host.docker.internal:18085")
     parser.add_argument("--group-hint", default="ZoomISOMXLProgram")
+    parser.add_argument(
+        "--pipeline-latency-ms", type=float, default=DEFAULT_PIPELINE_LATENCY_MS
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9740)
     args = parser.parse_args()
     Gst.init(None)
     MIXER = Mixer(
-        args.domain, args.output, args.input, args.core, args.group_hint
+        args.domain,
+        args.output,
+        args.input,
+        args.core,
+        args.group_hint,
+        args.pipeline_latency_ms,
     )
     MIXER.start()
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()

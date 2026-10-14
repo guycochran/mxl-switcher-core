@@ -95,3 +95,23 @@ and measured A/V synchronization.
 
 No participant identity, meeting credential, private address, flow UUID,
 host name, or raw operational log is included here.
+
+## Preserved experimental tuning controls
+
+The meeting-return investigation also produced three CLI controls that are
+committed for continuation but are **not** accepted production settings:
+
+- `mxl_audio_mixer.py --pipeline-latency-ms` makes the GStreamer mixer latency
+  explicit while retaining the measured 250 ms default;
+- `mxl_program_reclock.py --presentation-offset-ms` shifts the published audio
+  presentation epoch without changing its sample cadence; and
+- `mxl_program_reclock.py --unsynced-sink` permits a future-dated output
+  timeline to be written without the sink waiting on that future clock time.
+
+Focused tests cover the timeline arithmetic and generated pipeline properties.
+These controls were motivated by audible artifacting and apparent return-path
+lag, but no value has yet passed content-level A/V-sync or audience-meeting
+acceptance. A continuation must measure the actual audience-side waveform and
+moving timecode before selecting latency or presentation-offset values. Do not
+promote the buffered or tuned return scripts solely because the processes are
+healthy or their MXL heads advance.

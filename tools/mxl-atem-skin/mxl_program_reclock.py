@@ -28,12 +28,19 @@ def advance_output_epoch(epoch_ns: int, emitted_bytes: int) -> int:
     return epoch_ns + emitted_bytes * 1_000_000_000 // BYTES_PER_SECOND
 
 
+def offset_output_epoch(epoch_ns: int, presentation_offset_ms: float) -> int:
+    """Shift the published media timeline without changing sample cadence."""
+
+    return epoch_ns + round(presentation_offset_ms * 1_000_000)
+
+
 def pipeline_description(
     domain: str,
     source_flow: str,
     output_flow: str,
     epoch_ns: int,
     group_hint: str = "MXLProgramMasterCandidate",
+    sink_sync: bool = True,
 ) -> str:
     """Return the candidate pipeline without starting or modifying live state."""
 
@@ -53,7 +60,7 @@ def pipeline_description(
         f"mxlsink name=output domain={domain} flow-id={output_flow} "
         'label="Program Master Audio Candidate" '
         'description="Clock-correct 48 kHz Program master candidate" '
-        f'group-hint="{group_hint}:Audio" sync=true'
+        f'group-hint="{group_hint}:Audio" sync={str(sink_sync).lower()}'
     )
 
 
@@ -76,13 +83,19 @@ class ProgramReclock:
         target_buffer_ms: float,
         max_correction_ppm: float,
         group_hint: str,
+        presentation_offset_ms: float,
+        sink_sync: bool,
     ) -> None:
         self.Gst = load_gstreamer()
         self.domain = domain
         self.source_flow = source_flow
         self.output_flow = output_flow
         self.group_hint = group_hint
-        self.epoch_ns = time.monotonic_ns()
+        self.presentation_offset_ms = presentation_offset_ms
+        self.sink_sync = sink_sync
+        self.epoch_ns = offset_output_epoch(
+            time.monotonic_ns(), presentation_offset_ms
+        )
         self.lock = threading.Lock()
         self.estimator = ClockRateEstimator(
             window_seconds=60,
@@ -134,6 +147,7 @@ class ProgramReclock:
                 self.output_flow,
                 output_epoch_ns,
                 self.group_hint,
+                self.sink_sync,
             )
         )
         self.source = self.pipeline.get_by_name("source")
@@ -293,6 +307,8 @@ class ProgramReclock:
                     "source_flow": self.source_flow,
                     "output_flow": self.output_flow,
                     "group_hint": self.group_hint,
+                    "presentation_offset_ms": self.presentation_offset_ms,
+                    "sink_sync": self.sink_sync,
                     "epoch_ns": self.epoch_ns,
                     "tempo": self.tempo,
                     "pipeline_generation": self.pipeline_generation,
@@ -358,6 +374,8 @@ def main() -> None:
     parser.add_argument("--target-buffer-ms", type=float, default=120.0)
     parser.add_argument("--max-correction-ppm", type=float, default=2500.0)
     parser.add_argument("--group-hint", default="MXLProgramMasterCandidate")
+    parser.add_argument("--presentation-offset-ms", type=float, default=0.0)
+    parser.add_argument("--unsynced-sink", action="store_true")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9750)
     args = parser.parse_args()
@@ -368,6 +386,8 @@ def main() -> None:
         args.target_buffer_ms,
         args.max_correction_ppm,
         args.group_hint,
+        args.presentation_offset_ms,
+        not args.unsynced_sink,
     )
     BRIDGE.start()
     print(

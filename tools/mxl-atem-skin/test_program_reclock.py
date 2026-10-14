@@ -22,6 +22,12 @@ class ProgramReclockPipelineTest(unittest.TestCase):
             10_000_000_000,
         )
 
+    def test_presentation_offset_advances_timeline_without_rate_change(self):
+        self.assertEqual(
+            MODULE.offset_output_epoch(9_000_000_000, 275.0),
+            9_275_000_000,
+        )
+
     def test_candidate_pipeline_is_clock_correct_and_isolated(self):
         description = MODULE.pipeline_description(
             "/mxl-domain",
@@ -52,6 +58,22 @@ class ProgramReclockPipelineTest(unittest.TestCase):
 
         self.assertIn('group-hint="ZoomISOMXLProgram:Audio"', description)
         self.assertNotIn("MXLProgramMasterCandidate:Audio", description)
+
+    def test_pipeline_can_publish_a_future_timeline_without_clock_waiting(self):
+        description = MODULE.pipeline_description(
+            "/mxl-domain",
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002",
+            9_100_000_000,
+            "MXLProgramReturnBuffered",
+            False,
+        )
+
+        self.assertIn("ts-offset=9100000000", description)
+        self.assertIn("sync=false", description)
+        self.assertIn(
+            'group-hint="MXLProgramReturnBuffered:Audio"', description
+        )
 
     def test_read_only_probe_never_publishes_a_flow(self):
         description = AUDIO_PROBE.pipeline_description(
