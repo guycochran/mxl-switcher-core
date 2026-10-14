@@ -119,6 +119,27 @@ Preview probes both averaged 30.01 fps with zero drops. The production-facing
 Core and supporting services remained running with zero restarts, and all
 candidate containers were removed after the test.
 
-This result is a targeted regression gate, not a replacement for the longer
-acceptance run. The next qualification step is a longer switching confirmation
-using the same candidate before merge or installation as the default Core.
+The targeted gate was followed by staged 10-minute and 30-minute switching
+confirmations using the same isolated candidate and four simultaneous inputs.
+The harness issued a control command approximately every two seconds, mixing
+TAKE, direct CUT, and Preview selections across all four sources.
+
+| Gate | Commands | Fresh routes | Cadence holds | Timeline resets | Program / Preview |
+|---|---:|---:|---:|---:|---:|
+| 10 minutes | 295 | +35,031 | +969 | +345 | 18,619 / 18,595 grains |
+| 30 minutes | 885 | +104,729 | +3,263 | +1,034 | 54,635 / 54,606 grains |
+
+Both output probes averaged 30.00 fps and reported zero drops in both gates.
+Common-window width remained 4–5 grains and observed source skew remained 0–1
+grain. Every strict failure counter stayed unchanged at zero after
+stabilization: invalid, too-early, too-late, timeout, reader-reopen,
+synchronization timeout/early/late, no-common-window, selected-input
+regression, sustained-unavailable alarms, and active sustained-unavailable
+state. Each gate exited successfully, removed only its temporary candidate and
+probe containers, and left the permanent ZoomISO, operator Core, and Program
+Audio services running with zero restarts.
+
+These longer confirmations close the cadence-hold regression qualification.
+The candidate remains intentionally unmerged and has not replaced the
+installed default Core; promotion should be a separate, reversible operational
+decision.
