@@ -43,6 +43,59 @@ class AppTests(unittest.TestCase):
         app.core_json = lambda *args, **kwargs: (200, "application/json", b'{"revision":7}')
         self.assertEqual(app.state()["audio_mixer"]["state"], "disabled")
 
+    def test_nmos_state_is_neutral_when_not_configured(self):
+        app = self.app()
+        self.assertEqual(
+            app.nmos_state(), {"state": "disabled", "registry": "disabled"}
+        )
+
+    def test_nmos_state_reports_inventory_and_registration(self):
+        app = self.app()
+        app.nmos_node_url = "http://node"
+        app.nmos_registry_url = "http://registry"
+
+        def url_json(url, timeout=2):
+            if url.endswith("/self"):
+                return {
+                    "id": "node-1",
+                    "label": "MXL Core",
+                    "clocks": [{"name": "clk0", "ref_type": "internal"}],
+                }
+            if url.endswith("/nodes"):
+                return [{"id": "node-1"}]
+            return {
+                "devices": [{"id": "device-1"}],
+                "sources": [{"id": "source-1"}, {"id": "source-2"}],
+                "flows": [{"id": "flow-1"}, {"id": "flow-2"}],
+                "senders": [{"id": "sender-1"}],
+                "receivers": [{"id": "receiver-1"}],
+            }[url.rsplit("/", 1)[-1]]
+
+        app.url_json = url_json
+        state = app.nmos_state()
+        self.assertEqual(state["state"], "online")
+        self.assertEqual(state["registry"], "registered")
+        self.assertEqual(state["sources"], 2)
+        self.assertEqual(state["clock"], "internal")
+
+    def test_health_dashboard_aggregates_read_only_services(self):
+        app = self.app()
+        responses = {
+            "/api/mxl/v1/state": b'{"revision":8,"program":"input-1"}',
+            "/api/mxl/v1/health": b'{"status":"running","routed":12}',
+            "/api/mxl/v1/sources": b'[{"id":"input-1"}]',
+        }
+        app.core_json = lambda path, *args, **kwargs: (
+            200,
+            "application/json",
+            responses[path],
+        )
+        dashboard = app.health_dashboard_state()
+        self.assertEqual(dashboard["core"]["revision"], 8)
+        self.assertEqual(dashboard["health"]["routed"], 12)
+        self.assertEqual(dashboard["sources"][0]["id"], "input-1")
+        self.assertEqual(dashboard["nmos"]["state"], "disabled")
+
     def test_prepare_rejects_duplicate_sources(self):
         app = self.app()
         with self.assertRaisesRegex(ValueError, "different source"):

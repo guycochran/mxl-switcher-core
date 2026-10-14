@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#080b0f">
+  <title>MXL Core Health</title>
+  <link rel="stylesheet" href="/health.css?v=1">
+</head>
+<body>
+  <main class="health-shell">
+    <header class="topbar">
+      <div class="identity">
+        <span class="mark">MXL</span>
+        <div><strong>CORE HEALTH</strong><small>Engineering confidence dashboard</small></div>
+      </div>
+      <div class="top-actions">
+        <span id="sampleAge" class="sample-age">WAITING FOR CORE</span>
+        <a href="/">LIVE CONTROL</a>
+      </div>
+    </header>
+
+    <section id="overall" class="overall unknown" aria-live="polite">
+      <div><span class="lamp"></span><div><small>SYSTEM STATUS</small><h1 id="overallTitle">CONNECTING</h1></div></div>
+      <p id="overallDetail">Waiting for the first complete health sample.</p>
+    </section>
+
+    <section class="confidence-grid" aria-label="Decisive health indicators">
+      <article class="confidence" id="coreCard"><small>CORE API</small><strong id="coreValue">CHECKING</strong><span id="coreDetail">Control and telemetry</span></article>
+      <article class="confidence" id="routeCard"><small>ROUTING MOTION</small><strong id="routeValue">CHECKING</strong><span id="routeDetail">Waiting for two samples</span></article>
+      <article class="confidence" id="inputsCard"><small>INPUTS</small><strong id="inputsValue">CHECKING</strong><span id="inputsDetail">Source ring motion</span></article>
+      <article class="confidence" id="nmosCard"><small>NMOS</small><strong id="nmosValue">CHECKING</strong><span id="nmosDetail">Node and registry</span></article>
+      <article class="confidence" id="audioCard"><small>AUDIO CONFIDENCE</small><strong id="audioValue">CHECKING</strong><span id="audioDetail">Meter service</span></article>
+      <article class="confidence" id="clockCard"><small>CLOCK</small><strong id="clockValue">CHECKING</strong><span id="clockDetail">NMOS reference type</span></article>
+    </section>
+
+    <section class="two-column">
+      <div class="stack">
+        <article class="panel buses-panel">
+          <div class="panel-head"><div><small>ON-AIR ROUTING</small><h2>Program / Preview</h2></div><span id="revision">REV —</span></div>
+          <div class="buses">
+            <div class="bus program"><span>PROGRAM</span><strong id="programName">—</strong><small id="programFlow">—</small></div>
+            <div class="bus preview"><span>PREVIEW</span><strong id="previewName">—</strong><small id="previewFlow">—</small></div>
+          </div>
+        </article>
+
+        <article class="panel motion-panel">
+          <div class="panel-head"><div><small>LAST 60 SECONDS</small><h2>Routing cadence</h2></div><strong id="routeRate">— grains/s</strong></div>
+          <canvas id="routeChart" width="900" height="180" aria-label="Routing cadence history"></canvas>
+          <div class="range"><span>0</span><span id="chartRange">WAITING FOR SAMPLES</span><span>NOW</span></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head"><div><small>MEDIA PLANE</small><h2>Input motion</h2></div><span>HEAD INDEX MUST ADVANCE</span></div>
+          <div id="inputGrid" class="input-grid"><p class="empty">Waiting for source telemetry.</p></div>
+        </article>
+      </div>
+
+      <aside class="stack">
+        <article class="panel alert-panel">
+          <div class="panel-head"><div><small>ACTION QUEUE</small><h2>Active alarms</h2></div><span id="alarmCount">—</span></div>
+          <div id="alerts" class="alerts"><p class="empty">Evaluating current state.</p></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head"><div><small>CONTROL PLANE</small><h2>NMOS inventory</h2></div><span id="nodeLabel">—</span></div>
+          <div class="nmos-grid">
+            <div><span>DEVICES</span><strong id="devices">—</strong></div>
+            <div><span>SOURCES</span><strong id="nmosSources">—</strong></div>
+            <div><span>FLOWS</span><strong id="flows">—</strong></div>
+            <div><span>SENDERS</span><strong id="senders">—</strong></div>
+            <div><span>RECEIVERS</span><strong id="receivers">—</strong></div>
+            <div><span>REGISTRY</span><strong id="registry">—</strong></div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head"><div><small>ALIGNMENT</small><h2>Timing window</h2></div><span>FRAMES</span></div>
+          <div class="timing-grid">
+            <div><span>COMMON WINDOW</span><strong id="windowNow">—</strong><small id="windowRange">—</small></div>
+            <div><span>SOURCE SKEW</span><strong id="skewNow">—</strong><small id="skewRange">—</small></div>
+            <div><span>OUTPUT INDEX</span><strong id="outputIndex">—</strong><small>Monotonic grain index</small></div>
+          </div>
+        </article>
+      </aside>
+    </section>
+
+    <section class="panel counters-panel">
+      <div class="panel-head"><div><small>DIAGNOSTIC EVIDENCE</small><h2>Core counters</h2></div><span>DELTA SINCE THIS PAGE OPENED</span></div>
+      <div id="counters" class="counter-grid"></div>
+      <p class="legend"><span class="dot green"></span>No new fault <span class="dot amber"></span>Measurement <span class="dot red"></span>New fault or active alarm</p>
+    </section>
+
+    <footer><span>Read-only dashboard · no switching actions</span><span id="lastUpdate">NO SAMPLE RECEIVED</span></footer>
+  </main>
+  <script src="/health.js?v=1"></script>
+</body>
+</html>

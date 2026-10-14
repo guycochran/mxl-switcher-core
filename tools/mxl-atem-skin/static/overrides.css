@@ -2,6 +2,28 @@
   grid-template-columns: repeat(10, minmax(58px, 1fr));
 }
 
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.health-link {
+  border: 1px solid #526173;
+  border-radius: 5px;
+  color: #dbe7f5;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .1em;
+  padding: 7px 9px;
+  text-decoration: none;
+}
+
+.health-link:hover {
+  border-color: var(--blue);
+  color: #fff;
+}
+
 .bus button.ss {
   color: #ffd271;
   font-size: 12px;

@@ -9,6 +9,7 @@ import mimetypes
 import pathlib
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +27,8 @@ class App:
         multiview_url: str | None = None,
         audio_meter_url: str | None = None,
         audio_mixer_url: str | None = None,
+        nmos_node_url: str | None = None,
+        nmos_registry_url: str | None = None,
     ):
         self.root = root
         self.core = core.rstrip("/")
@@ -35,6 +38,8 @@ class App:
         self.multiview_url = multiview_url
         self.audio_meter_url = audio_meter_url.rstrip("/") if audio_meter_url else None
         self.audio_mixer_url = audio_mixer_url.rstrip("/") if audio_mixer_url else None
+        self.nmos_node_url = nmos_node_url.rstrip("/") if nmos_node_url else None
+        self.nmos_registry_url = nmos_registry_url.rstrip("/") if nmos_registry_url else None
         self.state_file = state_file
         self.lock = threading.Lock()
         self.banks = {
@@ -62,6 +67,11 @@ class App:
         with urllib.request.urlopen(request, timeout=8) as response:
             return response.status, response.headers.get_content_type(), response.read()
 
+    @staticmethod
+    def url_json(url: str, timeout: float = 2):
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            return json.loads(response.read())
+
     def state(self):
         _status, _kind, raw = self.core_json("/api/mxl/v1/state")
         core = json.loads(raw)
@@ -88,6 +98,59 @@ class App:
             return value
         except (OSError, TimeoutError, json.JSONDecodeError) as error:
             return {"state": "unavailable", "meters": {}, "error": str(error)}
+
+    def nmos_state(self):
+        if not self.nmos_node_url:
+            return {"state": "disabled", "registry": "disabled"}
+        try:
+            base = self.nmos_node_url + "/x-nmos/node/v1.3"
+            node = self.url_json(base + "/self")
+            counts = {
+                resource: len(self.url_json(base + f"/{resource}"))
+                for resource in ("devices", "sources", "flows", "senders", "receivers")
+            }
+            clocks = node.get("clocks") or []
+            clock_type = "unknown"
+            if clocks:
+                clock_type = clocks[0].get("ref_type", "unknown")
+            registration = "disabled"
+            if self.nmos_registry_url:
+                registration = "offline"
+                try:
+                    nodes = self.url_json(
+                        self.nmos_registry_url + "/x-nmos/query/v1.3/nodes"
+                    )
+                    registration = (
+                        "registered"
+                        if any(item.get("id") == node.get("id") for item in nodes)
+                        else "missing"
+                    )
+                except (OSError, TimeoutError, json.JSONDecodeError):
+                    pass
+            return {
+                "state": "online",
+                "registry": registration,
+                "node_id": node.get("id"),
+                "label": node.get("label") or node.get("description") or "MXL Core",
+                "clock": clock_type,
+                **counts,
+            }
+        except (OSError, TimeoutError, json.JSONDecodeError) as error:
+            return {"state": "unavailable", "registry": "unknown", "error": str(error)}
+
+    def health_dashboard_state(self):
+        _status, _kind, raw_state = self.core_json("/api/mxl/v1/state")
+        _status, _kind, raw_health = self.core_json("/api/mxl/v1/health")
+        _status, _kind, raw_sources = self.core_json("/api/mxl/v1/sources")
+        return {
+            "sample_time": time.time(),
+            "core": json.loads(raw_state),
+            "health": json.loads(raw_health),
+            "sources": json.loads(raw_sources),
+            "audio": self.audio_state(),
+            "audio_mixer": self.audio_mixer_state(),
+            "nmos": self.nmos_state(),
+        }
 
     def audio_mixer_state(self):
         if not self.audio_mixer_url:
@@ -190,10 +253,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/skin/state":
                 return self.send_json(200, self.app.state())
+            if self.path == "/api/skin/health":
+                return self.send_json(200, self.app.health_dashboard_state())
             if self.path.startswith("/api/mxl/v1/"):
                 status, kind, data = self.app.core_json(self.path)
                 return self.send_bytes(status, kind, data)
             path = "/index.html" if self.path in ("/", "/skin") else self.path.split("?", 1)[0]
+            if path in ("/health", "/health/"):
+                path = "/health.html"
             candidate = (self.app.root / path.lstrip("/")).resolve()
             if self.app.root not in candidate.parents or not candidate.is_file():
                 return self.send_json(404, {"error": "not found"})
@@ -241,6 +308,8 @@ def main():
     parser.add_argument("--multiview-url", help="WebRTC operator-multiview URL to embed in the source wall")
     parser.add_argument("--audio-meter-url", help="Loopback MXL audio meter service URL")
     parser.add_argument("--audio-mixer-url", help="Loopback MXL audio mixer service URL")
+    parser.add_argument("--nmos-node-url", help="Loopback NMOS Node API base URL")
+    parser.add_argument("--nmos-registry-url", help="Loopback NMOS Registry Query API base URL")
     parser.add_argument("--state-file")
     args = parser.parse_args()
     root = pathlib.Path(__file__).with_name("static").resolve()
@@ -255,6 +324,8 @@ def main():
         args.multiview_url,
         args.audio_meter_url,
         args.audio_mixer_url,
+        args.nmos_node_url,
+        args.nmos_registry_url,
     )
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(json.dumps({"event": "skin_ready", "url": f"http://{args.host}:{args.port}", "live_supersource": bool(args.supersource_helper)}), flush=True)

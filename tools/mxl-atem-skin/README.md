@@ -17,11 +17,21 @@ python3 server.py --core http://127.0.0.1:18085 \
   --multiview-url http://127.0.0.1:13089/mxl-multiview/ \
   --audio-meter-url http://127.0.0.1:9730 \
   --audio-mixer-url http://127.0.0.1:9740 \
+  --nmos-node-url http://127.0.0.1:8020 \
+  --nmos-registry-url http://127.0.0.1:8010 \
   --supersource-helper /home/guy/mxl-atem-skin/run-supersource-bank.sh
 ```
 
 The server binds `127.0.0.1:9700` by default. Use an SSH tunnel for remote
 operation; do not expose it directly to a public network.
+
+The read-only engineering dashboard is available at `/health`. It separates
+current faults from lifetime measurements, checks aggregate and per-source
+ring motion, shows Program/Preview assignments and timing-window telemetry,
+and reports the configured NMOS Node/Registry inventory. Fault counters show a
+delta from the moment the browser page was opened so an old test event does
+not masquerade as a new incident. The operator skin links to this page through
+the **ENGINEERING HEALTH** button; switching controls remain on the main page.
 
 `mxl_audio_meter.py` reads the native planar Float32 audio rings without
 decoding video or inserting a media conversion. Its loopback-only `/meters`
