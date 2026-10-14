@@ -186,6 +186,12 @@ frame. This is not yet an accepted audio profile; content-level lip-sync and
 staged duration gates remain. See the
 [Program Audio candidate record](docs/PROGRAM_AUDIO_CANDIDATE_2026-10-14.md).
 
+The isolated clock-correct Program Master has now also passed a 10-minute
+concurrent audio/video qualification: 579,995 audio buffers with exact 1 ms
+timestamp steps and zero discontinuities or hard corrections, while Program
+video held 30.00 fps with zero drops. Audience-meeting mapping and measured
+content-level lip sync remain separate gates.
+
 The NDI pilot now has a documented loaded full-path result. The original
 30-minute run with two continuous NDI receivers exposed a fixed-index scheduling
 limitation under sustained CPU load. The adaptive common-window scheduler now
