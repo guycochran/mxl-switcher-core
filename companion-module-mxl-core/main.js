@@ -17,6 +17,13 @@ function bankText(bank) {
 	return `${bank.count}-UP ${bank.sources.join('/')}`
 }
 
+function bankRole(state, bank) {
+	const source = `supersource-${bank}`
+	if (state.program === source) return 'ON AIR'
+	if (state.preview === source) return 'PREVIEW'
+	return state.banks[bank]?.ready ? 'SAFE TO EDIT' : 'NOT READY'
+}
+
 class MXLCoreInstance extends InstanceBase {
 	async init(config) {
 		this.config = config
@@ -90,6 +97,8 @@ class MXLCoreInstance extends InstanceBase {
 					revision: String(this.state.revision),
 					supersource_a: bankText(this.state.banks.a),
 					supersource_b: bankText(this.state.banks.b),
+					me_1_status: bankRole(this.state, 'a'),
+					me_2_status: bankRole(this.state, 'b'),
 				})
 				this.updateStatus(InstanceStatus.Ok)
 				this.checkFeedbacks('program_tally', 'preview_tally', 'bank_ready')
@@ -178,6 +187,8 @@ class MXLCoreInstance extends InstanceBase {
 			{ variableId: 'revision', name: 'Core state revision' },
 			{ variableId: 'supersource_a', name: 'ME 1 layout' },
 			{ variableId: 'supersource_b', name: 'ME 2 layout' },
+			{ variableId: 'me_1_status', name: 'ME 1 tally status' },
+			{ variableId: 'me_2_status', name: 'ME 2 tally status' },
 		])
 	}
 
@@ -234,13 +245,13 @@ class MXLCoreInstance extends InstanceBase {
 				],
 			}
 			presets[`preview_me_${bank}`] = {
-				type: 'button', category: '4 · ME and switching', name: `ME ${me} to Preview`,
-				style: { text: `ME ${me}\nPVW`, size: '14', color: combineRgb(255, 255, 255), bgcolor: combineRgb(50, 38, 18) },
+				type: 'button', category: '4 · ME and switching', name: `ME ${me} smart Preview`,
+				style: { text: `ME ${me}\nNOT READY`, size: '14', color: combineRgb(190, 195, 202), bgcolor: combineRgb(28, 32, 38) },
 				steps: [{ down: [{ actionId: 'preview', options: { source } }], up: [] }],
 				feedbacks: [
-					{ feedbackId: 'bank_ready', options: { bank }, style: { bgcolor: combineRgb(110, 72, 8) } },
-					{ feedbackId: 'preview_tally', options: { source }, style: { bgcolor: combineRgb(0, 150, 65) } },
-					{ feedbackId: 'program_tally', options: { source }, style: { bgcolor: combineRgb(200, 0, 0) } },
+					{ feedbackId: 'bank_ready', options: { bank }, style: { text: `ME ${me}\nSAFE · LOAD`, color: combineRgb(255, 238, 188), bgcolor: combineRgb(110, 72, 8) } },
+					{ feedbackId: 'preview_tally', options: { source }, style: { text: `ME ${me}\nPREVIEW`, color: combineRgb(255, 255, 255), bgcolor: combineRgb(0, 150, 65) } },
+					{ feedbackId: 'program_tally', options: { source }, style: { text: `ME ${me}\nON AIR`, color: combineRgb(255, 255, 255), bgcolor: combineRgb(200, 0, 0) } },
 				],
 			}
 		}

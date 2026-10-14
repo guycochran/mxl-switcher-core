@@ -26,7 +26,7 @@ npm install
 npm run package
 ```
 
-Import `mxl-core-0.2.1.tgz`, add the **MXL Core** connection, and confirm its
+Import `mxl-core-0.2.2.tgz`, add the **MXL Core** connection, and confirm its
 status becomes green/OK. Its default URL is already the secure local tunnel at
 `http://127.0.0.1:13010`.
 
@@ -39,8 +39,11 @@ Recommended layout:
 - Row 3: Prepare 2-up through 8-up
 - Row 4: CUT ME, ME 1 Preview, ME 2 Preview, utilities, and CUT at far right
 
-The ME preset buttons punch the selected layout on the safe inactive warm
-layer and place it in Preview. Use CUT or CUT ME to put it on air.
+The smart ME 1 and ME 2 buttons are always safe Preview actions. Their labels
+and colors follow the current role: red `ON AIR`, green `PREVIEW`, amber
+`SAFE · LOAD`, and dark `NOT READY`. They never cut directly to Program. The
+Look buttons rebuild the ME opposite the on-air bank and put the result in
+Preview. Use CUT or CUT ME only after checking Preview.
 
 The operator rehearsal validated this packaged module on Companion 5.1:
 Program and Preview selection, CUT, tally feedback, and the 2-up through 8-up
