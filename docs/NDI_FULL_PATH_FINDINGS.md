@@ -1,5 +1,65 @@
 # NDI full-path acceptance findings
 
+## Discovery Server configuration note
+
+For containerized ZoomISO deployments where mDNS cannot cross the container
+boundary, set **Settings → NDI → Discovery Server** to the reachable Discovery
+Server host. A host-only value is sufficient when the server uses NDI's
+standard TCP port, `5959`; use `host:port` only for a nonstandard listener.
+Configure the same Discovery Server on the receiving NDI client.
+
+After joining a meeting and enabling capture, verify continuous video at the
+receiver—not merely that the sender name is discoverable. If an output was
+configured before capture began and only its initial frame is received, cycle
+that output's protocol away from NDI and back to NDI to recreate the sender.
+This restarts only that output and briefly interrupts it.
+
+## Two-MXL / two-NDI side-by-side confirmation
+
+A 10-minute mixed-protocol confirmation on an older CPU-only host exercised
+four simultaneous 1920x1080p30 ZoomISO outputs: two arrived at Core natively as
+MXL and two arrived as NDI, then passed through independent NDI-to-MXL ingress
+bridges. Core continuously published stable Program and Preview MXL outputs.
+
+All six observed paths—the two native MXL inputs, two NDI-return inputs,
+Program, and Preview—averaged 30.00-30.01 fps with zero probe drops. A
+concurrent content detector reported changing pictures on every path throughout
+the run; no path became silent or wedged. The gate completed 600 seconds with
+42 resource samples, zero monitoring errors, and a clean exit.
+
+Core's post-stabilization hard counters remained unchanged at zero: invalid,
+too-early, too-late, timeout, reader reopen, synchronization timeout/early/late,
+no-common-window, selected-index regression, and sustained-unavailable alarm.
+All temporary test services were removed afterward, while the permanent
+ZoomISO, Core, audio, and NMOS services remained running without a restart.
+
+| Path | Final rendered frames | Average rate | Drops | Observed unique-picture range |
+| --- | ---: | ---: | ---: | ---: |
+| Native MXL 1 | 19,701 | 30.00 fps | 0 | 14.3-29.7 fps |
+| Native MXL 2 | 19,595 | 30.00 fps | 0 | 4.0-30.3 fps |
+| NDI return 1 | 19,509 | 30.01 fps | 0 | 7.3-27.0 fps |
+| NDI return 2 | 19,413 | 30.00 fps | 0 | 3.7-28.0 fps |
+| Program | 19,329 | 30.00 fps | 0 | 4.0-26.0 fps |
+| Preview | 19,252 | 30.00 fps | 0 | 7.0-26.7 fps |
+
+The unique-picture measurement describes source motion, not transport loss;
+the rate probes remained continuous at 30 fps. Because the four outputs carried
+different participant content, this run validates simultaneous operation and
+content liveness rather than making a codec-quality comparison.
+
+| Service | CPU range | RSS range |
+| --- | ---: | ---: |
+| ZoomISO | 426.98-692.37% | 1.38-1.48 GiB |
+| Core | 35.63-64.13% | 77.04-78.28 MiB |
+| NDI-to-MXL ingress 1 | 177.60-220.25% | 111.40-112.80 MiB |
+| NDI-to-MXL ingress 2 | 165.97-217.73% | 103.30-111.70 MiB |
+
+The practical distinction is architectural: native MXL inputs entered Core
+without a per-source decode/convert bridge, while each NDI input required about
+1.7-2.2 CPU cores for the NDI-to-v210/MXL ingress process. The result supports
+MXL as the efficient in-domain media fabric while preserving NDI as a useful
+edge adapter for interoperability.
+
 Date: 2026-10-11
 
 ## Executive conclusion
