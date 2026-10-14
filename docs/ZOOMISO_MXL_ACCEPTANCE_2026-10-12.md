@@ -90,3 +90,35 @@ timeline, a cut resets that timeline, and same-timeline recovery cannot rewind
 behind its forward-only floor. A one-shot sustained-unavailable alarm makes a
 true persistent outage visible without treating ordinary repeats or observed
 common-window gaps as immediate service failures.
+
+## 2026-10-14 cadence-hold correction
+
+A later 29.97/30 fps control exposed one remaining semantic gap. Independent
+source selection correctly classified a repeated input index as cadence
+behavior, but the live backend committed that valid repeated picture through
+the same function used for an unavailable reader. Five consecutive cadence
+holds could therefore increment the sustained-unavailable alarm even though
+the source ring, payload, and output remained healthy.
+
+The correction separates a valid cadence hold from a read failure:
+
+- a repeated input index re-emits the last valid picture at the next monotonic
+  output index without advancing the unavailable alarm;
+- the cached picture must belong to the source currently selected on that
+  output, preventing a failed first read after a CUT from leaking the prior
+  source on air;
+- missing readers, out-of-range reads, timeouts, invalid grains, and payload
+  mismatches continue through the unavailable/hold/alarm path unchanged.
+
+An isolated live candidate gate exercised 60 rapid TAKE/CUT/Preview commands
+across four simultaneous 1080p30 inputs in two minutes. After stabilization it
+processed 6,650 additional fresh routes and 616 cadence holds, while timeline
+resets advanced from 2 to 71. Sustained-unavailable alarms remained 0→0; all
+hard read-error and regression counters remained zero. Concurrent Program and
+Preview probes both averaged 30.01 fps with zero drops. The production-facing
+Core and supporting services remained running with zero restarts, and all
+candidate containers were removed after the test.
+
+This result is a targeted regression gate, not a replacement for the longer
+acceptance run. The next qualification step is a longer switching confirmation
+using the same candidate before merge or installation as the default Core.
