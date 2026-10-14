@@ -80,8 +80,11 @@ identity from implementation:
 The call is idempotent, so an extension may safely register after every process
 start. Core rejects conflicting identities and prevents removal while a source
 is on Program or Preview. Skins build their buses from the live catalog instead
-of assuming fixed camera slots. See [Control semantics](CONTROL.md) for the wire
-contract.
+of assuming fixed camera slots. The NMOS bridge mirrors source kind and
+capabilities into IS-04 tags and withdraws stale Sender, Flow, and Source
+resources from a configured Registry when an off-air extension is removed.
+Companion likewise rebuilds action choices, feedback choices, and presets from
+the live catalog. See [Control semantics](CONTROL.md) for the wire contract.
 
 Stopping or restarting an extension must not recreate its upstream Program
 Master flow. An input extension should publish a stable MXL identity through a

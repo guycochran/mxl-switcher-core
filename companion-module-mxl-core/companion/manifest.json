@@ -3,7 +3,7 @@
   "name": "mxl-core",
   "shortname": "mxl",
   "description": "MXL Core Program, Preview, SuperSource preparation, TAKE, live tally, and EIC health",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "license": "MIT",
   "repository": "https://github.com/guycochran/mxl-switcher-core",
   "bugs": "https://github.com/guycochran/mxl-switcher-core/issues",

@@ -1,7 +1,8 @@
 # MXL Core control for Bitfocus Companion
 
 This developer module turns an Elgato Stream Deck XL into a physical control
-surface for MXL Core. It provides eight-source Program and Preview buses,
+surface for MXL Core. It builds its Program and Preview buses from Core's live
+source catalog,
 frame-boundary CUT, 2-up through 8-up Mix Effects preparation, two persistent
 ME layers, live red/green tally feedback, and an EIC health category backed by
 the Core and NMOS APIs.
@@ -47,11 +48,17 @@ npm install
 npm run package
 ```
 
-Import `mxl-core-0.4.0.tgz`, add the **MXL Core** connection, and confirm its
+Import `mxl-core-0.5.0.tgz`, add the **MXL Core** connection, and confirm its
 status becomes green/OK. Its default URL is already the secure local tunnel at
 `http://127.0.0.1:13010`.
 
 Drag the ready-made presets onto a Stream Deck XL page.
+
+The module polls `/api/mxl/v1/sources`. When a camera, playout, graphics, or
+other bolt-on registers with Core, its Program/Preview choices and presets are
+rebuilt automatically. Removing an off-air source removes it from newly shown
+choices without restarting Companion. Existing ZoomISO and ME controls remain
+available.
 
 Recommended layout:
 
@@ -94,6 +101,10 @@ Look presets all controlled the live Core instance.
 ## NMOS boundary
 
 The Companion module is the physical control and tally path. NMOS IS-04 with
-BCP-007-03 remains the standards discovery path. IS-05 routing and IS-07 tally
-are intentionally separate future control-plane work; this module does not
-pretend that read-only discovery is routing.
+BCP-007-03 is the standards discovery path, and the bridge maps immediate IS-05
+Program/Preview receiver activations onto Core's grain-boundary control API.
+Source kind and capability tags follow dynamic registrations into the NMOS
+Source, Flow, and Sender resources. When an off-air source is removed, the
+bridge withdraws its Sender, Flow, and Source from a configured Registry in
+dependency order. Scheduled activation, disconnect, and IS-07 tally remain
+explicit future work.

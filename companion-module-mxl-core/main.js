@@ -1,17 +1,10 @@
 const { InstanceBase, runEntrypoint, InstanceStatus, combineRgb } = require('@companion-module/base')
+const { FALLBACK_SOURCES, normalizedSources, sourceChoices, sourceSignature } = require('./source_catalog')
 
-const INPUTS = Array.from({ length: 8 }, (_, index) => ({
-	id: `zoomiso-${index + 1}`,
-	label: `Input ${index + 1}`,
-	number: index + 1,
-}))
 const BANKS = [
 	{ id: 'supersource-a', label: 'ME 1' },
 	{ id: 'supersource-b', label: 'ME 2' },
 ]
-const SOURCES = [...INPUTS, ...BANKS]
-const SOURCE_CHOICES = SOURCES.map(({ id, label }) => ({ id, label }))
-
 function bankText(bank) {
 	if (!bank || !bank.ready) return 'NOT READY'
 	return `${bank.count}-UP ${bank.sources.join('/')}`
@@ -54,6 +47,8 @@ class MXLCoreInstance extends InstanceBase {
 			nmosCounts: { devices: 0, sources: 0, flows: 0, senders: 0, receivers: 0 },
 			nmosClock: 'UNKNOWN',
 			audioState: 'unknown',
+			sources: FALLBACK_SOURCES,
+			sourceSignature: sourceSignature(FALLBACK_SOURCES),
 		}
 		this.initActions()
 		this.initFeedbacks()
@@ -142,7 +137,13 @@ class MXLCoreInstance extends InstanceBase {
 			try {
 				const value = await this.api('/api/skin/state')
 				if (!value || !value.core) throw new Error('Invalid MXL Core state response')
-				const health = await this.api('/api/mxl/v1/health')
+				const [health, sourceRows] = await Promise.all([
+					this.api('/api/mxl/v1/health'),
+					this.api('/api/mxl/v1/sources'),
+				])
+				const sources = normalizedSources(sourceRows)
+				const nextSourceSignature = sourceSignature(sources)
+				const sourceCatalogChanged = nextSourceSignature !== this.state.sourceSignature
 				let nmosNodeOnline = false
 				let nmosRegistryOnline = false
 				let nmosRegistered = false
@@ -206,6 +207,14 @@ class MXLCoreInstance extends InstanceBase {
 					nmosCounts,
 					nmosClock,
 					audioState: value.audio?.state || 'unknown',
+					sources,
+					sourceSignature: nextSourceSignature,
+				}
+				if (sourceCatalogChanged) {
+					this.initActions()
+					this.initFeedbacks()
+					this.initPresets()
+					this.log('info', `MXL source catalog updated (${sources.length} routable sources)`)
 				}
 				this.setVariableValues({
 					program: this.labelFor(this.state.program),
@@ -261,19 +270,21 @@ class MXLCoreInstance extends InstanceBase {
 	}
 
 	labelFor(id) {
-		return SOURCES.find((source) => source.id === id)?.label || id || '—'
+		return [...this.state.sources, ...BANKS].find((source) => source.id === id)?.label || id || '—'
 	}
 
 	initActions() {
+		const choices = sourceChoices(this.state.sources, BANKS)
+		const defaultSource = choices[0]?.id || 'zoomiso-1'
 		this.setActionDefinitions({
 			program: {
 				name: 'Cut source directly to Program',
-				options: [{ type: 'dropdown', id: 'source', label: 'Source', default: 'zoomiso-1', choices: SOURCE_CHOICES }],
+				options: [{ type: 'dropdown', id: 'source', label: 'Source', default: defaultSource, choices }],
 				callback: async (action) => this.api('/api/mxl/v1/cut', { source: action.options.source }),
 			},
 			preview: {
 				name: 'Arm source in Preview',
-				options: [{ type: 'dropdown', id: 'source', label: 'Source', default: 'zoomiso-1', choices: SOURCE_CHOICES }],
+				options: [{ type: 'dropdown', id: 'source', label: 'Source', default: defaultSource, choices }],
 				callback: async (action) => this.api('/api/mxl/v1/preview', { source: action.options.source }),
 			},
 			take: {
@@ -305,19 +316,21 @@ class MXLCoreInstance extends InstanceBase {
 	}
 
 	initFeedbacks() {
+		const choices = sourceChoices(this.state.sources, BANKS)
+		const defaultSource = choices[0]?.id || 'zoomiso-1'
 		this.setFeedbackDefinitions({
 			program_tally: {
 				type: 'boolean',
 				name: 'Program tally',
 				defaultStyle: { bgcolor: combineRgb(200, 0, 0), color: combineRgb(255, 255, 255) },
-				options: [{ type: 'dropdown', id: 'source', label: 'Source', default: 'zoomiso-1', choices: SOURCE_CHOICES }],
+				options: [{ type: 'dropdown', id: 'source', label: 'Source', default: defaultSource, choices }],
 				callback: (feedback) => this.state.program === feedback.options.source,
 			},
 			preview_tally: {
 				type: 'boolean',
 				name: 'Preview tally',
 				defaultStyle: { bgcolor: combineRgb(0, 150, 65), color: combineRgb(255, 255, 255) },
-				options: [{ type: 'dropdown', id: 'source', label: 'Source', default: 'zoomiso-1', choices: SOURCE_CHOICES }],
+				options: [{ type: 'dropdown', id: 'source', label: 'Source', default: defaultSource, choices }],
 				callback: (feedback) => this.state.preview === feedback.options.source,
 			},
 			bank_ready: {
@@ -434,16 +447,18 @@ class MXLCoreInstance extends InstanceBase {
 
 	initPresets() {
 		const presets = {}
-		for (const source of INPUTS) {
-			presets[`program_${source.number}`] = {
-				type: 'button', category: '1 · Program bus', name: `PGM ${source.number}`,
-				style: { text: `${source.number}\nPGM`, size: '14', color: combineRgb(255, 255, 255), bgcolor: combineRgb(28, 32, 38) },
+		for (const source of normalizedSources(this.state.sources)) {
+			const key = source.id.replace(/[^a-zA-Z0-9_-]/g, '_')
+			const shortLabel = source.label.length > 10 ? source.label.slice(0, 10) : source.label
+			presets[`program_${key}`] = {
+				type: 'button', category: '1 · Program bus', name: `PGM ${source.label}`,
+				style: { text: `${shortLabel}\nPGM`, size: '14', color: combineRgb(255, 255, 255), bgcolor: combineRgb(28, 32, 38) },
 				steps: [{ down: [{ actionId: 'program', options: { source: source.id } }], up: [] }],
 				feedbacks: [{ feedbackId: 'program_tally', options: { source: source.id }, style: { bgcolor: combineRgb(200, 0, 0) } }],
 			}
-			presets[`preview_${source.number}`] = {
-				type: 'button', category: '2 · Preview bus', name: `PVW ${source.number}`,
-				style: { text: `${source.number}\nPVW`, size: '14', color: combineRgb(255, 255, 255), bgcolor: combineRgb(28, 32, 38) },
+			presets[`preview_${key}`] = {
+				type: 'button', category: '2 · Preview bus', name: `PVW ${source.label}`,
+				style: { text: `${shortLabel}\nPVW`, size: '14', color: combineRgb(255, 255, 255), bgcolor: combineRgb(28, 32, 38) },
 				steps: [{ down: [{ actionId: 'preview', options: { source: source.id } }], up: [] }],
 				feedbacks: [
 					{ feedbackId: 'preview_tally', options: { source: source.id }, style: { bgcolor: combineRgb(0, 150, 65) } },

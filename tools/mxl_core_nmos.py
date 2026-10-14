@@ -150,6 +150,10 @@ class Model:
         output = []
         for row in rows:
             value = self.base("source", row["id"], row["label"])
+            value["tags"] = {
+                "urn:x-mxl:tag:source_kind": [row.get("kind", "other")],
+                "urn:x-mxl:tag:capabilities": row.get("capabilities", ["video"]),
+            }
             value.update(
                 {
                     "format": "urn:x-nmos:format:video",
@@ -173,6 +177,10 @@ class Model:
         for row in rows:
             fmt = row["format"]
             value = self.base("flow", row["id"], row["label"])
+            value["tags"] = {
+                "urn:x-mxl:tag:source_kind": [row.get("kind", "other")],
+                "urn:x-mxl:tag:capabilities": row.get("capabilities", ["video"]),
+            }
             value.update(
                 {
                     "format": "urn:x-nmos:format:video",
@@ -203,6 +211,8 @@ class Model:
             tags = {
                 "urn:x-mxl:tag:mxl_domain_id": [self.domain_id],
                 "urn:x-mxl:tag:mxl_flow_id": [row["flow_id"]],
+                "urn:x-mxl:tag:source_kind": [row.get("kind", "other")],
+                "urn:x-mxl:tag:capabilities": row.get("capabilities", ["video"]),
             }
             role = "PGM" if row["id"] == program else "PVW" if row["id"] == preview else None
             if role:
@@ -548,8 +558,47 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"code": 405, "error": "method not supported"}, 405)
 
 
+def registry_resources(model: Model) -> dict[str, list[dict]]:
+    resources = {
+        "node": [model.self_resource()],
+        "device": [model.device()],
+    }
+    resources.update(
+        {
+            kind: factory()
+            for kind, factory in (
+                ("source", model.sources),
+                ("flow", model.flows),
+                ("sender", model.senders),
+                ("receiver", model.receivers),
+            )
+        }
+    )
+    return resources
+
+
+def withdrawal_plan(
+    registered: dict[str, set[str]], current: dict[str, set[str]]
+) -> list[tuple[str, str]]:
+    plan = []
+    for kind in ("receiver", "sender", "flow", "source", "device", "node"):
+        plan.extend(
+            (kind, resource_id)
+            for resource_id in sorted(registered[kind] - current[kind])
+        )
+    return plan
+
+
 def register_loop(model: Model, registry: str):
     api = registry.rstrip("/") + "/x-nmos/registration/v1.3"
+    registered: dict[str, set[str]] = {
+        "node": set(),
+        "device": set(),
+        "source": set(),
+        "flow": set(),
+        "sender": set(),
+        "receiver": set(),
+    }
 
     def post(kind: str, value: dict):
         request = urllib.request.Request(
@@ -559,18 +608,30 @@ def register_loop(model: Model, registry: str):
         )
         urllib.request.urlopen(request, timeout=5).read()
 
+    def delete(kind: str, resource_id: str):
+        plural = {"source": "sources", "flow": "flows"}.get(kind, kind + "s")
+        request = urllib.request.Request(
+            api + f"/resource/{plural}/{resource_id}",
+            method="DELETE",
+            headers={"User-Agent": "mxl-core-nmos/1.1"},
+        )
+        urllib.request.urlopen(request, timeout=5).read()
+
     while True:
         try:
-            post("node", model.self_resource())
-            post("device", model.device())
-            for kind, factory in (
-                ("source", model.sources),
-                ("flow", model.flows),
-                ("sender", model.senders),
-                ("receiver", model.receivers),
-            ):
-                for value in factory():
+            resources = registry_resources(model)
+            current = {
+                kind: {value["id"] for value in values}
+                for kind, values in resources.items()
+            }
+            for kind, values in resources.items():
+                for value in values:
                     post(kind, value)
+            # Withdraw dependants first so a conforming Registry never sees a
+            # Flow without its Source or a Sender without its Flow.
+            for kind, resource_id in withdrawal_plan(registered, current):
+                delete(kind, resource_id)
+            registered = current
             heartbeat = urllib.request.Request(
                 api + f"/health/nodes/{model.node_id}",
                 data=b"",

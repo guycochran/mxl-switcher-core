@@ -146,7 +146,10 @@ state when questions begin.
 4. Repeat with 4-up and 8-up to show that Program remains undisturbed while the
    next Look is prepared off air.
 5. Show the browser Skin and Companion controlling the same Core state.
-6. Finish with the eight-input multiview and the NMOS discovery surface.
+6. Start the diagnostic Playout/Keyed bolt-on and show its moving timecode
+   sources appear in Core, NMOS, and Companion without restarting Core. Preview
+   and CUT each one, then safely remove one while it is off air.
+7. Finish with the eight-input multiview and the NMOS discovery/routing surface.
 
 The concise message is: eight live sources enter once, remain native through
 switching and compositing, generate multiple Looks, and can be operated from a
@@ -177,8 +180,11 @@ Validated in the current demonstration profile:
 - persistent ME 1 / ME 2 layers and 2-up through 8-up compositions;
 - approximately 0.9–1.8 second off-air Look reconfiguration;
 - browser Program, Preview, and eight-input multiview confidence monitoring;
-- Companion 5.1 button-grid switching with live tally; and
-- read-only NMOS IS-04 discovery.
+- Companion 5.1 button-grid switching with live tally and dynamic source
+  choices/presets;
+- runtime source registration/removal for camera, playout, graphics, and other
+  bolt-ons; and
+- NMOS IS-04 discovery plus immediate IS-05 Program/Preview routing.
 
 The next acceptance gates are intentionally separate:
 

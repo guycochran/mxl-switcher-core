@@ -178,6 +178,12 @@ errors, and no active sustained-unavailable alarms while executing CUT,
 Preview, and TAKE commands. See the
 [ZoomISO MXL acceptance record](docs/ZOOMISO_MXL_ACCEPTANCE_2026-10-12.md).
 
+The runtime extension boundary has also passed a live four-source qualification
+with dynamic Playout and Keyed timecode sources, safe off-air removal and
+re-registration, automatic NMOS inventory updates, and dynamic Companion
+choices. See the
+[runtime bolt-on source acceptance](docs/DYNAMIC_SOURCE_ACCEPTANCE_2026-10-14.md).
+
 A separately supervised Program Audio candidate now publishes one stable 48
 kHz stereo flow, follows four applied Program selections without replacing its
 identity, and appears in the engineering-health surface. A live timing probe

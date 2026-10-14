@@ -23,6 +23,8 @@ class FakeModel(NMOS.Model):
                 "id": "camera-1",
                 "flow_id": "flow-1",
                 "label": "Camera 1",
+                "kind": "camera",
+                "capabilities": ["video", "audio"],
                 "format": {
                     "width": 1920,
                     "height": 1080,
@@ -119,6 +121,47 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(
             receivers["MXL Core Preview"]["tags"]["urn:x-nmos:tag:grouphint/v1.0"],
             ["PVW"],
+        )
+
+    def test_dynamic_source_metadata_is_exposed_as_nmos_tags(self):
+        source = next(
+            value for value in self.model.sources() if value["label"] == "Camera 1"
+        )
+        sender = next(
+            value for value in self.model.senders() if value["label"] == "Camera 1"
+        )
+        expected = {
+            "urn:x-mxl:tag:source_kind": ["camera"],
+            "urn:x-mxl:tag:capabilities": ["video", "audio"],
+        }
+        self.assertEqual(source["tags"], expected)
+        self.assertEqual(sender["tags"]["urn:x-mxl:tag:source_kind"], ["camera"])
+        self.assertEqual(sender["tags"]["urn:x-mxl:tag:capabilities"], ["video", "audio"])
+
+    def test_registry_withdraws_dynamic_resources_in_dependency_order(self):
+        registered = {
+            "node": {"node"},
+            "device": {"device"},
+            "source": {"source-kept", "source-gone"},
+            "flow": {"flow-kept", "flow-gone"},
+            "sender": {"sender-kept", "sender-gone"},
+            "receiver": {"receiver"},
+        }
+        current = {
+            "node": {"node"},
+            "device": {"device"},
+            "source": {"source-kept"},
+            "flow": {"flow-kept"},
+            "sender": {"sender-kept"},
+            "receiver": {"receiver"},
+        }
+        self.assertEqual(
+            NMOS.withdrawal_plan(registered, current),
+            [
+                ("sender", "sender-gone"),
+                ("flow", "flow-gone"),
+                ("source", "source-gone"),
+            ],
         )
 
     def test_preview_receiver_activation_maps_to_preview(self):
