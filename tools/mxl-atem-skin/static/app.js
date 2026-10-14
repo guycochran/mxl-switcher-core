@@ -140,7 +140,7 @@ function renderAudioMixer() {
 
 function offAirBank() {
   const active = new Set([state?.core.program, state?.core.preview])
-  return active.has('supersource-a') ? 'b' : 'a'
+  return ['a', 'b'].find((bank) => !active.has(`supersource-${bank}`)) || null
 }
 
 function audioIsFirst() {
@@ -236,18 +236,43 @@ function render() {
     }
   }
 
-  $('bankState').textContent = state.live ? `OFF-AIR ME ${meNumber(offAirBank())}` : 'SCENE ENGINE PENDING'
-  $('prepare').disabled = busy || !state.live
-  $('prepare').textContent = state.live ? 'PUNCH LOOK TO PREVIEW' : 'SCENE ENGINE PENDING'
-  $('takeSS').disabled = busy || !bankOf(core.preview)
+  const safeBank = offAirBank()
+  const editState = $('bankState')
+  editState.className = `edit-safety ${safeBank ? 'safe' : 'blocked'}`
+  editState.innerHTML = safeBank
+    ? `<span>SAFE EDIT BANK</span><strong>ME ${meNumber(safeBank)} · OFF AIR</strong><small>Building here cannot change Program</small>`
+    : '<span>EDIT LOCKED</span><strong>NO SAFE ME BANK</strong><small>Put a camera in Preview before editing</small>'
+  $('prepare').disabled = busy || !state.live || !safeBank
+  $('prepare').textContent = !state.live
+    ? 'SCENE ENGINE PENDING'
+    : safeBank
+      ? `BUILD ${layout}-UP ON SAFE ME ${meNumber(safeBank)} → PREVIEW`
+      : 'EDIT LOCKED · NO SAFE ME BANK'
+  const previewBank = bankOf(core.preview)
+  const previewIsProgram = Boolean(previewBank && core.preview === core.program)
+  $('takeSS').disabled = busy || !previewBank || previewIsProgram
+  $('takeSS').textContent = !previewBank
+    ? 'SELECT AN ME IN PREVIEW'
+    : previewIsProgram
+      ? `ME ${meNumber(previewBank)} ALREADY ON AIR`
+      : `CUT ME ${meNumber(previewBank)} TO AIR`
   for (const bank of ['a', 'b']) {
     const button = $(`previewME${meNumber(bank)}`)
     const source = `supersource-${bank}`
     const scene = state.banks[bank]
-    button.disabled = busy || !scene?.ready
-    button.className = core.preview === source ? 'preview-on' : ''
-    button.textContent = `ME ${meNumber(bank)} TO PREVIEW${scene?.ready ? ` · ${scene.count}-UP` : ''}`
-    button.title = scene?.ready ? `${scene.count}-up · inputs ${scene.sources.join(', ')}` : `ME ${meNumber(bank)} is not ready`
+    const role = core.program === source ? 'program' : core.preview === source ? 'preview' : 'safe'
+    const roleLabel = role === 'program' ? 'ON AIR' : role === 'preview' ? 'PREVIEW · NEXT' : 'SAFE TO EDIT'
+    const sceneLabel = scene?.ready
+      ? `${scene.count}-UP · ${scene.sources.join('/')}${role === 'safe' ? ' · CLICK → PREVIEW' : ''}`
+      : 'NOT BUILT'
+    button.disabled = busy || !scene?.ready || role === 'program'
+    button.className = `me-status ${role}`
+    button.innerHTML = `<span>ME ${meNumber(bank)}</span><strong>${roleLabel}</strong><small>${sceneLabel}</small>`
+    button.title = role === 'program'
+      ? `ME ${meNumber(bank)} is live and locked`
+      : scene?.ready
+        ? `Load ME ${meNumber(bank)} into Preview: ${scene.count}-up, inputs ${scene.sources.join(', ')}`
+        : `ME ${meNumber(bank)} is not ready`
   }
 }
 
@@ -324,9 +349,10 @@ function buildLayouts() {
 
 async function prepare() {
   if (new Set(slots).size !== slots.length) return notice('Each box needs a different input.', true)
+  const bank = offAirBank()
+  if (!bank) return notice('EDIT LOCKED: put a camera in Preview to free a safe ME bank.', true)
   busy = true
   render()
-  const bank = offAirBank()
   notice(`Punching ${layout}-up on off-air ME ${meNumber(bank)}…`)
   try {
     const result = await api('/api/skin/supersource/prepare', { method: 'POST', body: JSON.stringify({ count: layout, sources: slots }) })

@@ -127,7 +127,12 @@ class App:
 
         core = self.state()["core"]
         active = {core.get("program"), core.get("preview")}
-        bank = "b" if "supersource-a" in active else "a"
+        safe_banks = [bank for bank in ("a", "b") if f"supersource-{bank}" not in active]
+        if not safe_banks:
+            raise RuntimeError(
+                "No safe off-air ME bank is available. Put a camera in Preview before editing."
+            )
+        bank = safe_banks[0]
         engine = {}
         if self.helper:
             result = subprocess.run(

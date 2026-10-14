@@ -77,6 +77,20 @@ class AppTests(unittest.TestCase):
             check=False,
         )
 
+    @mock.patch.object(subprocess, "run")
+    def test_prepare_refuses_to_overwrite_program_or_preview_bank(self, run):
+        app = self.app()
+        app.core_json = lambda *args, **kwargs: (
+            200,
+            "application/json",
+            b'{"program":"supersource-a","preview":"supersource-b"}',
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "No safe off-air ME bank"):
+            app.prepare({"count": 2, "sources": [1, 2]})
+
+        run.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
