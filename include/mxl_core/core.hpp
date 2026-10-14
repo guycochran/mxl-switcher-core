@@ -42,6 +42,23 @@ struct Source {
   FlowId flow_id;
   std::string label;
   VideoFormat format;
+  std::string kind{"other"};
+  std::vector<std::string> capabilities{"video"};
+  std::optional<FlowId> audio_flow_id;
+
+  Source(SourceId source_id, FlowId video_flow_id, std::string source_label,
+         VideoFormat video_format, std::string source_kind = "other",
+         std::vector<std::string> source_capabilities = {"video"},
+         std::optional<FlowId> source_audio_flow_id = std::nullopt)
+      : id(std::move(source_id)),
+        flow_id(std::move(video_flow_id)),
+        label(std::move(source_label)),
+        format(std::move(video_format)),
+        kind(std::move(source_kind)),
+        capabilities(std::move(source_capabilities)),
+        audio_flow_id(std::move(source_audio_flow_id)) {}
+
+  bool operator==(const Source&) const = default;
 };
 
 struct OutputSpec {
@@ -64,6 +81,11 @@ enum class CommandKind { SetPreview, Cut, Take };
 struct CommandReceipt {
   std::uint64_t command_id;
   std::uint64_t accepted_revision;
+};
+
+struct SourceRegistrationReceipt {
+  bool changed;
+  std::uint64_t revision;
 };
 
 class MediaBackend {
@@ -94,6 +116,12 @@ class SwitcherCore {
   CommandReceipt cut(SourceId source);
   CommandReceipt take();
 
+  // Bolt-on media functions register stable source identities at runtime.
+  // Registration is idempotent when the complete descriptor is unchanged.
+  SourceRegistrationReceipt register_source(Source source);
+  SourceRegistrationReceipt remove_source(const SourceId& source);
+  VideoFormat operating_format() const;
+
   // Called once for each domain-aligned MXL grain index. All accepted control
   // commands are applied atomically before this index is rendered.
   void process(std::uint64_t output_index);
@@ -112,10 +140,9 @@ class SwitcherCore {
   };
 
   CommandReceipt enqueue(CommandKind kind, SourceId source = {});
-  const Source& source_by_id(const SourceId& id) const;
+  const Source& source_by_id_unlocked(const SourceId& id) const;
+  void rebuild_source_index_unlocked();
   void apply_pending_at_frame_boundary();
-  void route_one(const SourceId& source, const FlowId& output,
-                 std::uint64_t output_index);
 
   MediaBackend& backend_;
   std::vector<Source> sources_;

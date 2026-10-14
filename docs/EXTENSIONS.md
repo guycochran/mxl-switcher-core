@@ -62,6 +62,27 @@ disabled -> starting -> ready -> running
                               -> failed
 ```
 
+### Source-producing extensions
+
+A source-producing extension creates its stable MXL flow first, then registers
+the source with Core using `POST /api/mxl/v1/sources`. The descriptor separates
+identity from implementation:
+
+- `id`: stable control identity used by Program, Preview, Skins, and controllers;
+- `flow_id`: MXL video flow routed by Core without decoding;
+- `audio_flow_id`: optional paired audio flow for an audio service;
+- `label`: operator-facing name;
+- `kind`: camera, guest, playout, graphics, generator, layout, or another
+  deployment-defined class;
+- `capabilities`: discoverable controls such as video, audio, playback,
+  graphics, timecode, or health.
+
+The call is idempotent, so an extension may safely register after every process
+start. Core rejects conflicting identities and prevents removal while a source
+is on Program or Preview. Skins build their buses from the live catalog instead
+of assuming fixed camera slots. See [Control semantics](CONTROL.md) for the wire
+contract.
+
 Stopping or restarting an extension must not recreate its upstream Program
 Master flow. An input extension should publish a stable MXL identity through a
 transport reconnect whenever the underlying MXL implementation permits it.

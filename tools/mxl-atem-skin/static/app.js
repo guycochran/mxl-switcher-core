@@ -36,6 +36,14 @@ function nameFor(id) {
   return sources.find((source) => source.id === id)?.label || id || '—'
 }
 
+function busLabel(source) {
+  const zoomiso = source.id?.match(/^zoomiso-(\d+)$/)
+  if (zoomiso) return zoomiso[1]
+  if (source.id === 'playout-tc') return 'PLY'
+  if (source.id === 'keyed-tc') return 'KEY'
+  return source.label?.slice(0, 4).toUpperCase() || source.id?.slice(0, 4).toUpperCase() || '?'
+}
+
 function grid(element, scene) {
   element.replaceChildren()
   if (!scene?.ready) return
@@ -216,12 +224,13 @@ function render() {
   for (const bus of ['program', 'preview']) {
     const box = $(bus + 'Bus')
     box.replaceChildren()
-    for (let i = 1; i <= 8; i++) {
+    for (const source of sources) {
       const button = document.createElement('button')
-      button.textContent = i
-      button.className = core[bus] === `zoomiso-${i}` ? (bus === 'program' ? 'program-on' : 'preview-on') : ''
+      button.textContent = busLabel(source)
+      button.title = `${bus === 'program' ? 'Cut' : 'Preview'} ${source.label}`
+      button.className = core[bus] === source.id ? (bus === 'program' ? 'program-on' : 'preview-on') : ''
       button.disabled = busy
-      button.onclick = () => command(bus === 'program' ? 'cut' : 'preview', { source: `zoomiso-${i}` })
+      button.onclick = () => command(bus === 'program' ? 'cut' : 'preview', { source: source.id })
       box.append(button)
     }
     for (const bank of ['a', 'b']) {

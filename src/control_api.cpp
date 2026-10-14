@@ -55,12 +55,14 @@ void skip_space(std::string_view input, std::size_t& position) {
   }
 }
 
-std::optional<std::string> source_from_json(std::string_view input) {
-  const auto key = input.find("\"source\"");
+std::optional<std::string> string_from_json(std::string_view input,
+                                            std::string_view field) {
+  const auto quoted_field = "\"" + std::string(field) + "\"";
+  const auto key = input.find(quoted_field);
   if (key == std::string_view::npos) {
     return std::nullopt;
   }
-  auto position = key + 8;
+  auto position = key + quoted_field.size();
   skip_space(input, position);
   if (position >= input.size() || input[position++] != ':') {
     return std::nullopt;
@@ -91,6 +93,75 @@ std::optional<std::string> source_from_json(std::string_view input) {
     } else {
       value += character;
     }
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string> source_from_json(std::string_view input) {
+  return string_from_json(input, "source");
+}
+
+std::optional<std::vector<std::string>> string_array_from_json(
+    std::string_view input, std::string_view field) {
+  const auto quoted_field = "\"" + std::string(field) + "\"";
+  const auto key = input.find(quoted_field);
+  if (key == std::string_view::npos) {
+    return std::nullopt;
+  }
+  auto position = key + quoted_field.size();
+  skip_space(input, position);
+  if (position >= input.size() || input[position++] != ':') {
+    return std::nullopt;
+  }
+  skip_space(input, position);
+  if (position >= input.size() || input[position++] != '[') {
+    return std::nullopt;
+  }
+  std::vector<std::string> values;
+  while (position < input.size()) {
+    skip_space(input, position);
+    if (position < input.size() && input[position] == ']') {
+      return values;
+    }
+    if (position >= input.size() || input[position++] != '"') {
+      return std::nullopt;
+    }
+    std::string value;
+    bool complete = false;
+    while (position < input.size()) {
+      const auto character = input[position++];
+      if (character == '"') {
+        complete = true;
+        break;
+      }
+      if (character == '\\') {
+        if (position >= input.size()) {
+          return std::nullopt;
+        }
+        const auto escaped = input[position++];
+        if (escaped != '"' && escaped != '\\' && escaped != '/') {
+          return std::nullopt;
+        }
+        value += escaped;
+      } else if (static_cast<unsigned char>(character) < 0x20) {
+        return std::nullopt;
+      } else {
+        value += character;
+      }
+    }
+    if (!complete || value.empty()) {
+      return std::nullopt;
+    }
+    values.push_back(std::move(value));
+    skip_space(input, position);
+    if (position < input.size() && input[position] == ',') {
+      ++position;
+      continue;
+    }
+    if (position < input.size() && input[position] == ']') {
+      return values;
+    }
+    return std::nullopt;
   }
   return std::nullopt;
 }
@@ -137,7 +208,21 @@ std::string sources_json(const std::vector<Source>& sources) {
            << ",\"rate_numerator\":" << source.format.rate_numerator
            << ",\"rate_denominator\":" << source.format.rate_denominator
            << ",\"encoding\":" << json_string(source.format.encoding)
-           << "}}";
+           << "},\"kind\":" << json_string(source.kind)
+           << ",\"capabilities\":[";
+    for (std::size_t index = 0; index < source.capabilities.size(); ++index) {
+      if (index != 0) {
+        output << ',';
+      }
+      output << json_string(source.capabilities[index]);
+    }
+    output << "],\"audio_flow_id\":";
+    if (source.audio_flow_id) {
+      output << json_string(*source.audio_flow_id);
+    } else {
+      output << "null";
+    }
+    output << '}';
   }
   output << ']';
   return output.str();
@@ -148,6 +233,15 @@ ApiResponse receipt_response(const CommandReceipt& receipt) {
                                 std::to_string(receipt.command_id) +
                                 ",\"accepted_revision\":" +
                                 std::to_string(receipt.accepted_revision) + "}");
+}
+
+ApiResponse registration_response(const SourceRegistrationReceipt& receipt,
+                                  int changed_status) {
+  return json_response(receipt.changed ? changed_status : 200,
+                       "{\"changed\":" +
+                           std::string(receipt.changed ? "true" : "false") +
+                           ",\"revision\":" +
+                           std::to_string(receipt.revision) + "}");
 }
 
 }  // namespace
@@ -169,6 +263,31 @@ ApiResponse ControlApi::handle(std::string_view method, std::string_view path,
     }
     if (method == "GET" && path == "/api/mxl/v1/sources") {
       return json_response(200, sources_json(core_.sources()));
+    }
+    if (method == "POST" && path == "/api/mxl/v1/sources") {
+      const auto id = string_from_json(body, "id");
+      const auto flow_id = string_from_json(body, "flow_id");
+      const auto label = string_from_json(body, "label");
+      if (!id || !flow_id || !label) {
+        return error_response(
+            400, "body must contain non-empty id, flow_id, and label");
+      }
+      const auto kind = string_from_json(body, "kind").value_or("other");
+      auto capabilities = string_array_from_json(body, "capabilities")
+                              .value_or(std::vector<std::string>{"video"});
+      auto audio_flow_id = string_from_json(body, "audio_flow_id");
+      Source source{*id, *flow_id, *label, core_.operating_format(), kind,
+                    std::move(capabilities), std::move(audio_flow_id)};
+      return registration_response(core_.register_source(std::move(source)),
+                                   201);
+    }
+    constexpr std::string_view source_path = "/api/mxl/v1/sources/";
+    if (method == "DELETE" && path.starts_with(source_path)) {
+      const auto id = path.substr(source_path.size());
+      if (id.empty() || id.find('/') != std::string_view::npos) {
+        return error_response(400, "source id is missing or invalid");
+      }
+      return registration_response(core_.remove_source(std::string(id)), 200);
     }
     if (method == "GET" && path == "/api/mxl/v1/health") {
       return json_response(200, health_provider_

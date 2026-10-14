@@ -13,6 +13,7 @@ namespace {
 
 constexpr const char* kSourceAFlow = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 constexpr const char* kSourceBFlow = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+constexpr const char* kSourceCFlow = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 constexpr const char* kProgramFlow = "11111111-1111-4111-8111-111111111111";
 constexpr const char* kPreviewFlow = "22222222-2222-4222-8222-222222222222";
 
@@ -164,6 +165,44 @@ void test_bad_control_and_clock_inputs_are_rejected() {
   require(duplicate_rejected, "duplicate grain index accepted");
 }
 
+void test_runtime_source_registration() {
+  Fixture f;
+  f.backend.add_source(kSourceCFlow, kV210, 0xC3);
+  const Source playout{"playout", kSourceCFlow, "Playout", kV210,
+                       "playout", {"video", "playback", "timecode"}};
+  const auto added = f.core.register_source(playout);
+  require(added.changed && added.revision == 1,
+          "runtime source registration did not advance the catalog revision");
+  require(f.core.sources().size() == 3,
+          "runtime source was not exposed in the catalog");
+  const auto duplicate = f.core.register_source(playout);
+  require(!duplicate.changed && duplicate.revision == 1,
+          "identical source registration was not idempotent");
+
+  f.core.set_preview("playout");
+  f.core.process(1);
+  require(f.core.state().preview == "playout",
+          "runtime source could not be selected on preview");
+  require((*f.backend.writes(kPreviewFlow).back().grain.payload)[0] == 0xC3,
+          "runtime source was not routed natively");
+
+  bool on_bus_rejected = false;
+  try {
+    f.core.remove_source("playout");
+  } catch (const std::invalid_argument&) {
+    on_bus_rejected = true;
+  }
+  require(on_bus_rejected, "source on preview was removed");
+
+  f.core.set_preview("src_b");
+  f.core.process(2);
+  const auto removed = f.core.remove_source("playout");
+  require(removed.changed && f.core.sources().size() == 2,
+          "off-air runtime source was not removed");
+  require(!f.core.remove_source("playout").changed,
+          "removing an absent source was not idempotent");
+}
+
 void test_fast_soak(std::uint64_t frames) {
   Fixture f;
   for (std::uint64_t i = 1; i <= frames; ++i) {
@@ -201,6 +240,7 @@ int main(int argc, char** argv) {
       {"far-apart source timeline cuts",
        test_far_apart_source_timelines_cut_cleanly},
       {"invalid input rejection", test_bad_control_and_clock_inputs_are_rejected},
+      {"runtime source registration", test_runtime_source_registration},
       {"fast soak", [=] { test_fast_soak(soak_frames); }},
   };
 

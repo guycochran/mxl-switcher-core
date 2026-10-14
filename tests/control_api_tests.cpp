@@ -119,6 +119,51 @@ void test_events_and_health() {
           "state event did not carry the applied revision");
 }
 
+void test_runtime_source_api() {
+  Fixture fixture;
+  fixture.backend.add_source("flow-playout", kV210, 0xc3);
+  const std::string body =
+      "{\"id\":\"playout\",\"flow_id\":\"flow-playout\","
+      "\"label\":\"Clip Player\",\"kind\":\"playout\","
+      "\"capabilities\":[\"video\",\"playback\",\"timecode\"]}";
+  const auto created =
+      fixture.api.handle("POST", "/api/mxl/v1/sources", body);
+  require(created.status == 201 &&
+              created.body.find("\"changed\":true") != std::string::npos,
+          "runtime source API did not create a source");
+  const auto duplicate =
+      fixture.api.handle("POST", "/api/mxl/v1/sources", body);
+  require(duplicate.status == 200 &&
+              duplicate.body.find("\"changed\":false") != std::string::npos,
+          "runtime source API was not idempotent");
+  const auto sources = fixture.api.handle("GET", "/api/mxl/v1/sources");
+  require(sources.body.find("\"kind\":\"playout\"") !=
+              std::string::npos &&
+              sources.body.find("\"playback\"") != std::string::npos &&
+              sources.body.find("\"audio_flow_id\":null") !=
+                  std::string::npos,
+          "runtime source metadata was not exposed");
+
+  fixture.api.handle("POST", "/api/mxl/v1/preview",
+                     "{\"source\":\"playout\"}");
+  fixture.core.process(1);
+  require(fixture.api
+              .handle("DELETE", "/api/mxl/v1/sources/playout")
+              .status == 400,
+          "source API removed a source on preview");
+  fixture.api.handle("POST", "/api/mxl/v1/preview",
+                     "{\"source\":\"src_b\"}");
+  fixture.core.process(2);
+  const auto removed = fixture.api.handle(
+      "DELETE", "/api/mxl/v1/sources/playout");
+  require(removed.status == 200 &&
+              removed.body.find("\"changed\":true") != std::string::npos,
+          "source API did not remove an off-air source");
+  require(fixture.api.handle("POST", "/api/mxl/v1/sources", "{}").status ==
+              400,
+          "source API accepted an incomplete registration");
+}
+
 }  // namespace
 
 int main() {
@@ -127,6 +172,7 @@ int main() {
     test_commands_wait_for_frame_boundary();
     test_errors();
     test_events_and_health();
+    test_runtime_source_api();
     std::cout << "All control API tests passed.\n";
     return 0;
   } catch (const std::exception& error) {

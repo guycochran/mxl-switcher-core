@@ -25,6 +25,25 @@ python3 server.py --core http://127.0.0.1:18085 \
 The server binds `127.0.0.1:9700` by default. Use an SSH tunnel for remote
 operation; do not expose it directly to a public network.
 
+`mxl_demo_sources.py` publishes two lightweight 1080p30 diagnostic bolt-ons:
+moving `MXL Playout TC` and `MXL Keyed TC` flows with frame-counting timecode.
+They make repeats, freezes, and monitor latency visible without relying on a
+person speaking or moving. When `--core-url` is supplied, the process registers
+both sources with a runtime-registration-capable Core; no Core restart or
+configuration edit is needed:
+
+```sh
+python3 mxl_demo_sources.py \
+  --domain /mxl-domain \
+  --playout-flow 00000000-0000-4000-8000-000000000001 \
+  --keyed-flow 00000000-0000-4000-8000-000000000002 \
+  --core-url http://127.0.0.1:18085
+```
+
+The diagnostic publishers require GStreamer with the MXL plugin plus NumPy and
+OpenCV. They are reference bolt-ons, not replacements for a playlist-aware
+file player or an HTML/fill-key graphics service.
+
 The read-only engineering dashboard is available at `/health`. It separates
 current faults from lifetime measurements, checks aggregate and per-source
 ring motion, shows Program/Preview assignments and timing-window telemetry,

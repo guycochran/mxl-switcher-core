@@ -52,8 +52,8 @@ SwitcherCore::SwitcherCore(MediaBackend& backend, std::vector<Source> sources,
     }
   }
 
-  source_by_id(initial_program);
-  source_by_id(initial_preview);
+  source_by_id_unlocked(initial_program);
+  source_by_id_unlocked(initial_preview);
   state_.program = std::move(initial_program);
   state_.preview = std::move(initial_preview);
   state_.program_flow = program_output_.flow_id;
@@ -78,7 +78,7 @@ CommandReceipt SwitcherCore::take() { return enqueue(CommandKind::Take); }
 CommandReceipt SwitcherCore::enqueue(CommandKind kind, SourceId source) {
   std::lock_guard lock(mutex_);
   if (kind != CommandKind::Take) {
-    source_by_id(source);
+    source_by_id_unlocked(source);
   }
   const auto id = next_command_id_++;
   pending_.push_back(Command{id, kind, std::move(source)});
@@ -86,8 +86,8 @@ CommandReceipt SwitcherCore::enqueue(CommandKind kind, SourceId source) {
 }
 
 void SwitcherCore::process(std::uint64_t output_index) {
-  SourceId program;
-  SourceId preview;
+  std::optional<Source> program_source;
+  std::optional<Source> preview_source;
   bool revision_changed = false;
   {
     std::lock_guard lock(mutex_);
@@ -98,19 +98,85 @@ void SwitcherCore::process(std::uint64_t output_index) {
     apply_pending_at_frame_boundary();
     revision_changed = state_.revision != prior_revision;
     state_.last_output_index = output_index;
-    program = state_.program;
-    preview = state_.preview;
+    program_source = source_by_id_unlocked(state_.program);
+    preview_source = source_by_id_unlocked(state_.preview);
   }
   if (revision_changed) {
     state_changed_.notify_all();
   }
 
-  const auto& program_source = source_by_id(program);
-  const auto& preview_source = source_by_id(preview);
   backend_.prepare_frame(
-      {program_source.flow_id, preview_source.flow_id}, output_index);
-  route_one(program, program_output_.flow_id, output_index);
-  route_one(preview, preview_output_.flow_id, output_index);
+      {program_source->flow_id, preview_source->flow_id}, output_index);
+  backend_.route_grain(program_source->flow_id, program_output_.flow_id,
+                       output_index);
+  backend_.route_grain(preview_source->flow_id, preview_output_.flow_id,
+                       output_index);
+}
+
+SourceRegistrationReceipt SwitcherCore::register_source(Source source) {
+  validate_format(source.format);
+  if (!(source.format == program_output_.format)) {
+    throw std::invalid_argument("source must match the core operating point");
+  }
+  if (source.id.empty() || source.flow_id.empty() || source.label.empty()) {
+    throw std::invalid_argument("source id, flow id, and label must be non-empty");
+  }
+  if (source.capabilities.empty()) {
+    source.capabilities.push_back("video");
+  }
+
+  std::uint64_t revision = 0;
+  {
+    std::lock_guard lock(mutex_);
+    const auto existing = source_index_.find(source.id);
+    if (existing != source_index_.end()) {
+      if (sources_[existing->second] == source) {
+        return {false, state_.revision};
+      }
+      throw std::invalid_argument("source id is already registered: " + source.id);
+    }
+    if (std::any_of(sources_.begin(), sources_.end(), [&](const Source& item) {
+          return item.flow_id == source.flow_id;
+        })) {
+      throw std::invalid_argument("source flow is already registered: " +
+                                  source.flow_id);
+    }
+    sources_.push_back(std::move(source));
+    source_index_.emplace(sources_.back().id, sources_.size() - 1);
+    revision = ++state_.revision;
+  }
+  state_changed_.notify_all();
+  return {true, revision};
+}
+
+SourceRegistrationReceipt SwitcherCore::remove_source(
+    const SourceId& source) {
+  std::uint64_t revision = 0;
+  {
+    std::lock_guard lock(mutex_);
+    const auto existing = source_index_.find(source);
+    if (existing == source_index_.end()) {
+      return {false, state_.revision};
+    }
+    if (state_.program == source || state_.preview == source) {
+      throw std::invalid_argument("cannot remove a source on program or preview");
+    }
+    if (std::any_of(pending_.begin(), pending_.end(), [&](const Command& command) {
+          return command.kind != CommandKind::Take && command.source == source;
+        })) {
+      throw std::invalid_argument("cannot remove a source with pending commands");
+    }
+    sources_.erase(sources_.begin() +
+                   static_cast<std::ptrdiff_t>(existing->second));
+    rebuild_source_index_unlocked();
+    revision = ++state_.revision;
+  }
+  state_changed_.notify_all();
+  return {true, revision};
+}
+
+VideoFormat SwitcherCore::operating_format() const {
+  return program_output_.format;
 }
 
 void SwitcherCore::apply_pending_at_frame_boundary() {
@@ -135,18 +201,19 @@ void SwitcherCore::apply_pending_at_frame_boundary() {
   }
 }
 
-void SwitcherCore::route_one(const SourceId& source_id, const FlowId& output,
-                             std::uint64_t output_index) {
-  const auto& source = source_by_id(source_id);
-  backend_.route_grain(source.flow_id, output, output_index);
-}
-
-const Source& SwitcherCore::source_by_id(const SourceId& id) const {
+const Source& SwitcherCore::source_by_id_unlocked(const SourceId& id) const {
   const auto found = source_index_.find(id);
   if (found == source_index_.end()) {
     throw std::invalid_argument("unknown source: " + id);
   }
   return sources_[found->second];
+}
+
+void SwitcherCore::rebuild_source_index_unlocked() {
+  source_index_.clear();
+  for (std::size_t index = 0; index < sources_.size(); ++index) {
+    source_index_.emplace(sources_[index].id, index);
+  }
 }
 
 State SwitcherCore::state() const {
@@ -166,7 +233,10 @@ std::optional<State> SwitcherCore::wait_for_revision(
   return state_;
 }
 
-std::vector<Source> SwitcherCore::sources() const { return sources_; }
+std::vector<Source> SwitcherCore::sources() const {
+  std::lock_guard lock(mutex_);
+  return sources_;
+}
 
 void MemoryBackend::add_source(FlowId flow_id, VideoFormat format,
                                std::uint8_t marker,

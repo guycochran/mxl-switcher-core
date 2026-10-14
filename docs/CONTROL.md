@@ -20,6 +20,8 @@ The implemented request surface is:
 - `GET /api/mxl/v1/meta`
 - `GET /api/mxl/v1/state`
 - `GET /api/mxl/v1/sources`
+- `POST /api/mxl/v1/sources`
+- `DELETE /api/mxl/v1/sources/{id}`
 - `GET /api/mxl/v1/health`
 - `POST /api/mxl/v1/preview`
 - `POST /api/mxl/v1/cut`
@@ -36,6 +38,40 @@ MXL or edge-I/O function.
 The routes are covered by executable API and real-socket transport tests.
 Mutation routes return `202 Accepted` with the monotonic command id and accepted
 revision; the command still takes effect only at the next media grain boundary.
+
+## Runtime source registration
+
+Bolt-on media functions can join the running switcher without changing its
+configuration or restarting Core. After creating a stable MXL video flow, the
+extension registers its control-plane identity:
+
+```http
+POST /api/mxl/v1/sources
+Content-Type: application/json
+
+{
+  "id": "playout-a",
+  "flow_id": "00000000-0000-4000-8000-000000000001",
+  "audio_flow_id": "00000000-0000-4000-8000-000000000002",
+  "label": "Playout A",
+  "kind": "playout",
+  "capabilities": ["video", "audio", "playback", "health"]
+}
+```
+
+`audio_flow_id` is optional metadata for an audio service or Skin; the v1 Core
+continues to route video without decoding or mixing it. Registration is
+idempotent when the complete descriptor is unchanged. Reusing an existing id or
+video flow for a different descriptor is rejected.
+
+An extension can remove an off-air source with
+`DELETE /api/mxl/v1/sources/{id}`. Core rejects removal while that source is on
+Program, Preview, or referenced by an accepted command. Catalog mutations
+advance the state revision so SSE clients can refresh their source lists.
+
+The control listener remains loopback-only by default. A deployment that makes
+registration remotely reachable must place authentication and TLS in front of
+Core.
 
 `events` is a Server-Sent Events stream. It sends an initial `state` event and
 then one event for each applied revision, supports `Last-Event-ID` reconnection,
