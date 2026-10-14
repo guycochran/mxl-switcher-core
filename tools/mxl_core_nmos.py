@@ -229,9 +229,23 @@ class Model:
             value = self.base("receiver", name, f"MXL Core {name.title()}")
             value.update(
                 {
+                    "tags": {
+                        "urn:x-nmos:tag:grouphint/v1.0": [
+                            "PGM" if name == "program" else "PVW"
+                        ]
+                    },
                     "device_id": self.device_id,
                     "format": "urn:x-nmos:format:video",
-                    "caps": {"media_types": ["video/v210"]},
+                    "caps": {
+                        "media_types": ["video/v210"],
+                        "constraint_sets": [
+                            {
+                                "urn:x-nmos:cap:format:media_type": {
+                                    "enum": ["video/v210"]
+                                }
+                            }
+                        ],
+                    },
                     "transport": "urn:x-nmos:transport:mxl",
                     "interface_bindings": [],
                     "subscription": {
@@ -251,6 +265,21 @@ class Model:
             None,
         )
 
+    def source_name_for_flow(self, flow_id: str) -> str | None:
+        with self.lock:
+            rows = json.loads(json.dumps(self.sources_data))
+        return next((row["id"] for row in rows if row["flow_id"] == flow_id), None)
+
+    def flow_id_for_source(self, source_name: str | None) -> str | None:
+        if source_name is None:
+            return None
+        with self.lock:
+            rows = json.loads(json.dumps(self.sources_data))
+        return next(
+            (row["flow_id"] for row in rows if row["id"] == source_name),
+            None,
+        )
+
     def attached_sender(self, receiver_name: str) -> str | None:
         with self.lock:
             attached = self.core.get(receiver_name)
@@ -267,6 +296,8 @@ class Model:
         )
 
     def connection_state(self, receiver_name: str):
+        with self.lock:
+            attached = self.core.get(receiver_name)
         return {
             "sender_id": self.attached_sender(receiver_name),
             "master_enable": True,
@@ -276,7 +307,12 @@ class Model:
                 "activation_time": None,
             },
             "transport_file": {"data": None, "type": None},
-            "transport_params": [{}],
+            "transport_params": [
+                {
+                    "mxl_domain_id": self.domain_id if attached else None,
+                    "mxl_flow_id": self.flow_id_for_source(attached),
+                }
+            ],
         }
 
     def activate_receiver(self, receiver_name: str, patch: dict):
@@ -287,9 +323,25 @@ class Model:
         if patch.get("master_enable", True) is not True:
             raise ValueError("MXL Core Program and Preview cannot be disconnected")
         sender_id = patch.get("sender_id")
+        source_name = self.source_name_for_sender(sender_id) if sender_id else None
+        transport_params = patch.get("transport_params") or []
+        if transport_params:
+            params = transport_params[0]
+            domain_id = params.get("mxl_domain_id")
+            if domain_id not in (None, "auto", self.domain_id):
+                raise ValueError("mxl_domain_id is not available on this Node")
+            flow_source = self.source_name_for_flow(params.get("mxl_flow_id"))
+            if flow_source is None:
+                raise ValueError("mxl_flow_id is not an advertised MXL Core source")
+            if source_name is not None and source_name != flow_source:
+                raise ValueError("sender_id and mxl_flow_id identify different sources")
+            source_name = flow_source
+            sender_id = stable("sender", source_name)
         if sender_id is None:
-            raise ValueError("sender_id is required; Core buses cannot be disconnected")
-        source_name = self.source_name_for_sender(sender_id)
+            raise ValueError(
+                "sender_id or transport_params.mxl_flow_id is required; "
+                "Core buses cannot be disconnected"
+            )
         if source_name is None:
             raise ValueError("sender_id is not an advertised MXL Core source")
         path = "/api/mxl/v1/cut" if receiver_name == "program" else "/api/mxl/v1/preview"
@@ -368,9 +420,29 @@ class Handler(BaseHTTPRequestHandler):
             if endpoint == "transporttype":
                 return "urn:x-nmos:transport:mxl"
             if endpoint == "constraints":
-                return [{}]
+                with MODEL.lock:
+                    rows = json.loads(json.dumps(MODEL.sources_data))
+                if kind == "receivers":
+                    return [
+                        {
+                            "mxl_domain_id": {"enum": [MODEL.domain_id, "auto"]},
+                            "mxl_flow_id": {
+                                "enum": [row["flow_id"] for row in rows]
+                            },
+                        }
+                    ]
+                source = MODEL.source_name_for_sender(resource_id)
+                flow_id = next(
+                    row["flow_id"] for row in rows if row["id"] == source
+                )
+                return [
+                    {
+                        "mxl_domain_id": {"enum": [MODEL.domain_id]},
+                        "mxl_flow_id": {"enum": [flow_id]},
+                    }
+                ]
             if endpoint == "transportfile" and kind == "senders":
-                return {"data": None, "type": None}
+                raise KeyError(endpoint)
             if endpoint in ("staged", "active"):
                 if kind == "receivers":
                     return MODEL.connection_state(MODEL.receiver_name(resource_id))
@@ -389,8 +461,8 @@ class Handler(BaseHTTPRequestHandler):
                     },
                     "transport_params": [
                         {
-                            "ext_mxl_domain_id": MODEL.domain_id,
-                            "ext_mxl_flow_id": flow_id,
+                            "mxl_domain_id": MODEL.domain_id,
+                            "mxl_flow_id": flow_id,
                         }
                     ],
                 }

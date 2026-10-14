@@ -88,6 +88,38 @@ class ModelTests(unittest.TestCase):
         )
         self.assertEqual(result["sender_id"], sender)
         self.assertEqual(result["activation"]["mode"], "activate_immediate")
+        self.assertEqual(
+            result["transport_params"],
+            [{"mxl_domain_id": "domain-1", "mxl_flow_id": "flow-2"}],
+        )
+
+    def test_transport_parameters_can_route_without_sender_id(self):
+        result = self.model.activate_receiver(
+            "program",
+            {
+                "transport_params": [
+                    {"mxl_domain_id": "domain-1", "mxl_flow_id": "flow-2"}
+                ],
+                "master_enable": True,
+                "activation": {"mode": "activate_immediate"},
+            },
+        )
+        self.assertEqual(
+            self.model.posts,
+            [("/api/mxl/v1/cut", {"source": "camera-2"})],
+        )
+        self.assertEqual(result["sender_id"], NMOS.stable("sender", "camera-2"))
+
+    def test_receiver_tags_preserve_program_preview_grouping(self):
+        receivers = {value["label"]: value for value in self.model.receivers()}
+        self.assertEqual(
+            receivers["MXL Core Program"]["tags"]["urn:x-nmos:tag:grouphint/v1.0"],
+            ["PGM"],
+        )
+        self.assertEqual(
+            receivers["MXL Core Preview"]["tags"]["urn:x-nmos:tag:grouphint/v1.0"],
+            ["PVW"],
+        )
 
     def test_preview_receiver_activation_maps_to_preview(self):
         sender = NMOS.stable("sender", "camera-1")
