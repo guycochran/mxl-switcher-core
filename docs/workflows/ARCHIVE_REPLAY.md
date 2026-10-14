@@ -10,21 +10,23 @@ the switcher.
    need a conventional deliverable.
 2. **ISO recorder:** selected MXL sources recorded independently alongside
    Program.
-3. **TAMS recorder:** time-addressable segments, live scrub, metadata-only
-   clips, and replay while the event is still recording.
+3. **TAMS research path:** time-addressable recording first, followed by
+   separately gated playback, trimming/export, and replay work.
 
-The TAMS path consumes paired Program Master video/audio, preserves their
-timeline in registered Flow Segments, and publishes selected playback as a new
-MXL source. Core only sees that replay as another routable source.
+The original switcher recorded and registered TAMS segments, but dependable
+playback and trimming were not achieved. The new path therefore accepts the
+recorder independently before attempting a reader or editor. If replay is later
+accepted, its playout adapter will publish a new MXL source and Core will see it
+as another routable source.
 
 ```text
 Program Master -> TAMS recorder -> object store + timeline index
                                          |
-                                scrub / mark / clip
+                              separately gated reader
                                          |
-                              TAMS playout adapter
+                            separately gated trim/export
                                          |
-                                         +-> MXL replay -> Preview -> Cut
+                            optional future MXL replay
 ```
 
 The optional `archive-replay` profile is maintained in
