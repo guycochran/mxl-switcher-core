@@ -36,6 +36,13 @@ InputIndexStep classify_input_index_step(
     std::optional<std::uint64_t> previous_index,
     std::uint64_t selected_index);
 
+// A repeated input may reuse a cached picture only when that picture belongs
+// to the source currently selected on the output. This prevents a failed first
+// read after a CUT from momentarily holding the prior source on air.
+bool can_hold_repeated_source(
+    const std::optional<std::string>& last_valid_source,
+    const std::string& selected_source);
+
 // Select the newest safely delayed grain from one source ring. Unlike the
 // common-window selector, this is the normal CUT path: PGM and PVW do not need
 // to sample unrelated sources at one shared input index.

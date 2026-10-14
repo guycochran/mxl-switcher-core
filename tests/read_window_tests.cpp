@@ -90,6 +90,31 @@ void test_independent_selection_uses_one_ring() {
           "independent selection escaped its source ring");
 }
 
+void test_repeat_hold_requires_matching_source() {
+  require(!can_hold_repeated_source(std::nullopt, "source-a"),
+          "repeat hold accepted an empty payload history");
+  require(can_hold_repeated_source(std::string{"source-a"}, "source-a"),
+          "repeat hold rejected the selected source's cached picture");
+  require(!can_hold_repeated_source(std::string{"source-a"}, "source-b"),
+          "repeat hold could leak the prior source across a cut");
+}
+
+void test_valid_cadence_hold_breaks_unavailable_run() {
+  SustainedUnavailableAlarm alarm;
+  for (int i = 0; i < 4; ++i) {
+    require(!alarm.note_unavailable(5),
+            "unavailable alarm fired before its threshold");
+  }
+  require(!alarm.note_available(),
+          "a pre-threshold cadence hold reported a cleared alarm");
+  require(alarm.consecutive_frames() == 0,
+          "a valid cadence hold did not break the unavailable run");
+  for (int i = 0; i < 4; ++i) {
+    require(!alarm.note_unavailable(5),
+            "separate unavailable runs were incorrectly combined");
+  }
+}
+
 void test_cut_resets_unrelated_input_timeline() {
   OutputReadTimelines timelines;
   const auto a1 = timelines.select("pgm", "source-a", {900'000, 6}, 0);
@@ -158,6 +183,9 @@ int main() {
       {"invalid input rejection", test_rejects_invalid_input},
       {"input cadence classification", test_classifies_input_cadence},
       {"independent one-ring selection", test_independent_selection_uses_one_ring},
+      {"repeat hold source identity", test_repeat_hold_requires_matching_source},
+      {"cadence hold availability",
+       test_valid_cadence_hold_breaks_unavailable_run},
       {"cut timeline reset", test_cut_resets_unrelated_input_timeline},
       {"forward-only recovery clamp",
        test_recovery_clamps_forward_within_same_timeline},

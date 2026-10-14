@@ -116,7 +116,8 @@ class MxlBackend::Impl {
           "output MXL flow does not match host-memory v210 operating point");
     }
     writers_.emplace(output.flow_id,
-                     Writer{writer, config, created, {}, 0, 0, {}});
+                     Writer{writer, config, created, {}, 0, 0, std::nullopt,
+                            {}});
   }
 
   void prepare_frame(const std::vector<FlowId>& source_flows,
@@ -291,7 +292,7 @@ class MxlBackend::Impl {
       }
     }
     if (repeat_selection) {
-      commit_unavailable(writer_it->second, output_index);
+      commit_cadence_hold(writer_it->second, source_flow, output_index);
       return;
     }
 
@@ -378,6 +379,7 @@ class MxlBackend::Impl {
         source_payload, source_payload + source_info.grainSize);
     writer_it->second.last_flags = source_info.flags;
     writer_it->second.last_valid_slices = source_info.validSlices;
+    writer_it->second.last_source_flow = source_flow;
     const auto cleared_unavailable_alarm =
         writer_it->second.unavailable_alarm.note_available();
     {
@@ -426,6 +428,7 @@ class MxlBackend::Impl {
     std::vector<std::uint8_t> last_payload;
     std::uint32_t last_flags{0};
     std::uint32_t last_valid_slices{0};
+    std::optional<FlowId> last_source_flow;
     SustainedUnavailableAlarm unavailable_alarm;
   };
 
@@ -580,6 +583,48 @@ class MxlBackend::Impl {
     } else {
       ++stats_.invalid;
     }
+  }
+
+  // A repeated input index is a normal producer/output cadence relationship,
+  // not evidence that the source is unavailable. Re-emit the last valid
+  // picture at the new output index without advancing the unavailable alarm.
+  // The source identity guard is essential across CUTs: if the first read from
+  // a newly selected source failed, the cached picture still belongs to the
+  // prior source and must never be placed on air as a valid cadence hold.
+  void commit_cadence_hold(Writer& writer, const FlowId& source_flow,
+                           std::uint64_t output_index) {
+    mxlGrainInfo info{};
+    std::uint8_t* payload = nullptr;
+    auto status = mxlFlowWriterOpenGrain(writer.handle, output_index, &info,
+                                         &payload);
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowWriterOpenGrain(cadence hold)", status);
+    }
+    const auto can_hold = can_hold_repeated_source(writer.last_source_flow,
+                                                   source_flow) &&
+                          payload != nullptr && !writer.last_payload.empty() &&
+                          writer.last_payload.size() == info.grainSize;
+    if (!can_hold) {
+      commit_unavailable(writer, output_index, &info, payload);
+      return;
+    }
+
+    std::memcpy(payload, writer.last_payload.data(), writer.last_payload.size());
+    info.flags = writer.last_flags;
+    info.validSlices = writer.last_valid_slices;
+    status = mxlFlowWriterCommitGrain(writer.handle, &info);
+    if (status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowWriterCommitGrain(cadence hold)", status);
+    }
+
+    const auto cleared_unavailable_alarm =
+        writer.unavailable_alarm.note_available();
+    std::lock_guard lock(stats_mutex_);
+    if (cleared_unavailable_alarm &&
+        stats_.sustained_unavailable_active > 0) {
+      --stats_.sustained_unavailable_active;
+    }
+    ++stats_.held;
   }
 
   std::string domain_;

@@ -61,6 +61,12 @@ InputIndexStep classify_input_index_step(
   return {InputIndexStepKind::Skip, advance - 1};
 }
 
+bool can_hold_repeated_source(
+    const std::optional<std::string>& last_valid_source,
+    const std::string& selected_source) {
+  return last_valid_source && *last_valid_source == selected_source;
+}
+
 ReadWindowSelection select_independent_read_index(
     const ReadWindowSource& source,
     std::uint64_t safety_margin_frames) {
