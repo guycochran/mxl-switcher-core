@@ -83,6 +83,70 @@ void test_classifies_input_cadence() {
           "input regression was counted incorrectly");
 }
 
+void test_independent_selection_uses_one_ring() {
+  const auto selected = select_independent_read_index({100, 6}, 0);
+  require(selected.oldest_index == 96 && selected.newest_index == 100 &&
+              selected.selected_index == 100,
+          "independent selection escaped its source ring");
+}
+
+void test_cut_resets_unrelated_input_timeline() {
+  OutputReadTimelines timelines;
+  const auto a1 = timelines.select("pgm", "source-a", {900'000, 6}, 0);
+  const auto b1 = timelines.select("pgm", "source-b", {12'000, 6}, 0);
+  const auto a2 = timelines.select("pgm", "source-a", {900'001, 6}, 0);
+  const auto b2 = timelines.select("pgm", "source-b", {12'001, 6}, 0);
+  require(a1 && b1 && a2 && b2, "cut timeline selection failed");
+  require(a1->timeline_reset && b1->timeline_reset && a2->timeline_reset &&
+              b2->timeline_reset,
+          "source changes did not reset the output timeline");
+  require(a1->cadence.kind == InputIndexStepKind::First &&
+              b1->cadence.kind == InputIndexStepKind::First &&
+              a2->cadence.kind == InputIndexStepKind::First &&
+              b2->cadence.kind == InputIndexStepKind::First,
+          "a cut was misclassified as a skip or regression");
+  require(b1->window.selected_index == 12'000 &&
+              a2->window.selected_index == 900'001,
+          "a cut inherited the prior source's input floor");
+}
+
+void test_recovery_clamps_forward_within_same_timeline() {
+  OutputReadTimelines timelines;
+  const auto first = timelines.select("pgm", "source-a", {105, 10}, 5);
+  const auto recovered = timelines.select("pgm", "source-a", {104, 10}, 5);
+  require(first && recovered, "recoverable source regression was rejected");
+  require(recovered->forward_clamped &&
+              recovered->window.selected_index == 100 &&
+              recovered->cadence.kind == InputIndexStepKind::Repeat,
+          "recovery was not clamped to its forward-only floor");
+}
+
+void test_recovery_holds_when_floor_left_ring() {
+  OutputReadTimelines timelines;
+  require(timelines.select("pgm", "source-a", {100, 6}, 0).has_value(),
+          "initial timeline selection failed");
+  require(!timelines.select("pgm", "source-a", {10, 6}, 0).has_value(),
+          "an out-of-ring recovery floor was accepted");
+}
+
+void test_sustained_unavailable_alarm_is_one_shot() {
+  mxl_core::SustainedUnavailableAlarm alarm;
+  require(!alarm.note_unavailable(3), "first unavailable frame is not sustained");
+  require(!alarm.note_unavailable(3), "second unavailable frame is not sustained");
+  require(alarm.note_unavailable(3), "threshold crossing emits the alarm");
+  require(!alarm.note_unavailable(3), "latched alarm does not repeat");
+  require(alarm.latched(), "alarm stays latched after threshold crossing");
+  require(alarm.note_available(), "recovery reports the cleared alarm episode");
+  require(alarm.consecutive_frames() == 0,
+          "availability resets the consecutive-frame counter");
+  require(!alarm.note_unavailable(3),
+          "a new episode starts below threshold after recovery");
+  require(!alarm.note_unavailable(3),
+          "new episode remains below threshold on frame two");
+  require(alarm.note_unavailable(3),
+          "a later sustained episode emits one new alarm");
+}
+
 }  // namespace
 
 int main() {
@@ -93,6 +157,13 @@ int main() {
       {"startup underflow clamp", test_handles_startup_without_underflow},
       {"invalid input rejection", test_rejects_invalid_input},
       {"input cadence classification", test_classifies_input_cadence},
+      {"independent one-ring selection", test_independent_selection_uses_one_ring},
+      {"cut timeline reset", test_cut_resets_unrelated_input_timeline},
+      {"forward-only recovery clamp",
+       test_recovery_clamps_forward_within_same_timeline},
+      {"out-of-ring recovery hold", test_recovery_holds_when_floor_left_ring},
+      {"sustained unavailable one-shot",
+       test_sustained_unavailable_alarm_is_one_shot},
   };
 
   for (const auto& [name, test] : tests) {

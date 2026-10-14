@@ -47,6 +47,11 @@ connections and shuts them down before the core exits.
 `held` counter records output grains that repeated the last valid picture while
 input was unavailable or had not advanced. Statistics snapshots are synchronized
 with the media thread, so a skin can poll health without racing counter updates.
+`observed_common_window_empty` is timing telemetry and does not fault an
+independent CUT. `no_common_window` is reserved for an operation that actually
+requires a shared index, such as a transition. Sustained unavailability reports
+both a cumulative alarm-event count and the number of currently active alarms;
+only an active alarm degrades service health.
 
 The live harness binds `127.0.0.1:8080` by default. `--control-host` and
 `--control-port` override that address. Binding a non-loopback address should be

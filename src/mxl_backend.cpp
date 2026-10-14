@@ -116,7 +116,7 @@ class MxlBackend::Impl {
           "output MXL flow does not match host-memory v210 operating point");
     }
     writers_.emplace(output.flow_id,
-                     Writer{writer, config, created, {}, 0, 0});
+                     Writer{writer, config, created, {}, 0, 0, {}});
   }
 
   void prepare_frame(const std::vector<FlowId>& source_flows,
@@ -135,38 +135,13 @@ class MxlBackend::Impl {
 
     refresh_replaced_readers(unique_flows);
 
-    if (desired != grouped_flows_) {
-      for (const auto& flow_id : grouped_flows_) {
-        const auto reader = readers_.find(flow_id);
-        if (reader != readers_.end()) {
-          const auto status = mxlFlowSynchronizationGroupRemoveReader(
-              sync_group_, reader->second.handle);
-          if (status != MXL_STATUS_OK) {
-            throw sdk_error("mxlFlowSynchronizationGroupRemoveReader", status);
-          }
-        }
-      }
-      grouped_flows_.clear();
-
-      for (const auto& flow_id : unique_flows) {
-        auto* reader = try_get_reader(flow_id);
-        if (reader == nullptr) {
-          reset_sync_group();
-          prepared_output_index_ = output_index;
-          prepared_input_index_.reset();
-          std::lock_guard lock(stats_mutex_);
-          ++stats_.no_common_window;
-          for (const auto& missing_flow : unique_flows) {
-            ++stats_.sources[missing_flow].no_common_window;
-          }
-          return;
-        }
-        const auto status =
-            mxlFlowSynchronizationGroupAddReader(sync_group_, reader->handle);
-        if (status != MXL_STATUS_OK) {
-          throw sdk_error("mxlFlowSynchronizationGroupAddReader", status);
-        }
-        grouped_flows_.emplace(flow_id);
+    for (const auto& flow_id : unique_flows) {
+      if (try_get_reader(flow_id) == nullptr) {
+        prepared_output_index_ = output_index;
+        std::lock_guard lock(stats_mutex_);
+        ++stats_.observed_common_window_empty;
+        stats_.last_common_window_width = 0;
+        return;
       }
     }
 
@@ -209,30 +184,25 @@ class MxlBackend::Impl {
     const auto selection =
         select_common_read_index(windows, input_delay_frames_);
     prepared_output_index_ = output_index;
-    prepared_input_index_ = selection ? std::optional(selection->selected_index)
-                                      : std::nullopt;
     if (!selection) {
       std::lock_guard lock(stats_mutex_);
-      ++stats_.no_common_window;
-      for (const auto& flow_id : unique_flows) {
-        ++stats_.sources[flow_id].no_common_window;
-      }
+      ++stats_.observed_common_window_empty;
+      stats_.last_common_window_width = 0;
+      stats_.last_source_skew_frames = maximum_head - minimum_head;
+      stats_.max_source_skew_frames = std::max(
+          stats_.max_source_skew_frames, stats_.last_source_skew_frames);
       return;
     }
 
-    bool repeat_selection = false;
     {
       std::lock_guard lock(stats_mutex_);
       const auto first_selection = stats_.adaptive_selections == 0;
       const auto window_width =
           selection->newest_index - selection->oldest_index + 1U;
       const auto source_skew = maximum_head - minimum_head;
-      const auto cadence = classify_input_index_step(
-          last_selected_input_index_, selection->selected_index);
       ++stats_.adaptive_selections;
       stats_.last_common_oldest_index = selection->oldest_index;
       stats_.last_common_newest_index = selection->newest_index;
-      stats_.last_selected_input_index = selection->selected_index;
       stats_.last_common_window_width = window_width;
       stats_.last_source_skew_frames = source_skew;
       if (first_selection || window_width < stats_.min_common_window_width) {
@@ -245,58 +215,6 @@ class MxlBackend::Impl {
       }
       stats_.max_source_skew_frames =
           std::max(stats_.max_source_skew_frames, source_skew);
-      switch (cadence.kind) {
-        case InputIndexStepKind::Repeat:
-          ++stats_.selected_input_repeats;
-          repeat_selection = true;
-          break;
-        case InputIndexStepKind::Skip:
-          ++stats_.selected_input_skip_events;
-          stats_.selected_input_skipped_grains += cadence.magnitude;
-          break;
-        case InputIndexStepKind::Regression:
-          ++stats_.selected_input_regressions;
-          break;
-        case InputIndexStepKind::First:
-        case InputIndexStepKind::Sequential:
-          break;
-      }
-      last_selected_input_index_ = selection->selected_index;
-    }
-
-    if (repeat_selection) {
-      prepared_input_index_.reset();
-      return;
-    }
-
-    const auto timestamp =
-        mxlIndexToTimestamp(&rate, selection->selected_index);
-    const auto status = mxlFlowSynchronizationGroupWaitForDataAt(
-        sync_group_, timestamp, read_timeout_ns_);
-    {
-      std::lock_guard lock(stats_mutex_);
-      ++stats_.sync_waits;
-    }
-    if (status == MXL_ERR_TIMEOUT) {
-      std::lock_guard lock(stats_mutex_);
-      ++stats_.sync_timeouts;
-      prepared_input_index_.reset();
-      return;
-    }
-    if (status == MXL_ERR_OUT_OF_RANGE_TOO_EARLY) {
-      std::lock_guard lock(stats_mutex_);
-      ++stats_.sync_too_early;
-      prepared_input_index_.reset();
-      return;
-    }
-    if (status == MXL_ERR_OUT_OF_RANGE_TOO_LATE) {
-      std::lock_guard lock(stats_mutex_);
-      ++stats_.sync_too_late;
-      prepared_input_index_.reset();
-      return;
-    }
-    if (status != MXL_STATUS_OK) {
-      throw sdk_error("mxlFlowSynchronizationGroupWaitForDataAt", status);
     }
   }
 
@@ -309,18 +227,79 @@ class MxlBackend::Impl {
     if (!prepared_output_index_ || *prepared_output_index_ != output_index) {
       throw std::logic_error("route requested without a prepared output frame");
     }
-    if (!prepared_input_index_) {
+    auto* reader = try_get_reader(source_flow);
+    if (reader == nullptr) {
       commit_unavailable(writer_it->second, output_index);
       return;
     }
 
-    auto& reader = get_reader(source_flow);
+    mxlFlowRuntimeInfo runtime{};
+    const auto runtime_status =
+        mxlFlowReaderGetRuntimeInfo(reader->handle, &runtime);
+    if (runtime_status == MXL_ERR_FLOW_INVALID) {
+      discard_reader(source_flow);
+      commit_unavailable(writer_it->second, output_index);
+      return;
+    }
+    if (runtime_status != MXL_STATUS_OK) {
+      throw sdk_error("mxlFlowReaderGetRuntimeInfo", runtime_status);
+    }
+    const auto grain_count = reader->config.discrete.grainCount;
+    const auto oldest = runtime.headIndex >= grain_count
+                            ? runtime.headIndex - grain_count + 2U
+                            : std::uint64_t{0};
+    {
+      std::lock_guard lock(stats_mutex_);
+      auto& source = stats_.sources[source_flow];
+      source.latest_head_index = runtime.headIndex;
+      source.latest_oldest_index = oldest;
+    }
+    const auto selection = timelines_.select(
+        output_flow, source_flow, {runtime.headIndex, grain_count},
+        input_delay_frames_);
+    if (!selection) {
+      commit_unavailable(writer_it->second, output_index);
+      return;
+    }
+
+    bool repeat_selection = false;
+    {
+      std::lock_guard lock(stats_mutex_);
+      ++stats_.independent_selections;
+      stats_.last_selected_input_index = selection->window.selected_index;
+      if (selection->timeline_reset) {
+        ++stats_.input_timeline_resets;
+      }
+      if (selection->forward_clamped) {
+        ++stats_.recovery_index_clamps;
+      }
+      switch (selection->cadence.kind) {
+        case InputIndexStepKind::Repeat:
+          ++stats_.selected_input_repeats;
+          repeat_selection = true;
+          break;
+        case InputIndexStepKind::Skip:
+          ++stats_.selected_input_skip_events;
+          stats_.selected_input_skipped_grains += selection->cadence.magnitude;
+          break;
+        case InputIndexStepKind::Regression:
+          ++stats_.selected_input_regressions;
+          break;
+        case InputIndexStepKind::First:
+        case InputIndexStepKind::Sequential:
+          break;
+      }
+    }
+    if (repeat_selection) {
+      commit_unavailable(writer_it->second, output_index);
+      return;
+    }
 
     mxlGrainInfo source_info{};
     std::uint8_t* source_payload = nullptr;
     const auto status = mxlFlowReaderGetGrain(
-        reader.handle, *prepared_input_index_, read_timeout_ns_, &source_info,
-        &source_payload);
+        reader->handle, selection->window.selected_index, read_timeout_ns_,
+        &source_info, &source_payload);
     if (status == MXL_ERR_FLOW_INVALID) {
       discard_reader(source_flow);
       commit_unavailable(writer_it->second, output_index);
@@ -399,8 +378,14 @@ class MxlBackend::Impl {
         source_payload, source_payload + source_info.grainSize);
     writer_it->second.last_flags = source_info.flags;
     writer_it->second.last_valid_slices = source_info.validSlices;
+    const auto cleared_unavailable_alarm =
+        writer_it->second.unavailable_alarm.note_available();
     {
       std::lock_guard lock(stats_mutex_);
+      if (cleared_unavailable_alarm &&
+          stats_.sustained_unavailable_active > 0) {
+        --stats_.sustained_unavailable_active;
+      }
       ++stats_.routed;
       ++stats_.sources[source_flow].routed;
     }
@@ -441,6 +426,7 @@ class MxlBackend::Impl {
     std::vector<std::uint8_t> last_payload;
     std::uint32_t last_flags{0};
     std::uint32_t last_valid_slices{0};
+    SustainedUnavailableAlarm unavailable_alarm;
   };
 
   Reader& get_reader(const FlowId& flow_id) {
@@ -516,6 +502,7 @@ class MxlBackend::Impl {
     }
     mxlReleaseFlowReader(instance_, found->second.handle);
     readers_.erase(found);
+    timelines_.reset_source(flow_id);
     std::lock_guard lock(stats_mutex_);
     ++stats_.reader_reopens;
     ++stats_.sources[flow_id].reader_reopens;
@@ -548,6 +535,7 @@ class MxlBackend::Impl {
         mxlReleaseFlowReader(instance_, found->second.handle);
         readers_.erase(found);
       }
+      timelines_.reset_source(flow_id);
       std::lock_guard lock(stats_mutex_);
       ++stats_.reader_reopens;
       ++stats_.sources[flow_id].reader_reopens;
@@ -582,6 +570,11 @@ class MxlBackend::Impl {
       throw sdk_error("mxlFlowWriterCommitGrain(unavailable)", status);
     }
     std::lock_guard lock(stats_mutex_);
+    if (writer.unavailable_alarm.note_unavailable(
+            kSustainedUnavailableFrames)) {
+      ++stats_.sustained_unavailable_alarms;
+      ++stats_.sustained_unavailable_active;
+    }
     if (can_hold) {
       ++stats_.held;
     } else {
@@ -599,8 +592,8 @@ class MxlBackend::Impl {
   std::unordered_map<FlowId, Writer> writers_;
   std::unordered_set<FlowId> grouped_flows_;
   std::optional<std::uint64_t> prepared_output_index_;
-  std::optional<std::uint64_t> prepared_input_index_;
-  std::optional<std::uint64_t> last_selected_input_index_;
+  OutputReadTimelines timelines_;
+  static constexpr std::uint64_t kSustainedUnavailableFrames = 5;
   mutable std::mutex stats_mutex_;
   MxlBackendStats stats_;
 };

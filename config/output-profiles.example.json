@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "program": {
+    "video_flow": "00000000-0000-4000-8000-000000000001",
+    "audio_flow": "00000000-0000-4000-8000-000000000002",
+    "video": {
+      "width": 1920,
+      "height": 1080,
+      "pixel_format": "v210",
+      "rate": "30000/1001"
+    },
+    "audio": {
+      "format": "f32le",
+      "sample_rate": 48000,
+      "channels": 2
+    },
+    "clock": {
+      "authority": "monotonic",
+      "target_audio_buffer_ms": 120,
+      "max_resample_correction_ppm": 2500,
+      "max_av_skew_ms": 40
+    }
+  },
+  "outputs": [
+    {
+      "name": "audience-meeting",
+      "kind": "meeting_return",
+      "enabled": true,
+      "priority": 100,
+      "profile": {
+        "video_rate": "30000/1001",
+        "audio_sample_rate": 48000
+      }
+    },
+    {
+      "name": "youtube-primary",
+      "kind": "rtmp",
+      "enabled": false,
+      "priority": 60,
+      "secret_ref": "youtube-primary-stream-key",
+      "profile": {
+        "transport": "rtmps",
+        "video_codec": "h264",
+        "gop_seconds": 2,
+        "audio_codec": "aac",
+        "audio_sample_rate": 44100,
+        "audio_bitrate": 128000
+      }
+    }
+  ]
+}

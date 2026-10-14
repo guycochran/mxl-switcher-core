@@ -1,0 +1,173 @@
+.bus {
+  grid-template-columns: repeat(10, minmax(58px, 1fr));
+}
+
+.bus button.ss {
+  color: #ffd271;
+  font-size: 12px;
+}
+
+@media (max-width: 850px) {
+  .bus {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.panel-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.movable-panel {
+  transition: border-color .15s, opacity .15s, transform .15s;
+}
+
+.movable-panel.dragging {
+  opacity: .55;
+}
+
+.movable-panel.drop-target {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue), 0 0 18px #43a5ff55;
+}
+
+.panel-order {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.panel-handle,
+.panel-order button,
+.me-bank-buttons button {
+  border: 1px solid #5b626b;
+  border-radius: 4px;
+  background: #1b1d21;
+  color: #cfd5dc;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .09em;
+  padding: 7px 9px;
+}
+
+.legend-red { color: #ff676b; }
+.legend-green { color: #67f08b; }
+
+.me-status-strip {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(260px, 1.25fr);
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.me-status,
+.edit-safety {
+  min-height: 76px;
+  border: 2px solid #666c74;
+  border-radius: 7px;
+  background: #17191c;
+  color: #d9dde1;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 10px 13px;
+  text-align: left;
+}
+
+button.me-status { cursor: pointer; }
+.me-status span,
+.edit-safety span { font-size: 10px; font-weight: 950; letter-spacing: .14em; }
+.me-status strong,
+.edit-safety strong { font-size: 16px; letter-spacing: .06em; }
+.me-status small,
+.edit-safety small { color: #aeb5bd; }
+
+.me-status.program {
+  border-color: #ff676b;
+  background: linear-gradient(135deg, #851f25, #461216);
+  color: #fff;
+  box-shadow: inset 0 0 18px #ff303855, 0 0 14px #ef323866;
+}
+
+.me-status.preview {
+  border-color: #67f08b;
+  background: linear-gradient(135deg, #1c6632, #103a1e);
+  color: #fff;
+  box-shadow: inset 0 0 18px #36d16644, 0 0 14px #4bdf7255;
+}
+
+.me-status.safe,
+.edit-safety.safe {
+  border-color: #d19c3e;
+  background: linear-gradient(135deg, #40341e, #211c13);
+  color: #ffd271;
+}
+
+.edit-safety.blocked {
+  border-color: #ff676b;
+  background: repeating-linear-gradient(135deg, #381114, #381114 9px, #221012 9px, #221012 18px);
+  color: #ff9da0;
+}
+
+.ss-actions .take:not(:disabled) {
+  border-color: #ff676b;
+  background: #8c2026;
+  color: #fff;
+  box-shadow: 0 0 14px #ef323855;
+}
+
+.panel-handle {
+  cursor: grab;
+  user-select: none;
+}
+
+.panel-handle:active {
+  cursor: grabbing;
+}
+
+.panel-order button,
+.me-bank-buttons button {
+  cursor: pointer;
+}
+
+.ss-head-tools,
+.mixer-tools {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+}
+
+.me-bank-buttons {
+  display: flex;
+  gap: 7px;
+}
+
+.me-bank-buttons button {
+  color: #ffd271;
+  min-width: 136px;
+}
+
+.me-bank-buttons button.preview-on {
+  border-color: var(--green);
+  background: #1c6632;
+  color: #d4ffdf;
+  box-shadow: 0 0 12px #4bdf7255;
+}
+
+@media (max-width: 850px) {
+  .mixer-head,
+  .ss-head {
+    gap: 12px;
+  }
+  .mixer-tools,
+  .ss-head-tools {
+    justify-items: stretch;
+  }
+  .me-bank-buttons {
+    flex-direction: column;
+  }
+  .me-status-strip {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,27 @@
+.source-punch {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.source-punch button {
+  min-height: 34px;
+  border: 1px solid #555b63;
+  border-radius: 4px;
+  background: linear-gradient(#31353a, #1a1c20);
+  color: #dfe4e8;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.source-punch button:hover {
+  border-color: #9aa2ad;
+}
+
+.source-punch button.selected {
+  border-color: var(--amber);
+  background: #8a5d11;
+  color: #fff;
+  box-shadow: 0 0 10px #f5b94755;
+}

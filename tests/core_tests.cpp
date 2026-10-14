@@ -108,6 +108,43 @@ void test_preview_then_take_is_atomic() {
   require(state.revision == 3, "each accepted command needs a revision");
 }
 
+void test_far_apart_source_timelines_cut_cleanly() {
+  MemoryBackend backend;
+  backend.add_source(kSourceAFlow, kV210, 0xA1, 900'000);
+  backend.add_source(kSourceBFlow, kV210, 0xB2, 12'000);
+  SwitcherCore core(
+      backend,
+      {{"src_a", kSourceAFlow, "Camera A", kV210},
+       {"src_b", kSourceBFlow, "Camera B", kV210}},
+      {kProgramFlow, "Program", kV210},
+      {kPreviewFlow, "Preview", kV210}, "src_a", "src_b");
+
+  core.process(1);
+  core.take();
+  core.process(2);
+  core.take();
+  core.process(3);
+  core.take();
+  core.process(4);
+
+  const auto& pgm = backend.writes(kProgramFlow);
+  require(pgm.size() == 4, "A/B/A/B sequence lost an output frame");
+  require((*pgm[0].grain.payload)[0] == 0xA1 &&
+              (*pgm[1].grain.payload)[0] == 0xB2 &&
+              (*pgm[2].grain.payload)[0] == 0xA1 &&
+              (*pgm[3].grain.payload)[0] == 0xB2,
+          "A/B/A/B sequence emitted a stale or wrong-source frame");
+  require(pgm[0].grain.source_index == 900'001 &&
+              pgm[1].grain.source_index == 12'002 &&
+              pgm[2].grain.source_index == 900'003 &&
+              pgm[3].grain.source_index == 12'004,
+          "a cut incorrectly carried the prior source's input timeline");
+  for (std::size_t i = 0; i < pgm.size(); ++i) {
+    require(pgm[i].output_index == i + 1,
+            "program output indices regressed across a cut");
+  }
+}
+
 void test_bad_control_and_clock_inputs_are_rejected() {
   Fixture f;
   bool unknown_rejected = false;
@@ -161,6 +198,8 @@ int main(int argc, char** argv) {
       {"native payload preservation", test_native_payload_is_not_transformed},
       {"direct cut semantics", test_direct_cut_changes_only_program},
       {"atomic ordered command batch", test_preview_then_take_is_atomic},
+      {"far-apart source timeline cuts",
+       test_far_apart_source_timelines_cut_cleanly},
       {"invalid input rejection", test_bad_control_and_clock_inputs_are_rejected},
       {"fast soak", [=] { test_fast_soak(soak_frames); }},
   };

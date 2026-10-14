@@ -71,8 +71,9 @@ class MediaBackend {
   virtual ~MediaBackend() = default;
   virtual void create_output_once(const OutputSpec& output) = 0;
   // Called once per frame after control commands have been applied and before
-  // either bus is routed. A live backend uses this hook to synchronize all
-  // selected inputs at the output timestamp.
+  // either bus is routed. A live backend uses this hook to refresh readers and
+  // observe cross-source timing. CUT routing itself reads each output/source
+  // timeline independently; a common window is only required by transitions.
   virtual void prepare_frame(const std::vector<FlowId>& source_flows,
                              std::uint64_t output_index) = 0;
   // Route is one operation so a live backend can copy directly from an
@@ -138,7 +139,8 @@ class MemoryBackend final : public MediaBackend {
     Grain grain;
   };
 
-  void add_source(FlowId flow_id, VideoFormat format, std::uint8_t marker);
+  void add_source(FlowId flow_id, VideoFormat format, std::uint8_t marker,
+                  std::uint64_t source_index_base = 0);
   void create_output_once(const OutputSpec& output) override;
   void prepare_frame(const std::vector<FlowId>& source_flows,
                      std::uint64_t output_index) override;
@@ -153,6 +155,7 @@ class MemoryBackend final : public MediaBackend {
   struct SyntheticSource {
     VideoFormat format;
     std::uint8_t marker;
+    std::uint64_t source_index_base;
   };
 
   std::unordered_map<FlowId, SyntheticSource> synthetic_sources_;

@@ -1,0 +1,139 @@
+.screen iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #000;
+}
+
+.screen-label {
+  z-index: 3;
+}
+
+.screen-name {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  z-index: 3;
+  padding: 4px 8px;
+  border-radius: 3px;
+  background: #000a;
+  font-size: 14px;
+}
+
+.scene-mini {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.monitors .scene-mini {
+  display: none;
+}
+
+.multiview-grid {
+  position: absolute;
+  z-index: 4;
+  inset: 19.4% 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  pointer-events: none;
+}
+
+.multiview-grid button {
+  position: relative;
+  margin: 2px;
+  border: 3px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.vu-meter {
+  position: absolute;
+  right: 6px;
+  bottom: 7px;
+  width: 15px;
+  height: 58%;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #ffffff66;
+  border-radius: 2px;
+  background: #080a0bd9;
+  box-shadow: 0 1px 5px #000;
+}
+
+.vu-meter span {
+  width: 5px;
+  min-height: 1px;
+  background: linear-gradient(to top, #19cf5b 0 68%, #f1ca30 68% 88%, #ef3b3f 88% 100%);
+  transition: height 120ms linear;
+}
+
+.vu-meter.silent span,
+.vu-meter.stale span,
+.vu-meter.error span {
+  height: 1px !important;
+  opacity: .35;
+}
+
+.multiview-grid button:hover {
+  border-color: #ffffffaa;
+  background: #ffffff10;
+}
+
+.multiview-grid button.program-tally {
+  border-color: var(--red);
+  box-shadow: inset 0 0 0 2px #000, 0 0 12px #ef3238aa;
+}
+
+.multiview-grid button.preview-tally {
+  border-color: var(--green);
+  box-shadow: inset 0 0 0 2px #000, 0 0 12px #4bdf72aa;
+}
+
+.multiview-screen .screen-name {
+  bottom: 4px;
+}
+
+.monitor.wall {
+  grid-column: 1 / -1;
+}
+
+.monitor.wall .screen {
+  outline: 2px solid var(--blue);
+}
+
+.monitor.wall .screen-label {
+  color: var(--blue);
+}
+
+.layout-row button {
+  min-height: 48px;
+}
+
+.layout-row button strong,
+.layout-row button small {
+  display: block;
+}
+
+.layout-row button small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: .08em;
+}
+
+.layout-row button.selected small {
+  color: #ffe3a1;
+}
+
+@media (max-width: 850px) {
+  .monitor.wall {
+    grid-column: auto;
+  }
+}

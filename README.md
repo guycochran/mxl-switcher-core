@@ -13,6 +13,57 @@ and exercised against the official MXL Flow API on a Linux MXL domain. A
 versioned HTTP/SSE control service and dependency-free reference operator Skin
 are included.
 
+> **Core is the product boundary.** It owns frame-accurate routing, stable
+> Program/Preview identities, health telemetry, and the versioned control API.
+> The included operator surfaces are replaceable reference implementations.
+> They demonstrate what can be built on Core; they are not required by Core and
+> never sit in its media hot path.
+
+## Repository map
+
+```text
+MXL Switcher Core
+├── include/, src/, apps/        headless switching engine and live service
+├── docs/                        architecture, control, deployment, acceptance
+├── tools/mxl-atem-skin/         optional ATEM-style reference operator Skin
+├── companion-module-mxl-core/   optional Companion / Stream Deck integration
+└── config/                      example output-node contracts and schemas
+```
+
+Choose the entry point that matches what you want to build:
+
+- **Build a new switcher or automation system:** start with
+  [Core architecture](docs/ARCHITECTURE.md) and the
+  [control contract](docs/CONTROL.md).
+- **Build a custom operator interface:** use the versioned HTTP/SSE API, then
+  inspect the [ATEM-style reference Skin](tools/mxl-atem-skin/README.md) as one
+  example—not as a required frontend.
+- **Add a physical control surface:** use the
+  [Companion / Stream Deck module](companion-module-mxl-core/README.md).
+- **Add a destination:** follow the independent
+  [output-node architecture](docs/OUTPUT_ARCHITECTURE.md) for Meeting, NDI,
+  SRT, SDI, WebRTC, recording, or RTMP/RTMPS delivery.
+- **Run the complete demonstrated workflow:** use the
+  [operator demo profile](docs/OPERATOR_DEMO.md) and the
+  [community presentation](docs/decks/mxl-switcher-community-demo-v5-3.pptx).
+
+## Architecture at a glance
+
+```text
+MXL sources ──> MXL Switcher Core ──> stable PGM/PVW MXL flows
+                       │                         │
+                       │ HTTP/SSE               ├─> compositor / multiview
+                       │ control + state         ├─> Meeting return
+                       v                         ├─> NDI / SRT / SDI / RTMP
+              any operator surface              └─> WebRTC confidence monitor
+              ├─ reference web Skin
+              ├─ Companion / Stream Deck
+              └─ your own UI or automation
+```
+
+Media remains in MXL between modular services. Operator surfaces exchange only
+bounded control and telemetry with Core.
+
 ## What works now
 
 - two or more registered `video/v210` sources;
@@ -28,6 +79,10 @@ are included.
   stale media from failures in the stable PGM/PVW outputs.
 - automatic reader replacement detection and a measured hold-last-output policy
   that preserves Program/Preview cadence through a transient source restart.
+- independent per-output CUT timelines with forward-only recovery floors, so
+  unrelated source-index drift cannot collapse Program and Preview routing.
+- one-shot sustained-unavailable alarms that clear on media recovery without
+  fault-spamming every held output frame.
 - dependency-free versioned control adapter for state, sources, Preview, Cut,
   and Take, with contract tests preserving frame-boundary command semantics.
 - bounded HTTP/1.1 control transport, loopback-only by default, with real-socket
@@ -36,6 +91,11 @@ are included.
   thread-safe live health endpoint with per-input routing counters.
 - a responsive reference Skin at `/` (also `/skin`) with Program and Preview
   source buses, Cut, Preview, Take, tally, timing, and error telemetry.
+- an optional, richer ATEM-style demonstration Skin with two persistent ME
+  banks, safe off-air 2-up through 8-up preparation, WebRTC confidence
+  monitoring, audio controls, and live tally.
+- an optional Bitfocus Companion module with Stream Deck presets and live
+  Program, Preview, and ME-bank feedback.
 
 ## Build and verify
 
@@ -82,6 +142,22 @@ The local engine must prove these invariants before live SDK work:
 See [the architecture](docs/ARCHITECTURE.md) and
 [control semantics](docs/CONTROL.md). See [Linux deployment](docs/DEPLOYMENT.md)
 for the validated configuration format and non-root systemd service.
+The clock-correct Program Master and independent Meeting, NDI, SRT, SDI,
+WebRTC, recording, and RTMP/RTMPS output roadmap is documented in the
+[output-node plan](docs/OUTPUT_ARCHITECTURE.md).
+For the complete ZoomISO/Core/SuperSource operator demonstration, including the
+confidence-monitor performance profile, Stream Deck controls, secure tunnels,
+and NMOS discovery view, see the [operator demo profile](docs/OPERATOR_DEMO.md).
+The matching [community-demo slide deck](docs/decks/mxl-switcher-community-demo-v5-3.pptx)
+is included as a downloadable PowerPoint file.
+
+The independent-CUT timing change has also passed live ZoomISO MXL validation
+with four simultaneous 1920x1080p30 v210 inputs plus stable Program and Preview.
+Clean 10-minute and 30-minute confirmations held every monitored stream at an
+average 30.00 fps with zero probe drops, zero Core timing/read/synchronization
+errors, and no active sustained-unavailable alarms while executing CUT,
+Preview, and TAKE commands. See the
+[ZoomISO MXL acceptance record](docs/ZOOMISO_MXL_ACCEPTANCE_2026-10-12.md).
 
 The NDI pilot now has a documented loaded full-path result. The original
 30-minute run with two continuous NDI receivers exposed a fixed-index scheduling
@@ -112,14 +188,22 @@ intermittent guest input while the clip input remained clean.
 
 ## Planned milestones
 
-1. **Accepted NDI/MXL profile:** complete. One real NDI ingress plus one local
+1. **Program Master clock recovery:** normalize the paired Program video/audio
+   flows to one monotonic epoch, exact 48 kHz audio, and the selected video
+   cadence before any distribution adapter.
+2. **Meeting-to-meeting proof:** complete an audience-side receive gate with
+   switched/composited video and clock-correct audio.
+3. **Independent output nodes:** add NDI, SRT, WebRTC, recording, YouTube
+   RTMPS, and scheduled DeckLink SDI/HDMI adapters without adding codecs or
+   hardware dependencies to Core's hot path.
+4. **Accepted NDI/MXL profile:** complete. One real NDI ingress plus one local
    synthetic v210 source passed eight loaded hours with two active NDI outputs.
-2. **Lifecycle resilience:** complete for Core, ingress, and egress replacement.
+5. **Lifecycle resilience:** complete for Core, ingress, and egress replacement.
    A controlled NDI-ingress interruption preserved both decoded NDI outputs,
    reopened the recreated MXL input, and recovered without process restarts.
-3. **Two-source hardware acceptance:** repeat with two independent real sources
+6. **Two-source hardware acceptance:** repeat with two independent real sources
    into stable PGM/PVW on the Supermicro.
-4. **Deployment profiles:** package Core-only, Program-only NDI, and full
+7. **Deployment profiles:** package Core-only, Program-only NDI, and full
    Program/Preview NDI profiles for fresh Linux hosts.
 
 License: MIT.
