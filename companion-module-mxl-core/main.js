@@ -27,7 +27,18 @@ function bankRole(state, bank) {
 class MXLCoreInstance extends InstanceBase {
 	async init(config) {
 		this.config = config
-		this.state = { program: null, preview: null, revision: 0, banks: { a: {}, b: {} } }
+		this.state = {
+			connected: false,
+			program: null,
+			preview: null,
+			revision: 0,
+			programFlow: null,
+			previewFlow: null,
+			banks: { a: {}, b: {} },
+			health: {},
+			nmosRegistered: false,
+			audioState: 'unknown',
+		}
 		this.initActions()
 		this.initFeedbacks()
 		this.initVariables()
@@ -63,6 +74,13 @@ class MXLCoreInstance extends InstanceBase {
 				min: 200,
 				max: 5000,
 			},
+			{
+				type: 'textinput',
+				id: 'nmosurl',
+				label: 'NMOS Node URL (optional, use a secure local tunnel)',
+				width: 8,
+				default: '',
+			},
 		]
 	}
 
@@ -79,17 +97,50 @@ class MXLCoreInstance extends InstanceBase {
 		return data
 	}
 
+	async getJson(url) {
+		const response = await fetch(url, { signal: AbortSignal.timeout(3000) })
+		const data = await response.json().catch(() => ({}))
+		if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+		return data
+	}
+
+	healthClean(health = this.state.health) {
+		const counters = [
+			'invalid', 'too_early', 'too_late', 'timeouts', 'reader_reopens',
+			'sync_timeouts', 'sync_too_early', 'sync_too_late', 'no_common_window',
+			'selected_input_regressions', 'sustained_unavailable_active',
+		]
+		return health.status === 'running' && counters.every((key) => Number(health[key] || 0) === 0)
+	}
+
 	startPolling() {
 		if (this.pollTimer) clearInterval(this.pollTimer)
 		const tick = async () => {
 			try {
 				const value = await this.api('/api/skin/state')
 				if (!value || !value.core) throw new Error('Invalid MXL Core state response')
+				const health = await this.api('/api/mxl/v1/health')
+				let nmosRegistered = false
+				const nmosBase = String(this.config.nmosurl || '').replace(/\/$/, '')
+				if (nmosBase) {
+					try {
+						const node = await this.getJson(`${nmosBase}/x-nmos/node/v1.3/self`)
+						nmosRegistered = !!node.id
+					} catch (_error) {
+						nmosRegistered = false
+					}
+				}
 				this.state = {
+					connected: true,
 					program: value.core.program,
 					preview: value.core.preview,
 					revision: value.core.revision,
+					programFlow: value.core.program_flow,
+					previewFlow: value.core.preview_flow,
 					banks: value.banks || { a: {}, b: {} },
+					health,
+					nmosRegistered,
+					audioState: value.audio?.state || 'unknown',
 				}
 				this.setVariableValues({
 					program: this.labelFor(this.state.program),
@@ -99,10 +150,26 @@ class MXLCoreInstance extends InstanceBase {
 					supersource_b: bankText(this.state.banks.b),
 					me_1_status: bankRole(this.state, 'a'),
 					me_2_status: bankRole(this.state, 'b'),
+					core_status: this.healthClean(health) ? 'CLEAN' : 'CHECK',
+					core_routed: String(health.routed || 0),
+					core_window: String(health.last_common_window_width ?? '—'),
+					core_skew: String(health.last_source_skew_frames ?? '—'),
+					core_inputs: String(Array.isArray(health.sources) ? health.sources.length : 0),
+					core_alarms: String(health.sustained_unavailable_active || 0),
+					nmos_status: nmosBase ? (nmosRegistered ? 'REGISTERED' : 'OFFLINE') : 'NOT SET',
+					audio_status: String(value.audio?.state || 'unknown').toUpperCase(),
+					program_flow_status: value.core.program_flow ? 'PRESENT' : 'MISSING',
+					preview_flow_status: value.core.preview_flow ? 'PRESENT' : 'MISSING',
 				})
 				this.updateStatus(InstanceStatus.Ok)
-				this.checkFeedbacks('program_tally', 'preview_tally', 'bank_ready')
+				this.checkFeedbacks(
+					'program_tally', 'preview_tally', 'bank_ready', 'core_connected',
+					'core_clean', 'nmos_registered', 'program_flow_present',
+					'preview_flow_present', 'four_inputs_present', 'audio_ok',
+				)
 			} catch (error) {
+				this.state.connected = false
+				this.checkFeedbacks('core_connected', 'core_clean')
 				this.updateStatus(InstanceStatus.ConnectionFailure, String(error).slice(0, 80))
 			}
 		}
@@ -177,6 +244,41 @@ class MXLCoreInstance extends InstanceBase {
 				options: [{ type: 'dropdown', id: 'bank', label: 'Bank', default: 'a', choices: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] }],
 				callback: (feedback) => !!this.state.banks[feedback.options.bank]?.ready,
 			},
+			core_connected: {
+				type: 'boolean', name: 'Core API connected',
+				defaultStyle: { bgcolor: combineRgb(0, 145, 60), color: combineRgb(255, 255, 255) },
+				options: [], callback: () => this.state.connected,
+			},
+			core_clean: {
+				type: 'boolean', name: 'Core critical counters clean',
+				defaultStyle: { bgcolor: combineRgb(0, 145, 60), color: combineRgb(255, 255, 255) },
+				options: [], callback: () => this.state.connected && this.healthClean(),
+			},
+			nmos_registered: {
+				type: 'boolean', name: 'NMOS Node responding',
+				defaultStyle: { bgcolor: combineRgb(0, 145, 60), color: combineRgb(255, 255, 255) },
+				options: [], callback: () => this.state.nmosRegistered,
+			},
+			program_flow_present: {
+				type: 'boolean', name: 'Program flow present',
+				defaultStyle: { bgcolor: combineRgb(0, 145, 60), color: combineRgb(255, 255, 255) },
+				options: [], callback: () => !!this.state.programFlow,
+			},
+			preview_flow_present: {
+				type: 'boolean', name: 'Preview flow present',
+				defaultStyle: { bgcolor: combineRgb(0, 145, 60), color: combineRgb(255, 255, 255) },
+				options: [], callback: () => !!this.state.previewFlow,
+			},
+			four_inputs_present: {
+				type: 'boolean', name: 'Four Core inputs present',
+				defaultStyle: { bgcolor: combineRgb(0, 145, 60), color: combineRgb(255, 255, 255) },
+				options: [], callback: () => Array.isArray(this.state.health.sources) && this.state.health.sources.length >= 4,
+			},
+			audio_ok: {
+				type: 'boolean', name: 'Audio meter service healthy',
+				defaultStyle: { bgcolor: combineRgb(0, 145, 60), color: combineRgb(255, 255, 255) },
+				options: [], callback: () => this.state.audioState === 'ok',
+			},
 		})
 	}
 
@@ -189,6 +291,16 @@ class MXLCoreInstance extends InstanceBase {
 			{ variableId: 'supersource_b', name: 'ME 2 layout' },
 			{ variableId: 'me_1_status', name: 'ME 1 tally status' },
 			{ variableId: 'me_2_status', name: 'ME 2 tally status' },
+			{ variableId: 'core_status', name: 'Core critical health' },
+			{ variableId: 'core_routed', name: 'Core routed frames' },
+			{ variableId: 'core_window', name: 'Core common-window width' },
+			{ variableId: 'core_skew', name: 'Core source skew in frames' },
+			{ variableId: 'core_inputs', name: 'Core input count' },
+			{ variableId: 'core_alarms', name: 'Active sustained alarms' },
+			{ variableId: 'nmos_status', name: 'NMOS Node status' },
+			{ variableId: 'audio_status', name: 'Audio meter status' },
+			{ variableId: 'program_flow_status', name: 'Program flow status' },
+			{ variableId: 'preview_flow_status', name: 'Preview flow status' },
 		])
 	}
 
@@ -255,6 +367,19 @@ class MXLCoreInstance extends InstanceBase {
 				],
 			}
 		}
+
+		const healthPreset = (name, text, feedbackId) => ({
+			type: 'button', category: '5 · EIC health', name,
+			style: { text, size: '12', color: combineRgb(255, 255, 255), bgcolor: combineRgb(150, 28, 28) },
+			steps: [{ down: [], up: [] }],
+			feedbacks: [{ feedbackId, options: {}, style: { bgcolor: combineRgb(0, 145, 60) } }],
+		})
+		presets.health_core = healthPreset('Core health', 'CORE\n$(mxl:core_status)', 'core_clean')
+		presets.health_nmos = healthPreset('NMOS registration', 'NMOS\n$(mxl:nmos_status)', 'nmos_registered')
+		presets.health_inputs = healthPreset('Four Core inputs', 'INPUTS\n$(mxl:core_inputs)', 'four_inputs_present')
+		presets.health_program = healthPreset('Program flow', 'PGM FLOW\n$(mxl:program_flow_status)', 'program_flow_present')
+		presets.health_preview = healthPreset('Preview flow', 'PVW FLOW\n$(mxl:preview_flow_status)', 'preview_flow_present')
+		presets.health_audio = healthPreset('Audio meter', 'AUDIO\n$(mxl:audio_status)', 'audio_ok')
 		this.setPresetDefinitions(presets)
 	}
 }
