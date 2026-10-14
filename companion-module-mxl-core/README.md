@@ -25,7 +25,17 @@ ssh -N -L 13012:127.0.0.1:8021 USER@CORE_HOST
 ```
 
 The resulting URL is `http://127.0.0.1:13012`. Leaving it empty reports
-`NOT SET`; it never fabricates a green registration state.
+`NOT SET`.
+
+To prove that the Node is registered—rather than merely responding—also tunnel
+the Registry Query API and enter it as **NMOS Registry Query URL**:
+
+```sh
+ssh -N -L 13011:127.0.0.1:8010 USER@CORE_HOST
+```
+
+The resulting URL is `http://127.0.0.1:13011`. The module matches the live
+Node ID against the Registry's node inventory before displaying `REGISTERED`.
 
 ## Install
 
@@ -37,7 +47,7 @@ npm install
 npm run package
 ```
 
-Import `mxl-core-0.2.2.tgz`, add the **MXL Core** connection, and confirm its
+Import `mxl-core-0.4.0.tgz`, add the **MXL Core** connection, and confirm its
 status becomes green/OK. Its default URL is already the secure local tunnel at
 `http://127.0.0.1:13010`.
 
@@ -50,16 +60,26 @@ Recommended layout:
 - Row 3: Prepare 2-up through 8-up
 - Row 4: CUT ME, ME 1 Preview, ME 2 Preview, utilities, and CUT at far right
 
-The **5 · EIC health** preset category supplies live Core counter health, NMOS
-Node response, Core input count, stable Program/Preview flow identity, and
-audio-meter status. Red means absent, disabled, or unhealthy; green is derived
-from the current API response. CPU/RSS and negotiated input-format indicators
-remain separate measurements until a supported telemetry endpoint is added.
+The **5 · EIC health** preset category supplies Core API reachability, active
+alarms, routing-counter motion, live/configured input count, Program/Preview
+flow identity, true NMOS Registry membership, and audio-meter status. The color
+contract is intentionally operational: green means healthy, red means action
+is required, neutral gray means intentionally off or not configured, and blue
+means informational. `METER OFF` is therefore neutral; only `METER FAIL` is red.
+CPU/RSS and negotiated input-format indicators remain separate measurements
+until a supported telemetry endpoint is added.
 
-`examples/mxl-demo-six-pages-2026-10-14.companionconfig` is a sanitized
-Companion 5.1 export of the six-page demonstration surface. It contains no
-connection secrets. After importing it, install this module and adjust the two
-loopback URLs for the Core Skin and NMOS Node tunnels on the Companion host.
+The **6 · NMOS intelligence** category exposes the Node API, Registry API,
+actual registration, IS-04 device/source/flow/sender/receiver inventory, and
+the advertised reference-clock class. These are read-only engineering facts,
+not simulated routing or tally.
+
+`examples/mxl-demo-nine-pages-2026-10-14.companionconfig` is a sanitized
+Companion 5.1 export of the demonstration surface, including EIC health and
+NMOS detail pages. It contains no connection secrets, private addresses, or
+physical-surface identifiers. After importing it, install this module and
+adjust the three loopback URLs for the Core Skin, NMOS Node, and NMOS Registry
+tunnels on the Companion host.
 
 The smart ME 1 and ME 2 buttons are always safe Preview actions. Their labels
 and colors follow the current role: red `ON AIR`, green `PREVIEW`, amber
