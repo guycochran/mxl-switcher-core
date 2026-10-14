@@ -40,7 +40,12 @@ The combined cut/recording exercise ended with no active sustained alarm and
 all invalid, timing, timeout, reader-reopen, synchronization,
 no-common-window, and selected-input-regression counters at zero. Core did,
 however, accumulate recovered sustained-unavailability events during repeated
-video cuts. That prevents treating this run as a clean acceptance gate.
+video cuts while concurrent probes and software recording were active. A
+follow-up direct-cut-only control advanced every source and added zero alarm
+events. A CPU-isolated real-time recorder sample reduced, but did not eliminate,
+the recovered events. This identifies co-located output encoding load as the
+remaining isolation problem rather than AFV or direct-cut correctness. It still
+prevents treating the combined run as a clean acceptance gate.
 
 The next gate must correlate those recovered video events with cut timing,
 measure content-level lip sync rather than timestamp proximity alone, exercise
