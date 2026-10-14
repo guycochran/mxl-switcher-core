@@ -41,6 +41,18 @@ class ProgramReclockPipelineTest(unittest.TestCase):
         self.assertNotIn("use-wallclock", description)
         self.assertNotIn("sync=false", description)
 
+    def test_pipeline_accepts_public_program_group(self):
+        description = MODULE.pipeline_description(
+            "/mxl-domain",
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002",
+            9_000_000_000,
+            "ZoomISOMXLProgram",
+        )
+
+        self.assertIn('group-hint="ZoomISOMXLProgram:Audio"', description)
+        self.assertNotIn("MXLProgramMasterCandidate:Audio", description)
+
     def test_read_only_probe_never_publishes_a_flow(self):
         description = AUDIO_PROBE.pipeline_description(
             "/mxl-domain", "00000000-0000-4000-8000-000000000001"

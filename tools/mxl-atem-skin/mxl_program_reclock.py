@@ -33,6 +33,7 @@ def pipeline_description(
     source_flow: str,
     output_flow: str,
     epoch_ns: int,
+    group_hint: str = "MXLProgramMasterCandidate",
 ) -> str:
     """Return the candidate pipeline without starting or modifying live state."""
 
@@ -52,7 +53,7 @@ def pipeline_description(
         f"mxlsink name=output domain={domain} flow-id={output_flow} "
         'label="Program Master Audio Candidate" '
         'description="Clock-correct 48 kHz Program master candidate" '
-        'group-hint="MXLProgramMasterCandidate:Audio" sync=true'
+        f'group-hint="{group_hint}:Audio" sync=true'
     )
 
 
@@ -74,11 +75,13 @@ class ProgramReclock:
         output_flow: str,
         target_buffer_ms: float,
         max_correction_ppm: float,
+        group_hint: str,
     ) -> None:
         self.Gst = load_gstreamer()
         self.domain = domain
         self.source_flow = source_flow
         self.output_flow = output_flow
+        self.group_hint = group_hint
         self.epoch_ns = time.monotonic_ns()
         self.lock = threading.Lock()
         self.estimator = ClockRateEstimator(
@@ -126,7 +129,11 @@ class ProgramReclock:
     def _make_pipeline(self, output_epoch_ns: int) -> None:
         self.pipeline = self.Gst.parse_launch(
             pipeline_description(
-                self.domain, self.source_flow, self.output_flow, output_epoch_ns
+                self.domain,
+                self.source_flow,
+                self.output_flow,
+                output_epoch_ns,
+                self.group_hint,
             )
         )
         self.source = self.pipeline.get_by_name("source")
@@ -285,6 +292,7 @@ class ProgramReclock:
                     "state": "error" if self.last_error else "ok",
                     "source_flow": self.source_flow,
                     "output_flow": self.output_flow,
+                    "group_hint": self.group_hint,
                     "epoch_ns": self.epoch_ns,
                     "tempo": self.tempo,
                     "pipeline_generation": self.pipeline_generation,
@@ -349,6 +357,7 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     parser.add_argument("--target-buffer-ms", type=float, default=120.0)
     parser.add_argument("--max-correction-ppm", type=float, default=2500.0)
+    parser.add_argument("--group-hint", default="MXLProgramMasterCandidate")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9750)
     args = parser.parse_args()
@@ -358,6 +367,7 @@ def main() -> None:
         args.output,
         args.target_buffer_ms,
         args.max_correction_ppm,
+        args.group_hint,
     )
     BRIDGE.start()
     print(
