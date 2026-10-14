@@ -139,8 +139,10 @@ function renderAudioMixer() {
 }
 
 function offAirBank() {
-  const active = new Set([state?.core.program, state?.core.preview])
-  return ['a', 'b'].find((bank) => !active.has(`supersource-${bank}`)) || null
+  const programBank = bankOf(state?.core.program)
+  if (programBank) return programBank === 'a' ? 'b' : 'a'
+  const previewBank = bankOf(state?.core.preview)
+  return previewBank === 'a' ? 'b' : 'a'
 }
 
 function audioIsFirst() {
@@ -238,16 +240,13 @@ function render() {
 
   const safeBank = offAirBank()
   const editState = $('bankState')
-  editState.className = `edit-safety ${safeBank ? 'safe' : 'blocked'}`
-  editState.innerHTML = safeBank
-    ? `<span>SAFE EDIT BANK</span><strong>ME ${meNumber(safeBank)} · OFF AIR</strong><small>Building here cannot change Program</small>`
-    : '<span>EDIT LOCKED</span><strong>NO SAFE ME BANK</strong><small>Put a camera in Preview before editing</small>'
-  $('prepare').disabled = busy || !state.live || !safeBank
+  const safeBankIsPreview = core.preview === `supersource-${safeBank}`
+  editState.className = 'edit-safety safe'
+  editState.innerHTML = `<span>SAFE EDIT BANK</span><strong>ME ${meNumber(safeBank)} · OFF AIR${safeBankIsPreview ? ' / IN PREVIEW' : ''}</strong><small>${safeBankIsPreview ? 'Changes appear in Preview, never Program' : 'Building here cannot change Program'}</small>`
+  $('prepare').disabled = busy || !state.live
   $('prepare').textContent = !state.live
     ? 'SCENE ENGINE PENDING'
-    : safeBank
-      ? `BUILD ${layout}-UP ON SAFE ME ${meNumber(safeBank)} → PREVIEW`
-      : 'EDIT LOCKED · NO SAFE ME BANK'
+    : `BUILD ${layout}-UP ON SAFE ME ${meNumber(safeBank)} → PREVIEW`
   const previewBank = bankOf(core.preview)
   const previewIsProgram = Boolean(previewBank && core.preview === core.program)
   $('takeSS').disabled = busy || !previewBank || previewIsProgram
@@ -350,7 +349,6 @@ function buildLayouts() {
 async function prepare() {
   if (new Set(slots).size !== slots.length) return notice('Each box needs a different input.', true)
   const bank = offAirBank()
-  if (!bank) return notice('EDIT LOCKED: put a camera in Preview to free a safe ME bank.', true)
   busy = true
   render()
   notice(`Punching ${layout}-up on off-air ME ${meNumber(bank)}…`)

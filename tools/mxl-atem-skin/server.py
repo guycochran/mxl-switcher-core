@@ -126,13 +126,15 @@ class App:
             raise ValueError("each SuperSource box must use a different source")
 
         core = self.state()["core"]
-        active = {core.get("program"), core.get("preview")}
-        safe_banks = [bank for bank in ("a", "b") if f"supersource-{bank}" not in active]
-        if not safe_banks:
-            raise RuntimeError(
-                "No safe off-air ME bank is available. Put a camera in Preview before editing."
-            )
-        bank = safe_banks[0]
+        program = core.get("program")
+        preview = core.get("preview")
+        if program == "supersource-a":
+            bank = "b"
+        elif program == "supersource-b":
+            bank = "a"
+        else:
+            # When neither ME is on air, preserve the ME already staged in Preview.
+            bank = "b" if preview == "supersource-a" else "a"
         engine = {}
         if self.helper:
             result = subprocess.run(

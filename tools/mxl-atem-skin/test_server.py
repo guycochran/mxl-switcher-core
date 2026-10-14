@@ -78,18 +78,26 @@ class AppTests(unittest.TestCase):
         )
 
     @mock.patch.object(subprocess, "run")
-    def test_prepare_refuses_to_overwrite_program_or_preview_bank(self, run):
+    def test_prepare_rebuilds_preview_bank_when_other_bank_is_program(self, run):
         app = self.app()
-        app.core_json = lambda *args, **kwargs: (
-            200,
-            "application/json",
-            b'{"program":"supersource-a","preview":"supersource-b"}',
+        run.return_value = subprocess.CompletedProcess(
+            [], 0, '{"bank":"b","layout":2,"state":"ready","ready_ms":400}\n', ""
         )
 
-        with self.assertRaisesRegex(RuntimeError, "No safe off-air ME bank"):
-            app.prepare({"count": 2, "sources": [1, 2]})
+        def core_json(path, method="GET", body=None):
+            if path.endswith("/state"):
+                value = {"program": "supersource-a", "preview": "supersource-b"}
+                return 200, "application/json", json.dumps(value).encode()
+            self.assertEqual(path, "/api/mxl/v1/preview")
+            self.assertEqual(body, {"source": "supersource-b"})
+            return 202, "application/json", b'{"command_id":8}'
 
-        run.assert_not_called()
+        app.core_json = core_json
+        result = app.prepare({"count": 2, "sources": [1, 2]})
+
+        self.assertEqual(result["bank"], "b")
+        self.assertEqual(app.banks["b"]["sources"], [1, 2])
+        run.assert_called_once()
 
 
 if __name__ == "__main__":
