@@ -30,11 +30,19 @@ STARTUP_GRACE_SECONDS = 8.0
 
 
 class Mixer:
-    def __init__(self, domain: str, output: str, inputs: list[str], core: str):
+    def __init__(
+        self,
+        domain: str,
+        output: str,
+        inputs: list[str],
+        core: str,
+        group_hint: str,
+    ):
         self.domain = domain
         self.output = output
         self.inputs = inputs
         self.core = core.rstrip("/")
+        self.group_hint = group_hint
         self.lock = threading.Lock()
         self.mode = "afv"
         self.program = None
@@ -60,8 +68,8 @@ class Mixer:
             f"{CAPS} ! volume name=master ! "
             "queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 ! "
             f"mxlsink name=out domain={self.domain} flow-id={self.output} "
-            'label="Program Audio Mix" description="ATEM skin program audio bus" '
-            'group-hint="AzureZoomISOMXLProgram:Audio" sync=false '
+            'label="Program Audio Mix" description="AFV Program Audio Master" '
+            f'group-hint="{self.group_hint}:Audio" sync=false '
             f"audiotestsrc wave=silence is-live=true ! audioconvert ! {CAPS} ! "
             "queue ! mix.sink_0 "
         )
@@ -69,7 +77,8 @@ class Mixer:
             desc += (
                 f"mxlsrc name=src{index} domain={self.domain} audio-flow-id={flow} "
                 "automatic-eos=false ! "
-                f"{CAPS} ! queue max-size-time=1000000000 "
+                f"audioconvert ! audioresample ! {CAPS} ! "
+                "queue max-size-time=1000000000 "
                 "max-size-buffers=0 max-size-bytes=0 ! "
                 f"mix.sink_{index} "
             )
@@ -259,11 +268,14 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--input", action="append", required=True)
     parser.add_argument("--core", default="http://host.docker.internal:18085")
+    parser.add_argument("--group-hint", default="ZoomISOMXLProgram")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9740)
     args = parser.parse_args()
     Gst.init(None)
-    MIXER = Mixer(args.domain, args.output, args.input, args.core)
+    MIXER = Mixer(
+        args.domain, args.output, args.input, args.core, args.group_hint
+    )
     MIXER.start()
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 

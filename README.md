@@ -178,6 +178,14 @@ errors, and no active sustained-unavailable alarms while executing CUT,
 Preview, and TAKE commands. See the
 [ZoomISO MXL acceptance record](docs/ZOOMISO_MXL_ACCEPTANCE_2026-10-12.md).
 
+A separately supervised Program Audio candidate now publishes one stable 48
+kHz stereo flow, follows four applied Program selections without replacing its
+identity, and appears in the engineering-health surface. A live timing probe
+measured zero discontinuities and A/V timestamp proximity within one 30 fps
+frame. This is not yet an accepted audio profile; content-level lip-sync and
+staged duration gates remain. See the
+[Program Audio candidate record](docs/PROGRAM_AUDIO_CANDIDATE_2026-10-14.md).
+
 The NDI pilot now has a documented loaded full-path result. The original
 30-minute run with two continuous NDI receivers exposed a fixed-index scheduling
 limitation under sustained CPU load. The adaptive common-window scheduler now
@@ -207,9 +215,9 @@ intermittent guest input while the clip input remained clean.
 
 ## Planned milestones
 
-1. **Program Master clock recovery:** normalize the paired Program video/audio
-   flows to one monotonic epoch, exact 48 kHz audio, and the selected video
-   cadence before any distribution adapter.
+1. **Program Master clock recovery:** candidate stable 48 kHz Program Audio and
+   AFV are live; complete content-level lip-sync, recovered-alarm analysis, and
+   staged acceptance before any distribution adapter claims the paired master.
 2. **Meeting-to-meeting proof:** complete an audience-side receive gate with
    switched/composited video and clock-correct audio.
 3. **Independent output nodes:** add NDI, SRT, WebRTC, recording, YouTube

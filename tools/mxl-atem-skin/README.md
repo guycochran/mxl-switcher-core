@@ -39,7 +39,7 @@ endpoint drives stereo VU bars over each multiview tile. This demonstrates
 source audio presence and silence; it does not by itself claim Core
 audio-follow-video or end-to-end A/V synchronization.
 
-`mxl_audio_mixer.py` reads the eight stereo ZoomISO Float32 audio flows and
+`mxl_audio_mixer.py` reads the available stereo ZoomISO Float32 audio flows and
 writes one stable Program Audio MXL flow. The browser surface exposes eight
 faders, ON/mute buttons, a master fader, and two modes: AFV follows direct
 Program cuts, while Manual builds a multi-participant mix for ME/SuperSource
@@ -47,14 +47,16 @@ layouts. The Program WebRTC publisher subscribes to this stable output so its
 H.264 + Opus session stays intact across video cuts.
 
 For a ZoomISO return-feed instance, the stable Program video and Program Audio
-flows must share the same NMOS group-hint prefix. The validated Azure pair uses
-`AzureZoomISOMXLProgram:Video` and `AzureZoomISOMXLProgram:Audio`; matching the
-prefix makes ZoomISO present one combined Program input instead of separate
-"video only" and "audio only" entries.
+flows must share the same NMOS group-hint prefix. Set that prefix with
+`--group-hint`; the default produces `ZoomISOMXLProgram:Audio` to match the
+reference Core Program video's `ZoomISOMXLProgram:Video`. Matching the prefix
+makes ZoomISO present one combined Program input instead of separate "video
+only" and "audio only" entries.
 
-The mixer preserves ZoomISO's native 48 kHz MXL timestamps, uses non-dropping
-one-second input queues and a 250 ms live-mixer latency, and does not insert a
-sample-rate conversion when the input already matches the 48 kHz Program bus.
+The mixer preserves ZoomISO's native 48 kHz MXL timestamps, explicitly converts
+planar/interleaved layout as needed, uses non-dropping one-second input queues
+and a 250 ms live-mixer latency, and keeps the output at 48 kHz. The resampler
+operates at unity when the input already matches the Program bus.
 Its loopback `/state` response includes the output-ring head index, progress
 age, pipeline generation, and restart count. A bus/error and progress watchdog
 rebuilds the GStreamer pipeline if the Program Audio ring stops advancing; a
