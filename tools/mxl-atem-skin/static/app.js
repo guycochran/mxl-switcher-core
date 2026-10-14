@@ -4,6 +4,7 @@ let sources = []
 let layout = 4
 let slots = [1, 2, 3, 4]
 let busy = false
+const panelOrderKey = 'mxl-panel-order'
 
 const api = async (path, options = {}) => {
   const response = await fetch(path, { cache: 'no-store', headers: { 'Content-Type': 'application/json' }, ...options })
@@ -142,6 +143,57 @@ function offAirBank() {
   return active.has('supersource-a') ? 'b' : 'a'
 }
 
+function audioIsFirst() {
+  return $('panelStack').firstElementChild === $('audioPanel')
+}
+
+function setPanelOrder(audioFirst, persist = true) {
+  const stack = $('panelStack')
+  const first = audioFirst ? $('audioPanel') : $('supersourcePanel')
+  const second = audioFirst ? $('supersourcePanel') : $('audioPanel')
+  stack.append(first, second)
+  $('moveAudio').textContent = audioFirst ? 'MOVE BELOW' : 'MOVE ABOVE'
+  if (persist) {
+    try { localStorage.setItem(panelOrderKey, audioFirst ? 'audio-first' : 'supersource-first') } catch (_) {}
+  }
+}
+
+function swapPanels() {
+  setPanelOrder(!audioIsFirst())
+}
+
+function initPanelOrder() {
+  let audioFirst = true
+  try { audioFirst = localStorage.getItem(panelOrderKey) !== 'supersource-first' } catch (_) {}
+  setPanelOrder(audioFirst, false)
+  $('moveAudio').onclick = swapPanels
+
+  const panels = [$('audioPanel'), $('supersourcePanel')]
+  for (const [handleId, panelId] of [['audioDragHandle', 'audioPanel'], ['supersourceDragHandle', 'supersourcePanel']]) {
+    const handle = $(handleId)
+    handle.ondragstart = (event) => {
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData('text/plain', panelId)
+      $(panelId).classList.add('dragging')
+    }
+    handle.ondragend = () => panels.forEach((panel) => panel.classList.remove('dragging', 'drop-target'))
+  }
+  for (const panel of panels) {
+    panel.ondragover = (event) => {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      panel.classList.add('drop-target')
+    }
+    panel.ondragleave = () => panel.classList.remove('drop-target')
+    panel.ondrop = (event) => {
+      event.preventDefault()
+      const sourceId = event.dataTransfer.getData('text/plain')
+      panels.forEach((item) => item.classList.remove('dragging', 'drop-target'))
+      if (sourceId && sourceId !== panel.id) swapPanels()
+    }
+  }
+}
+
 function render() {
   if (!state) return
   const core = state.core
@@ -188,6 +240,15 @@ function render() {
   $('prepare').disabled = busy || !state.live
   $('prepare').textContent = state.live ? 'PUNCH LOOK TO PREVIEW' : 'SCENE ENGINE PENDING'
   $('takeSS').disabled = busy || !bankOf(core.preview)
+  for (const bank of ['a', 'b']) {
+    const button = $(`previewME${meNumber(bank)}`)
+    const source = `supersource-${bank}`
+    const scene = state.banks[bank]
+    button.disabled = busy || !scene?.ready
+    button.className = core.preview === source ? 'preview-on' : ''
+    button.textContent = `ME ${meNumber(bank)} TO PREVIEW${scene?.ready ? ` · ${scene.count}-UP` : ''}`
+    button.title = scene?.ready ? `${scene.count}-up · inputs ${scene.sources.join(', ')}` : `ME ${meNumber(bank)} is not ready`
+  }
 }
 
 async function command(kind, body) {
@@ -298,6 +359,9 @@ $('prepare').onclick = prepare
 $('afv').onclick = () => audioCommand({ mode: 'afv' })
 $('manualAudio').onclick = () => audioCommand({ mode: 'manual' })
 $('masterGain').onchange = () => audioCommand({ master_gain: Number($('masterGain').value) / 100 })
+$('previewME1').onclick = () => command('preview', { source: 'supersource-a' })
+$('previewME2').onclick = () => command('preview', { source: 'supersource-b' })
+initPanelOrder()
 buildLayouts()
 layoutGrid()
 refresh()
