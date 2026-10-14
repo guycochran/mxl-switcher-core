@@ -233,8 +233,12 @@ choice.
 
 ## Standards boundary
 
-`tools/mxl_core_nmos.py` provides a live read-only IS-04 v1.3 view using
+`tools/mxl_core_nmos.py` provides a live IS-04 v1.3 view using
 `urn:x-nmos:transport:mxl` and BCP-007-03-style tags. It supports peer-to-peer
-inspection immediately and optional registry registration with `--registry`.
-It does not claim IS-05 routing or IS-07 tally. Companion remains the physical
-control/tally bridge until those standards surfaces are implemented.
+inspection and optional registry registration with `--registry`. Its IS-05
+v1.1 Receiver API exposes the Program and Preview buses as destinations;
+immediate routes map to Core's grain-boundary `cut` and `preview` commands.
+
+Scheduled IS-05 activation, receiver disconnect, and IS-07 tally are not yet
+claimed. Companion remains the richer physical control/tally bridge, while an
+NMOS controller such as Bitfocus Buttons can use the standards-native router.

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Read-only IS-04 v1.3/BCP-007-03 view of an MXL Core facility."""
+"""IS-04/IS-05 view and router bridge for an MXL Core facility.
+
+The Node API advertises Core sources as MXL Senders and the Program/Preview
+buses as Receivers. The Connection API maps immediate Receiver activations to
+Core's grain-boundary ``cut`` and ``preview`` commands. Scheduled activation
+and disconnect are deliberately rejected because Core does not implement those
+semantics yet.
+"""
 
 from __future__ import annotations
 
@@ -45,10 +52,25 @@ class Model:
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.load(response)
 
+    def post_json(self, path: str, value: dict):
+        request = urllib.request.Request(
+            self.facility + path,
+            data=json.dumps(value).encode(),
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "mxl-core-nmos/1.1",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, json.load(response)
+
     def refresh(self):
         sources = self.get_json("/api/mxl/v1/sources")
-        skin = self.get_json("/api/skin/state")
-        core = skin["core"]
+        try:
+            core = self.get_json("/api/skin/state")["core"]
+        except Exception:
+            core = self.get_json("/api/mxl/v1/state")
         with self.lock:
             signature = json.dumps([sources, core.get("program"), core.get("preview")], sort_keys=True)
             old = json.dumps(
@@ -110,7 +132,12 @@ class Model:
                 "id": self.device_id,
                 "type": "urn:x-nmos:device:generic",
                 "node_id": self.node_id,
-                "controls": [],
+                "controls": [
+                    {
+                        "type": "urn:x-nmos:control:sr-ctrl/v1.1",
+                        "href": self.href.rstrip("/") + "/x-nmos/connection/v1.1/",
+                    }
+                ],
                 "senders": [stable("sender", name) for name in names],
                 "receivers": [stable("receiver", "program"), stable("receiver", "preview")],
             }
@@ -216,6 +243,78 @@ class Model:
             output.append(value)
         return output
 
+    def source_name_for_sender(self, sender_id: str) -> str | None:
+        with self.lock:
+            rows = json.loads(json.dumps(self.sources_data))
+        return next(
+            (row["id"] for row in rows if stable("sender", row["id"]) == sender_id),
+            None,
+        )
+
+    def attached_sender(self, receiver_name: str) -> str | None:
+        with self.lock:
+            attached = self.core.get(receiver_name)
+        return stable("sender", attached) if attached else None
+
+    def receiver_name(self, receiver_id: str) -> str | None:
+        return next(
+            (
+                name
+                for name in ("program", "preview")
+                if stable("receiver", name) == receiver_id
+            ),
+            None,
+        )
+
+    def connection_state(self, receiver_name: str):
+        return {
+            "sender_id": self.attached_sender(receiver_name),
+            "master_enable": True,
+            "activation": {
+                "mode": None,
+                "requested_time": None,
+                "activation_time": None,
+            },
+            "transport_file": {"data": None, "type": None},
+            "transport_params": [{}],
+        }
+
+    def activate_receiver(self, receiver_name: str, patch: dict):
+        activation = patch.get("activation") or {}
+        mode = activation.get("mode")
+        if mode not in (None, "activate_immediate"):
+            raise ValueError("only activate_immediate is supported")
+        if patch.get("master_enable", True) is not True:
+            raise ValueError("MXL Core Program and Preview cannot be disconnected")
+        sender_id = patch.get("sender_id")
+        if sender_id is None:
+            raise ValueError("sender_id is required; Core buses cannot be disconnected")
+        source_name = self.source_name_for_sender(sender_id)
+        if source_name is None:
+            raise ValueError("sender_id is not an advertised MXL Core source")
+        path = "/api/mxl/v1/cut" if receiver_name == "program" else "/api/mxl/v1/preview"
+        self.post_json(path, {"source": source_name})
+
+        # Core accepts commands immediately and applies them at the next grain
+        # boundary. Wait briefly so the IS-05 response reflects that frame.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            self.refresh()
+            if self.attached_sender(receiver_name) == sender_id:
+                break
+            time.sleep(0.01)
+        if self.attached_sender(receiver_name) != sender_id:
+            raise RuntimeError("Core accepted the route but did not apply it in time")
+
+        value = self.connection_state(receiver_name)
+        if mode == "activate_immediate":
+            value["activation"] = {
+                "mode": "activate_immediate",
+                "requested_time": None,
+                "activation_time": version(),
+            }
+        return value
+
 
 MODEL: Model
 
@@ -233,15 +332,85 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def read_json(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        return json.loads(self.rfile.read(length) or b"{}")
+
+    def connection_get(self, path: str):
+        base = "/x-nmos/connection/v1.1"
+        sender_ids = [value["id"] for value in MODEL.senders()]
+        receiver_ids = [value["id"] for value in MODEL.receivers()]
+        tables = {
+            "/x-nmos/connection": ["v1.1/"],
+            base: ["bulk/", "single/"],
+            base + "/bulk": ["senders/", "receivers/"],
+            base + "/single": ["senders/", "receivers/"],
+            base + "/single/senders": [value + "/" for value in sender_ids],
+            base + "/single/receivers": [value + "/" for value in receiver_ids],
+        }
+        if path in tables:
+            return tables[path]
+
+        for kind, ids in (("senders", sender_ids), ("receivers", receiver_ids)):
+            prefix = base + "/single/" + kind + "/"
+            if not path.startswith(prefix):
+                continue
+            parts = path[len(prefix) :].split("/")
+            resource_id = parts[0]
+            if resource_id not in ids:
+                raise KeyError(resource_id)
+            if len(parts) == 1:
+                names = ["constraints/", "staged/", "active/", "transporttype/"]
+                if kind == "senders":
+                    names.append("transportfile/")
+                return names
+            endpoint = parts[1]
+            if endpoint == "transporttype":
+                return "urn:x-nmos:transport:mxl"
+            if endpoint == "constraints":
+                return [{}]
+            if endpoint == "transportfile" and kind == "senders":
+                return {"data": None, "type": None}
+            if endpoint in ("staged", "active"):
+                if kind == "receivers":
+                    return MODEL.connection_state(MODEL.receiver_name(resource_id))
+                source = MODEL.source_name_for_sender(resource_id)
+                with MODEL.lock:
+                    flow_id = next(
+                        row["flow_id"] for row in MODEL.sources_data if row["id"] == source
+                    )
+                return {
+                    "receiver_id": None,
+                    "master_enable": True,
+                    "activation": {
+                        "mode": None,
+                        "requested_time": None,
+                        "activation_time": None,
+                    },
+                    "transport_params": [
+                        {
+                            "ext_mxl_domain_id": MODEL.domain_id,
+                            "ext_mxl_flow_id": flow_id,
+                        }
+                    ],
+                }
+            raise KeyError(endpoint)
+        raise KeyError(path)
+
     def do_GET(self):
         path = self.path.rstrip("/")
         tables = {
-            "/x-nmos": ["node/"],
+            "/x-nmos": ["node/", "connection/"],
             "/x-nmos/node": ["v1.3/"],
             "/x-nmos/node/v1.3": ["self/", "devices/", "sources/", "flows/", "senders/", "receivers/"],
         }
         if path in tables:
             return self.send_json(tables[path])
+        if path.startswith("/x-nmos/connection"):
+            try:
+                return self.send_json(self.connection_get(path))
+            except KeyError:
+                return self.send_json({"code": 404, "error": "not found"}, 404)
         collections = {
             "/x-nmos/node/v1.3/devices": lambda: [MODEL.device()],
             "/x-nmos/node/v1.3/sources": MODEL.sources,
@@ -259,6 +428,52 @@ class Handler(BaseHTTPRequestHandler):
                 item = next((value for value in factory() if value["id"] == item_id), None)
                 return self.send_json(item or {"code": 404, "error": "not found"}, 200 if item else 404)
         return self.send_json({"code": 404, "error": "not found"}, 404)
+
+    def do_PATCH(self):
+        path = self.path.rstrip("/")
+        prefix = "/x-nmos/connection/v1.1/single/receivers/"
+        if path.startswith(prefix) and path.endswith("/staged"):
+            receiver_id = path[len(prefix) : -len("/staged")]
+            receiver_name = MODEL.receiver_name(receiver_id)
+            if receiver_name is None:
+                return self.send_json({"code": 404, "error": "receiver not found"}, 404)
+            try:
+                return self.send_json(
+                    MODEL.activate_receiver(receiver_name, self.read_json())
+                )
+            except (ValueError, json.JSONDecodeError) as error:
+                return self.send_json({"code": 400, "error": str(error)}, 400)
+            except Exception as error:
+                return self.send_json({"code": 503, "error": str(error)}, 503)
+        return self.send_json({"code": 405, "error": "method not supported"}, 405)
+
+    def do_POST(self):
+        path = self.path.rstrip("/")
+        if path == "/x-nmos/connection/v1.1/bulk/receivers":
+            try:
+                requests = self.read_json()
+                if not isinstance(requests, list):
+                    raise ValueError("bulk request must be an array")
+                results = []
+                for request in requests:
+                    receiver_id = request.get("id") if isinstance(request, dict) else None
+                    receiver_name = MODEL.receiver_name(receiver_id) if receiver_id else None
+                    if receiver_name is None:
+                        results.append(
+                            {"id": receiver_id, "code": 404, "error": "receiver not found"}
+                        )
+                        continue
+                    try:
+                        MODEL.activate_receiver(receiver_name, request.get("params") or {})
+                        results.append({"id": receiver_id, "code": 200})
+                    except ValueError as error:
+                        results.append({"id": receiver_id, "code": 400, "error": str(error)})
+                    except Exception as error:
+                        results.append({"id": receiver_id, "code": 503, "error": str(error)})
+                return self.send_json(results)
+            except (ValueError, json.JSONDecodeError) as error:
+                return self.send_json({"code": 400, "error": str(error)}, 400)
+        return self.send_json({"code": 405, "error": "method not supported"}, 405)
 
 
 def register_loop(model: Model, registry: str):
