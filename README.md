@@ -6,6 +6,23 @@ The first executable slice of a headless, skin-independent MXL production
 switcher. It keeps MXL's native operating point—progressive v210 video—and gives
 Program and Preview stable flow identities that do not disappear on a cut.
 
+## Choose your path
+
+Core is shared infrastructure, not a preselected production workflow. Start
+with the path that matches the system you are building:
+
+| I want to… | Start here | Typical optional bolt-ons |
+|---|---|---|
+| Build a switcher, automation system, or custom UI | [Core/API](docs/ARCHITECTURE.md) | Your own Skin or controller |
+| Produce corporate events on premises | [Corporate/on-prem workflow](docs/workflows/CORPORATE_ON_PREM.md) | SDI/HDMI, NDI, SRT, PowerPoint, Companion |
+| Produce meetings and streams online | [Online-production workflow](docs/workflows/ONLINE_PRODUCTION.md) | ZoomISO, meeting return, WebRTC, SRT, RTMPS |
+| Add recording, clipping, and replay | [Archive/replay workflow](docs/workflows/ARCHIVE_REPLAY.md) | File recorder or TAMS |
+
+The optional implementations and deployment profiles live in
+[`mxl-switcher-extensions`](https://github.com/guycochran/mxl-switcher-extensions).
+You do not need TAMS, ZoomISO, NDI, a cloud account, or SDI hardware to build or
+use Core.
+
 This is an executable vertical slice. The switching engine, lifecycle rules,
 control sequencing, mock domain, demo, and invariant tests run on any C++20
 machine. The production backend and bounded live harness have now been compiled
@@ -27,7 +44,7 @@ MXL Switcher Core
 ├── docs/                        architecture, control, deployment, acceptance
 ├── tools/mxl-atem-skin/         optional ATEM-style reference operator Skin
 ├── companion-module-mxl-core/   optional Companion / Stream Deck integration
-└── config/                      example output-node contracts and schemas
+└── config/                      extension contracts and example manifests
 ```
 
 Choose the entry point that matches what you want to build:
@@ -43,6 +60,8 @@ Choose the entry point that matches what you want to build:
 - **Add a destination:** follow the independent
   [output-node architecture](docs/OUTPUT_ARCHITECTURE.md) for Meeting, NDI,
   SRT, SDI, WebRTC, recording, or RTMP/RTMPS delivery.
+- **Understand the repository boundary:** read
+  [Core and optional extensions](docs/EXTENSIONS.md).
 - **Run the complete demonstrated workflow:** use the
   [operator demo profile](docs/OPERATOR_DEMO.md) and the
   [community presentation](docs/decks/mxl-switcher-community-demo-v5-3.pptx).
