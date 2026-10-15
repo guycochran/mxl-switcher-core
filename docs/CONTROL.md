@@ -62,8 +62,10 @@ Content-Type: application/json
 
 `audio_flow_id` is optional metadata for an audio service or Skin; the v1 Core
 continues to route video without decoding or mixing it. Registration is
-idempotent when the complete descriptor is unchanged. Reusing an existing id or
-video flow for a different descriptor is rejected.
+idempotent when the complete descriptor is unchanged. Reusing an existing id,
+video flow, or non-null audio flow for a different descriptor is rejected. A
+null audio binding owns no flow and may be used by any number of video-only
+sources.
 
 An extension can remove an off-air source with
 `DELETE /api/mxl/v1/sources/{id}`. Core rejects removal while that source is on
@@ -83,13 +85,15 @@ Content-Type: application/json
 }
 ```
 
-`audio_flow_id` is required and may be `null`. The operation validates the new
-video flow is not already assigned to another source, updates video and audio
-under one Core lock, preserves Program/Preview selection, advances the catalog
-revision exactly once, and is idempotent when both bindings are unchanged. Its
-response includes the previous and resulting bindings for audit logging. A
-frame already being routed keeps the descriptor it copied at frame start; the
-next frame uses the new binding.
+`audio_flow_id` is required and may be `null`. The operation validates that
+neither the new video flow nor a non-null audio flow is already assigned to
+another source. It updates both bindings under one Core lock, preserves
+Program/Preview selection, advances the catalog revision exactly once, and is
+idempotent when both bindings are unchanged. A rejected ownership conflict
+does not mutate either binding or the revision. The response includes the
+previous and resulting bindings for audit logging. A frame already being
+routed keeps the descriptor it copied at frame start; the next frame uses the
+new binding.
 
 The control listener remains loopback-only by default. A deployment that makes
 registration remotely reachable must place authentication and TLS in front of

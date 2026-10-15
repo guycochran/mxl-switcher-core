@@ -202,6 +202,27 @@ void test_source_rebind_api() {
                       "{\"flow_id\":\"flow-new\",\"audio_flow_id\":null}")
               .status == 200,
           "source rebind API could not clear an audio binding");
+
+  const auto first_audio = fixture.api.handle(
+      "PUT", "/api/mxl/v1/sources/src_a",
+      "{\"flow_id\":\"flow-a-restarted\","
+      "\"audio_flow_id\":\"audio-exclusive\"}");
+  require(first_audio.status == 200,
+          "source rebind API rejected the first audio owner");
+  const auto duplicate_audio_rebind = fixture.api.handle(
+      "PUT", "/api/mxl/v1/sources/src_b",
+      "{\"flow_id\":\"flow-b\","
+      "\"audio_flow_id\":\"audio-exclusive\"}");
+  require(duplicate_audio_rebind.status == 400,
+          "source rebind API accepted duplicate audio ownership");
+
+  const auto duplicate_audio_registration = fixture.api.handle(
+      "POST", "/api/mxl/v1/sources",
+      "{\"id\":\"playout-audio\",\"flow_id\":\"flow-playout-audio\","
+      "\"audio_flow_id\":\"audio-exclusive\","
+      "\"label\":\"Audio collision\"}");
+  require(duplicate_audio_registration.status == 400,
+          "source registration API accepted duplicate audio ownership");
 }
 
 }  // namespace

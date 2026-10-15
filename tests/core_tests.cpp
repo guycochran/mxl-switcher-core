@@ -14,6 +14,7 @@ namespace {
 constexpr const char* kSourceAFlow = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 constexpr const char* kSourceBFlow = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 constexpr const char* kSourceCFlow = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+constexpr const char* kSourceDFlow = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 constexpr const char* kProgramFlow = "11111111-1111-4111-8111-111111111111";
 constexpr const char* kPreviewFlow = "22222222-2222-4222-8222-222222222222";
 
@@ -203,6 +204,67 @@ void test_runtime_source_registration() {
           "removing an absent source was not idempotent");
 }
 
+void test_audio_flow_ownership_is_unique() {
+  MemoryBackend backend;
+  backend.add_source(kSourceAFlow, kV210, 0xA1);
+  backend.add_source(kSourceBFlow, kV210, 0xB2);
+
+  bool initial_duplicate_rejected = false;
+  try {
+    SwitcherCore core(
+        backend,
+        {{"src_a", kSourceAFlow, "Camera A", kV210, "camera", {"video", "audio"},
+          std::string{"shared-audio"}},
+         {"src_b", kSourceBFlow, "Camera B", kV210, "camera", {"video", "audio"},
+          std::string{"shared-audio"}}},
+        {kProgramFlow, "Program", kV210},
+        {kPreviewFlow, "Preview", kV210}, "src_a", "src_b");
+    (void)core;
+  } catch (const std::invalid_argument&) {
+    initial_duplicate_rejected = true;
+  }
+  require(initial_duplicate_rejected,
+          "initial sources accepted duplicate audio ownership");
+
+  Fixture f;
+  const auto first = f.core.rebind_source(
+      "src_a", kSourceAFlow, std::string{"shared-audio"});
+  require(first.changed && first.revision == 1,
+          "first audio owner was not accepted");
+
+  bool rebind_duplicate_rejected = false;
+  try {
+    f.core.rebind_source("src_b", kSourceBFlow,
+                         std::string{"shared-audio"});
+  } catch (const std::invalid_argument&) {
+    rebind_duplicate_rejected = true;
+  }
+  require(rebind_duplicate_rejected,
+          "rebind accepted another source's audio flow");
+  require(f.core.state().revision == 1,
+          "rejected audio rebind changed the revision");
+
+  const Source playout{"playout", kSourceCFlow, "Playout", kV210,
+                       "playout", {"video", "audio"},
+                       std::string{"shared-audio"}};
+  bool registration_duplicate_rejected = false;
+  try {
+    f.core.register_source(playout);
+  } catch (const std::invalid_argument&) {
+    registration_duplicate_rejected = true;
+  }
+  require(registration_duplicate_rejected,
+          "registration accepted another source's audio flow");
+  require(f.core.sources().size() == 2 && f.core.state().revision == 1,
+          "rejected audio registration mutated the source catalog");
+
+  const Source silent{"silent", kSourceDFlow, "Silent", kV210,
+                      "other", {"video"}, std::nullopt};
+  const auto added = f.core.register_source(silent);
+  require(added.changed && added.revision == 2,
+          "null audio binding was not independently accepted");
+}
+
 void test_atomic_source_rebinding() {
   Fixture f;
   f.backend.add_source("flow-a-restarted", kV210, 0xd4);
@@ -275,6 +337,7 @@ int main(int argc, char** argv) {
        test_far_apart_source_timelines_cut_cleanly},
       {"invalid input rejection", test_bad_control_and_clock_inputs_are_rejected},
       {"runtime source registration", test_runtime_source_registration},
+      {"unique audio flow ownership", test_audio_flow_ownership_is_unique},
       {"atomic source rebinding", test_atomic_source_rebinding},
       {"fast soak", [=] { test_fast_soak(soak_frames); }},
   };

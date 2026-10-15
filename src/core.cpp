@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace mxl_core {
 namespace {
@@ -40,6 +41,8 @@ SwitcherCore::SwitcherCore(MediaBackend& backend, std::vector<Source> sources,
     throw std::invalid_argument("program and preview require distinct flow ids");
   }
 
+  std::unordered_set<FlowId> video_flow_ids;
+  std::unordered_set<FlowId> audio_flow_ids;
   for (std::size_t i = 0; i < sources_.size(); ++i) {
     const auto& source = sources_[i];
     validate_format(source.format);
@@ -49,6 +52,15 @@ SwitcherCore::SwitcherCore(MediaBackend& backend, std::vector<Source> sources,
     if (source.id.empty() || source.flow_id.empty() ||
         !source_index_.emplace(source.id, i).second) {
       throw std::invalid_argument("source ids and flow ids must be non-empty and ids unique");
+    }
+    if (!video_flow_ids.emplace(source.flow_id).second) {
+      throw std::invalid_argument("source video flow is already registered: " +
+                                  source.flow_id);
+    }
+    if (source.audio_flow_id &&
+        !audio_flow_ids.emplace(*source.audio_flow_id).second) {
+      throw std::invalid_argument("source audio flow is already registered: " +
+                                  *source.audio_flow_id);
     }
   }
 
@@ -141,6 +153,13 @@ SourceRegistrationReceipt SwitcherCore::register_source(Source source) {
       throw std::invalid_argument("source flow is already registered: " +
                                   source.flow_id);
     }
+    if (source.audio_flow_id &&
+        std::any_of(sources_.begin(), sources_.end(), [&](const Source& item) {
+          return item.audio_flow_id == source.audio_flow_id;
+        })) {
+      throw std::invalid_argument("source audio flow is already registered: " +
+                                  *source.audio_flow_id);
+    }
     sources_.push_back(std::move(source));
     source_index_.emplace(sources_.back().id, sources_.size() - 1);
     revision = ++state_.revision;
@@ -178,6 +197,14 @@ SourceBindingReceipt SwitcherCore::rebind_source(
         })) {
       throw std::invalid_argument("source flow is already registered: " +
                                   receipt.flow_id);
+    }
+    if (receipt.audio_flow_id &&
+        std::any_of(sources_.begin(), sources_.end(), [&](const Source& item) {
+          return item.id != source &&
+                 item.audio_flow_id == receipt.audio_flow_id;
+        })) {
+      throw std::invalid_argument("source audio flow is already registered: " +
+                                  *receipt.audio_flow_id);
     }
     current.flow_id = receipt.flow_id;
     current.audio_flow_id = receipt.audio_flow_id;

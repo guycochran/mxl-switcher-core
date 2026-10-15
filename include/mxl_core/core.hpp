@@ -127,9 +127,11 @@ class SwitcherCore {
 
   // Bolt-on media functions register stable source identities at runtime.
   // Registration is idempotent when the complete descriptor is unchanged.
+  // Non-null video and audio flows each have exactly one source owner.
   SourceRegistrationReceipt register_source(Source source);
   // Atomically replace the ephemeral media binding behind one stable source
-  // identity. Program/Preview selection remains on the same source id.
+  // identity. Program/Preview selection remains on the same source id, and a
+  // conflicting video or non-null audio owner is rejected without mutation.
   SourceBindingReceipt rebind_source(
       const SourceId& source, FlowId flow_id,
       std::optional<FlowId> audio_flow_id);
