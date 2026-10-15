@@ -145,3 +145,10 @@ Azure host, versus roughly 12–13 seconds when Docker was recreated for every
 button press. The compositor must set `automatic-eos=false` on each live
 `appsrc`; the scene supervisor also retries a transient fixed-flow handoff
 without restarting its bank container.
+
+## A/V reference
+
+`mxl_av_reference_source.py` publishes paired frame-coded video and 48 kHz
+event audio. `mxl_av_analyze.py` measures captures for cadence, sample
+continuity, A/V offset, and drift. `av_reference.py` holds the shared timeline
+and is standard-library only. See [the A/V reference guide](../../docs/AV_REFERENCE.md).

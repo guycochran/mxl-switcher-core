@@ -31,6 +31,7 @@ Read these records before changing behavior:
 5. [ZoomISO MXL acceptance](ZOOMISO_MXL_ACCEPTANCE_2026-10-12.md)
 6. [Program Audio candidate](PROGRAM_AUDIO_CANDIDATE_2026-10-14.md)
 7. [Output architecture](OUTPUT_ARCHITECTURE.md)
+8. [A/V reference source and analyzer](AV_REFERENCE.md)
 
 ## Recommended order of work
 
@@ -54,6 +55,9 @@ Extend the diagnostic source into a paired reference generator with:
 Use a receive-side capture and measurement tool to calculate content-level
 audio/video offset, jitter, dropouts, duplicated audio, and discontinuities.
 Listening alone is useful for triage but is not an acceptance measurement.
+
+Status: the generator and analyzer are implemented and unit-tested offline;
+see [A/V reference](AV_REFERENCE.md). No live result has been recorded yet.
 
 ### 3. Close the meeting-to-meeting Program return
 
