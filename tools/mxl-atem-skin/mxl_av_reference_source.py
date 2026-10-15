@@ -250,6 +250,7 @@ def main() -> int:
     parser.add_argument("--core-url", help="optionally register with Core at runtime")
     parser.add_argument("--source-id", default="av-reference")
     parser.add_argument("--stats-every-s", type=float, default=10.0)
+    parser.add_argument("--lateness-log", help="append 'grain headroom_ms' for every buffer pushed after its due time")
     args = parser.parse_args()
 
     Gst.init(None)
@@ -282,6 +283,7 @@ def main() -> int:
         flush=True,
     )
     grain = first_grain
+    lateness_log = open(args.lateness_log, "a", buffering=1) if args.lateness_log else None
     try:
         while RUNNING:
             # The sinks pace the loop: push() blocks until each buffer is due.
@@ -297,6 +299,8 @@ def main() -> int:
             push(video, payload, pts, duration)
             push(audio, samples, pts, duration)
             stats.observe(render, headroom)
+            if lateness_log is not None and headroom < 0:
+                lateness_log.write(f"{grain} {headroom / 1e6:.2f}\n")
             if headroom < -500_000_000:
                 # Content stays continuous; the sink writes late rather than skipping.
                 print(f"late_ms={-headroom / 1e6:.1f} grain={grain}", flush=True)
@@ -306,6 +310,8 @@ def main() -> int:
                 print(stats.line(grain), flush=True)
                 next_stats = now + args.stats_every_s
     finally:
+        if lateness_log is not None:
+            lateness_log.close()
         video.emit("end-of-stream")
         audio.emit("end-of-stream")
         pipeline.set_state(Gst.State.NULL)

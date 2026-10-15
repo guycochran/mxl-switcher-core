@@ -347,10 +347,60 @@ next step.
   control contract. The writer binding follows the public SDK header
   (`mxlCreateFlowWriter`, `mxlFlowWriterOpenSamples`, `Commit`/`Cancel`).
 
+## Gate B: through the isolated candidate Core (2026-10-15)
+
+The reference was registered at runtime with the isolated candidate Core only
+(never the operator Core). It was taken to Program through Preview + TAKE, and
+exercised with CUT-aways and TAKE cycles. Core Program video and the
+reference's own audio were captured with the direct reader. Every run
+restored the candidate's exact starting buses and removed the registered
+source.
+
+| Run | Duration | Program frames | Repeats / skips | Regressions | `index - code` | A/V offset median (range) |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Steady (smoke) | 60 s | 1,802 | 68 / 68 | 0 | +1 for 88%; -3 to +5 | -33.3 ms (167 ms) |
+| CUT/TAKE (smoke) | 70 s | 2,102 (600 other sources) | 75 / 75 | 0 | +1 for 82% | -33.3 ms (133 ms) |
+| 10 minutes, 6 CUT-aways + 3 TAKE cycles | 600 s | 18,001 (1,350 other sources) | 745 / 746 (4.1%) | 0 | +1 for 77%; -6 to +8 | -33.3 ms (333 ms) |
+
+In every run: audio was sample-exact, there were zero torn reads, all 26
+commands in the 10-minute run were accepted, and both Cores' hard counters
+were unchanged. The source-side lateness trace rules out the reference: only
+2.1% of its grains were written late, and only about 12% of Core repeats sit
+next to one.
+
+**Interpretation.** Core passes the reference through with a nominal one-grain
+delay (-33.3 ms for audio taken from the source), but its cadence is not
+frame-exact on this host. Two contributing causes were isolated using the
+candidate's own binary in separate instances:
+
+| Isolated Core | Repeats / skips (60 s) | `index - code` | Offset range |
+| --- | ---: | --- | ---: |
+| `input_delay_frames=0` (candidate setting) | 145 / 144 | -8 to +8 | 500 ms |
+| `input_delay_frames=1` | 58 / 58 | +2 for 91% | 67 ms |
+
+1. **Phase race.** With zero input delay, Core selects the source's newest
+   grain on the same grain boundary at which an MXL-time-anchored source
+   commits it. Scheduling jitter decides which grain wins. One grain of input
+   delay removes most of this.
+2. **Output timing under CPU contention.** The residual repeats, and negative
+   `index - code` values, show Core writing some output grains after the
+   source has moved on. Over the same window, the operator Core recorded
+   similar repeat and skip counts on its own inputs.
+
+**Gate B status: not passed** under the strict zero-skip criterion. The
+behaviour is explained and bounded, with no hard-counter movement.
+Recommended next steps:
+
+- run Core with `input_delay_frames=1` (or measure 2) for MXL-anchored
+  sources; and
+- give Core dedicated CPU before repeating the 10-minute gate.
+
+The +1-grain Program delay should be carried as a documented presentation
+offset for audio paired with Core Program.
+
 ## Next live gate
 
-1. Register it with the isolated Core candidate, take it to Program, and capture
-   Program video with its paired audio.
+1. Repeat Gate B with `input_delay_frames=1` and dedicated CPU for Core.
 2. Feed the meeting return and analyze an audience-side recording.
 3. Record offsets, drift, cadence, and counters for 10 minutes before changing
    any latency or presentation-offset setting.
