@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import pathlib
 import shutil
 import socket
@@ -491,6 +492,128 @@ class PostStopLaunchTest(unittest.TestCase):
         with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(bundle.main(argv, docker=bundle.Docker(fake)), 2)
         self.assertIn("occupied", err.getvalue())
+        self.assertEqual(fake.mutations, [])
+
+
+def easy_flow(flow_id, active, status=None, writer="core-operator"):
+    return {"id": flow_id, "active": active, "status": status or ("active" if active else "inactive"),
+            "writerContainer": {"id": "f" * 64, "name": writer} if active else None}
+
+
+class ActiveWriterGuardTest(unittest.TestCase):
+    """Optional: ask EasyMXL whether any candidate output flow already has a live writer."""
+
+    def setUp(self):
+        self.facility = Facility()
+        self.addCleanup(self.facility.close)
+        self.requests = []
+
+    def fetch_returning(self, inventory):
+        def fetch(url, token):
+            self.requests.append((url, token))
+            if isinstance(inventory, Exception):
+                raise inventory
+            return inventory
+        return fetch
+
+    def plan(self, inventory, operator=OPERATOR, **overrides):
+        values = {"easy_mxl_url": "http://127.0.0.1:19700", "easy_mxl_domain": "example-domain",
+                  "easy_mxl_token_env": "TEST_EASY_MXL_TOKEN", **overrides}
+        self.fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": operator})
+        return bundle.launch_plan(bundle.Docker(self.fake), launch_args(self.facility, **values),
+                                  port_check=lambda *_: True, fetch=self.fetch_returning(inventory))
+
+    def test_disabled_by_default(self):
+        fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": OPERATOR})
+        calls = []
+        plan = bundle.launch_plan(bundle.Docker(fake), launch_args(self.facility), port_check=lambda *_: True,
+                                  fetch=lambda *a: calls.append(a))
+        self.assertIsNone(plan["active_writer_check"])
+        self.assertEqual(calls, [])
+
+    def test_url_without_domain_refuses(self):
+        with self.assertRaisesRegex(bundle.BundleError, "needs both"):
+            self.plan([], easy_mxl_domain=None)
+        self.assertEqual(self.requests, [])
+
+    def test_live_writer_on_program_refuses_and_names_it(self):
+        inventory = [easy_flow(PROGRAM_ID, True, writer="core-operator"), easy_flow(PREVIEW_ID, False)]
+        with self.assertRaisesRegex(bundle.BundleError, r"live writer on program .* \(writer: core-operator\)"):
+            self.plan(inventory)
+        self.assertEqual(self.fake.mutations, [])
+
+    def test_live_writer_on_preview_refuses_even_for_a_stopped_rollback(self):
+        # Something other than the named (stopped) rollback is still writing.
+        inventory = [easy_flow(PROGRAM_ID, False), easy_flow(PREVIEW_ID, True, writer="stray-core")]
+        with self.assertRaisesRegex(bundle.BundleError, "stray-core"):
+            self.plan(inventory, operator=STOPPED_OPERATOR)
+
+    def test_inactive_stale_or_absent_outputs_pass(self):
+        inventory = {"flows": [easy_flow(PROGRAM_ID, False, status="stale"),
+                               easy_flow("00000000-0000-4000-8000-000000000777", True)]}
+        plan = self.plan(inventory, operator=STOPPED_OPERATOR)
+        check = plan["active_writer_check"]
+        self.assertEqual(check["source"], "http://127.0.0.1:19700/api/domains/example-domain/flows")
+        self.assertEqual(check["outputs"][PROGRAM_ID]["statuses"], ["stale"])
+        self.assertFalse(check["outputs"][PREVIEW_ID]["present"])
+        self.assertEqual(self.fake.mutations, [])
+
+    def test_unknown_writer_state_fails_closed(self):
+        inventory = [easy_flow(PROGRAM_ID, None, status="inactive"), easy_flow(PREVIEW_ID, False)]
+        with self.assertRaisesRegex(bundle.BundleError, "cannot determine the writer state"):
+            self.plan(inventory)
+
+    def test_malformed_inventory_and_fetch_errors_fail_closed(self):
+        with self.assertRaisesRegex(bundle.BundleError, "malformed"):
+            self.plan({"unexpected": True})
+        with self.assertRaisesRegex(bundle.BundleError, "EasyMXL GET"):
+            self.plan(bundle.BundleError("EasyMXL GET http://127.0.0.1:19700/... failed: URLError"))
+
+    def test_real_http_get_sends_token_but_never_echoes_it(self):
+        import http.server
+        import threading
+
+        token = "synthetic-bundle-token-42"
+        seen = []
+        body = json.dumps([easy_flow(PROGRAM_ID, False), easy_flow(PREVIEW_ID, False)]).encode()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                seen.append((self.command, self.path, self.headers.get("Authorization")))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_):
+                return
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": OPERATOR})
+        argv = ["launch", "--image", IMAGE, "--name", "mxl-core-candidate-1", "--config", str(self.facility.config),
+                "--definitions", str(self.facility.definitions), "--domain-volume", "example-mxl-domain",
+                "--host-port", "18195", "--rollback-container", "mxl-core-operator",
+                "--rollback-config", str(self.facility.rollback_config),
+                "--easy-mxl-url", f"http://127.0.0.1:{server.server_address[1]}", "--easy-mxl-domain", "example domain",
+                "--easy-mxl-token-env", "TEST_BUNDLE_EASY_MXL_TOKEN"]
+        out, err = io.StringIO(), io.StringIO()
+        saved = os.environ.get("TEST_BUNDLE_EASY_MXL_TOKEN")
+        os.environ["TEST_BUNDLE_EASY_MXL_TOKEN"] = token
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                status = bundle.main(argv, docker=bundle.Docker(fake), port_check=lambda *_: True)
+        finally:
+            if saved is None:
+                del os.environ["TEST_BUNDLE_EASY_MXL_TOKEN"]
+            else:
+                os.environ["TEST_BUNDLE_EASY_MXL_TOKEN"] = saved
+        self.assertEqual(status, 0, err.getvalue())
+        self.assertEqual(seen, [("GET", "/api/domains/example%20domain/flows", f"Bearer {token}")])
+        self.assertNotIn(token, out.getvalue() + err.getvalue())
         self.assertEqual(fake.mutations, [])
 
 

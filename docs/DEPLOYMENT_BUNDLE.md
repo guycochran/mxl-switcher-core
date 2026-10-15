@@ -133,9 +133,37 @@ given, the overlap is reported. The dry run's `rollback` block shows:
 - the candidate and rollback output IDs it compared;
 - any overlapping flows.
 
-Limits: the check covers the named rollback service. Make sure no other Core
-writes those flows. The check runs immediately before `--apply`, so do not
+Limits: the config comparison covers only the named rollback service. To
+catch **any** writer, add the optional EasyMXL active-writer check (below). The check runs immediately before `--apply`, so do not
 start the rollback container between the dry run and the apply.
+
+### Optional EasyMXL active-writer check
+
+The config comparison relies on the rollback config matching what that
+container actually loaded. EasyMXL observes the domain directly. It reports
+every flow, whether a writer holds it, and which container does. To use it,
+add:
+
+```sh
+  --easy-mxl-url http://127.0.0.1:9700 \
+  --easy-mxl-domain example-domain \
+  --easy-mxl-token-env EASY_MXL_TOKEN      # the token stays in the environment
+```
+
+`launch` then makes one read-only `GET /api/domains/{domain}/flows`. It refuses
+when:
+
+- **any** candidate Program or Preview flow has an active writer (the error
+  names the writer container), whatever the rollback's state. After a rollback
+  is stopped for replacement, its flows must be inactive;
+- EasyMXL cannot determine a flow's writer state (`active: null`, for
+  example when `/proc/locks` is unreadable);
+- EasyMXL is unreachable, or the response is malformed. The check fails
+  closed and is never silently skipped.
+
+Inactive, stale, or absent output flows are reported in
+`active_writer_check` and allowed. The token is sent only as a bearer header
+and is never printed. Use a loopback or TLS-protected EasyMXL endpoint.
 
 ## Preflight and launch
 
