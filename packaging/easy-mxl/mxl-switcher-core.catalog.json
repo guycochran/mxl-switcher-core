@@ -1,0 +1,46 @@
+[
+  {
+    "id": "mxl-switcher-core",
+    "name": "MXL Switcher Core",
+    "description": "Deterministic Program and Preview routing for MXL video flows. Processing, audio, monitoring, control surfaces, and encoded destinations remain separate media functions.",
+    "category": "processing",
+    "image": "mxl-switcher-core:local",
+    "imagePolicy": "local",
+    "imageRepository": "mxl-switcher-core",
+    "containerName": "mxl-switcher-core",
+    "webUI": {
+      "containerPort": 18085,
+      "path": "/api/mxl/v1/state"
+    },
+    "ports": [
+      {
+        "containerPort": 18085,
+        "hostPort": 18085,
+        "protocol": "tcp"
+      }
+    ],
+    "domainMount": {
+      "containerPath": "/mxl-domain",
+      "readOnly": false,
+      "envVar": "MXL_DOMAIN"
+    },
+    "hostPaths": [
+      {
+        "key": "config",
+        "label": "Core configuration file",
+        "containerPath": "/etc/mxl-switcher-core.conf",
+        "readOnly": true,
+        "required": true,
+        "default": ""
+      }
+    ],
+    "cmd": [
+      "/usr/local/bin/mxl-core-live",
+      "--config",
+      "/etc/mxl-switcher-core.conf"
+    ],
+    "restartPolicy": "unless-stopped",
+    "notes": "Integration contract for a locally built image. The mounted config must use /mxl-domain, provide output definition files available inside the image, and bind the control listener to 0.0.0.0 when publishing port 18085. Keep the control API on a trusted network or behind an authenticated TLS reverse proxy.",
+    "source": "https://github.com/guycochran/mxl-switcher-core"
+  }
+]

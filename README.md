@@ -60,6 +60,9 @@ Choose the entry point that matches what you want to build:
 - **Add a destination:** follow the independent
   [output-node architecture](docs/OUTPUT_ARCHITECTURE.md) for Meeting, NDI,
   SRT, SDI, WebRTC, recording, or RTMP/RTMPS delivery.
+- **Deploy as an EasyMXL media function:** start with the
+  [EasyMXL integration contract](docs/EASY_MXL_INTEGRATION.md) and its
+  schema-validated local-image catalog entry.
 - **Understand the repository boundary:** read
   [Core and optional extensions](docs/EXTENSIONS.md).
 - **Run the complete demonstrated workflow:** use the
