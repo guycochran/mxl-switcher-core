@@ -10,8 +10,9 @@ implicitly.
   plus a pinned EasyMXL catalog entry.
 - ``verify``: check an image's OCI labels against its tag before launch.
 - ``launch``: validate a caller-supplied facility config and output definitions,
-  refuse an existing container name or an occupied port, and print (or, with
-  ``--apply``, run) the exact ``docker run``.
+  refuse an existing container name or an occupied port, refuse two writers to
+  one MXL output flow, and print (or, with ``--apply``, run) the exact
+  ``docker run``.
 - ``cleanup``: remove exactly one named candidate container (and optionally its
   exact image), and only if that container runs the expected image.
 
@@ -298,6 +299,60 @@ def pinned_catalog(template: list, ref: str) -> list:
     return entries
 
 
+STOPPED_STATES = ("created", "exited", "dead")
+
+
+def rollback_outputs(config_path: str) -> dict:
+    """Program/Preview output ids from the rollback service's own facility config."""
+
+    path = pathlib.Path(config_path)
+    if not path.is_file():
+        raise BundleError(f"rollback config {config_path} does not exist")
+    try:
+        values = parse_config(path.read_text())["values"]
+    except (OSError, UnicodeDecodeError) as error:
+        raise BundleError(f"rollback config {config_path} cannot be read: {error}") from None
+    missing = [key for key in ("program_id", "preview_id") if key not in values]
+    if missing:
+        raise BundleError(f"rollback config {config_path} is missing {', '.join(missing)}")
+    return {"program": values["program_id"].lower(), "preview": values["preview_id"].lower()}
+
+
+def check_output_collision(candidate: dict, rollback_state: str, rollback: dict | None, config_path: str | None) -> dict:
+    """Two writers to one MXL flow are forbidden.
+
+    A *running* rollback (anything not created/exited/dead) requires its own
+    config and fully disjoint Program/Preview ids: parallel qualification.
+    A *stopped* rollback may share ids: maintenance-window replacement.
+    """
+
+    running = rollback_state not in STOPPED_STATES
+    if running and rollback is None:
+        raise BundleError(f"the rollback container is {rollback_state}; pass --rollback-config so its "
+                          "Program/Preview outputs can be proven disjoint from the candidate's")
+    overlap = []
+    if rollback is not None:
+        for candidate_role, candidate_id in sorted(candidate.items()):
+            for rollback_role, rollback_id in sorted(rollback.items()):
+                if candidate_id == rollback_id:
+                    overlap.append({"flow_id": candidate_id, "candidate": candidate_role, "rollback": rollback_role})
+    if running and overlap:
+        flows = ", ".join(f"{item['flow_id']} (candidate {item['candidate']} = rollback {item['rollback']})"
+                          for item in overlap)
+        raise BundleError("refusing: the running rollback container already writes " + flows
+                          + "; launching would create concurrent writers to the same MXL flow. "
+                          "Use disjoint output ids for parallel qualification, or stop the rollback "
+                          "container in a maintenance window to replace it")
+    return {
+        "rollback_state": rollback_state,
+        "rollback_config": config_path,
+        "candidate_outputs": candidate,
+        "rollback_outputs": rollback,
+        "overlapping_outputs": overlap,
+        "launch_kind": "parallel_disjoint_outputs" if running else "replacement_with_rollback_stopped",
+    }
+
+
 def launch_plan(docker: Docker, args, port_check=port_free) -> dict:
     if not NAME_RE.match(args.name or ""):
         raise BundleError("container --name must match ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")
@@ -330,12 +385,21 @@ def launch_plan(docker: Docker, args, port_check=port_free) -> dict:
         raise BundleError(f"host port {args.bind}:{args.host_port} is occupied")
 
     rollback = None
+    rollback_config = getattr(args, "rollback_config", None)
     if args.rollback_container:
         current = docker.container(args.rollback_container)
         if current is None:
             raise BundleError(f"rollback container {args.rollback_container} does not exist")
+        state = str((current.get("State") or {}).get("Status") or "unknown").lower()
+        rollback_ids = rollback_outputs(rollback_config) if rollback_config else None
+        candidate_ids = {role: summary["outputs"][role]["id"] for role in ("program", "preview")}
         rollback = {"container": args.rollback_container, "image": current.get("Config", {}).get("Image"),
-                    "image_id": current.get("Image"), "action": "left untouched; restart only it if the candidate is withdrawn"}
+                    "image_id": current.get("Image"),
+                    "action": "left untouched; restart only it if the candidate is withdrawn",
+                    **check_output_collision(candidate_ids, state, rollback_ids,
+                                             str(pathlib.Path(rollback_config).resolve()) if rollback_config else None)}
+    elif rollback_config:
+        raise BundleError("--rollback-config needs --rollback-container")
     elif args.mode == "production":
         raise BundleError("production launches must name --rollback-container (the service the candidate would succeed)")
 
@@ -431,6 +495,8 @@ def main(argv=None, docker: Docker | None = None, port_check=port_free) -> int:
     launch.add_argument("--bind", default="127.0.0.1")
     launch.add_argument("--restart", default="unless-stopped", choices=("no", "unless-stopped", "on-failure"))
     launch.add_argument("--rollback-container", help="the existing service this candidate would succeed (read only)")
+    launch.add_argument("--rollback-config",
+                        help="that service's own facility config; required while it runs, to prove disjoint outputs")
     launch.add_argument("--mode", default="production", choices=("production", "test"))
     launch.add_argument("--apply", action="store_true")
 

@@ -17,6 +17,8 @@ REVISION = "0123456789abcdef0123456789abcdef01234567"
 IMAGE = f"mxl-switcher-core:1.0.0.g{REVISION[:12]}"
 PROGRAM_ID = "00000000-0000-4000-8000-000000000901"
 PREVIEW_ID = "00000000-0000-4000-8000-000000000902"
+OPERATOR_PROGRAM_ID = "00000000-0000-4000-8000-000000000801"
+OPERATOR_PREVIEW_ID = "00000000-0000-4000-8000-000000000802"
 READS = {("image", "inspect"), ("container", "inspect")}
 
 
@@ -88,6 +90,13 @@ class Facility:
                   "source=cam-2|00000000-0000-4000-8000-000000000102|Camera 2"]
         self.config = root / "core.conf"
         self.config.write_text("\n".join(lines) + "\n")
+        self.rollback_config = self.write_rollback(OPERATOR_PROGRAM_ID, OPERATOR_PREVIEW_ID)
+
+    def write_rollback(self, program_id, preview_id, name="operator.conf"):
+        path = pathlib.Path(self.dir.name) / name
+        path.write_text(f"domain=/mxl-domain\nprogram_id={program_id}\npreview_id={preview_id}\n"
+                        "source=cam-1|00000000-0000-4000-8000-000000000101|Camera 1\n")
+        return path
 
     def close(self):
         self.dir.cleanup()
@@ -97,13 +106,15 @@ def launch_args(facility, **overrides):
     values = dict(image=IMAGE, name="mxl-core-candidate-1", config=str(facility.config),
                   definitions=str(facility.definitions), domain_volume="example-mxl-domain", domain_path=None,
                   host_port=18195, bind="127.0.0.1", restart="unless-stopped",
-                  rollback_container="mxl-core-operator", mode="production", apply=False)
+                  rollback_container="mxl-core-operator", rollback_config=str(facility.rollback_config),
+                  mode="production", apply=False)
     values.update(overrides)
     return SimpleNamespace(**values)
 
 
-OPERATOR = {"Name": "/mxl-core-operator", "Image": "sha256:" + "c" * 64,
+OPERATOR = {"Name": "/mxl-core-operator", "Image": "sha256:" + "c" * 64, "State": {"Status": "running"},
             "Config": {"Image": "mxl-switcher-core:0.9.0.g" + "9" * 12}}
+STOPPED_OPERATOR = {**OPERATOR, "State": {"Status": "exited"}}
 
 
 class TagAndLabelTest(unittest.TestCase):
@@ -185,7 +196,8 @@ class LaunchTest(unittest.TestCase):
         fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": OPERATOR})
         argv = ["launch", "--image", IMAGE, "--name", "mxl-core-candidate-1", "--config", str(self.facility.config),
                 "--definitions", str(self.facility.definitions), "--domain-volume", "example-mxl-domain",
-                "--host-port", "18195", "--rollback-container", "mxl-core-operator"]
+                "--host-port", "18195", "--rollback-container", "mxl-core-operator",
+                "--rollback-config", str(self.facility.rollback_config)]
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             status = bundle.main(argv, docker=bundle.Docker(fake), port_check=lambda *_: True)
@@ -197,7 +209,8 @@ class LaunchTest(unittest.TestCase):
         fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": OPERATOR})
         argv = ["launch", "--image", IMAGE, "--name", "mxl-core-candidate-1", "--config", str(self.facility.config),
                 "--definitions", str(self.facility.definitions), "--domain-volume", "example-mxl-domain",
-                "--host-port", "18195", "--rollback-container", "mxl-core-operator", "--apply"]
+                "--host-port", "18195", "--rollback-container", "mxl-core-operator",
+                "--rollback-config", str(self.facility.rollback_config), "--apply"]
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(bundle.main(argv, docker=bundle.Docker(fake), port_check=lambda *_: True), 0)
         self.assertEqual(len(fake.mutations), 1)
@@ -283,6 +296,112 @@ source=b|00000000-0000-4000-8000-000000000102|B
         with self.assertRaisesRegex(bundle.BundleError, "ambiguous|immutable"):
             bundle.launch_plan(bundle.Docker(fake), launch_args(self.facility, image="mxl-switcher-core:0.2.0-candidate"),
                                port_check=lambda *_: True)
+
+
+class OutputCollisionTest(unittest.TestCase):
+    """Two writers to one MXL flow are forbidden."""
+
+    def setUp(self):
+        self.facility = Facility()
+        self.addCleanup(self.facility.close)
+
+    def plan(self, operator=OPERATOR, **overrides):
+        self.fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": operator})
+        return bundle.launch_plan(bundle.Docker(self.fake), launch_args(self.facility, **overrides),
+                                  port_check=lambda *_: True)
+
+    def test_running_rollback_without_config_refuses(self):
+        with self.assertRaisesRegex(bundle.BundleError, "rollback container is running; pass --rollback-config"):
+            self.plan(rollback_config=None)
+        self.assertEqual(self.fake.mutations, [])
+
+    def test_unknown_or_transitional_state_counts_as_running(self):
+        for status in ("restarting", "paused", None):
+            operator = {**OPERATOR, "State": {"Status": status} if status else {}}
+            with self.subTest(status=status), self.assertRaisesRegex(bundle.BundleError, "pass --rollback-config"):
+                self.plan(operator=operator, rollback_config=None)
+
+    def test_running_rollback_with_same_outputs_refuses(self):
+        overlapping = self.facility.write_rollback(PROGRAM_ID, PREVIEW_ID, "overlap.conf")
+        with self.assertRaisesRegex(bundle.BundleError, "concurrent writers to the same MXL flow") as raised:
+            self.plan(rollback_config=str(overlapping))
+        self.assertIn(PROGRAM_ID, str(raised.exception))
+        self.assertIn(PREVIEW_ID, str(raised.exception))
+        self.assertEqual(self.fake.mutations, [])
+
+    def test_cross_role_collision_refuses(self):
+        # The candidate's Program is the running rollback's Preview.
+        crossed = self.facility.write_rollback(OPERATOR_PROGRAM_ID, PROGRAM_ID, "crossed.conf")
+        with self.assertRaisesRegex(bundle.BundleError, "candidate program = rollback preview"):
+            self.plan(rollback_config=str(crossed))
+
+    def test_running_rollback_with_disjoint_outputs_passes_without_mutation(self):
+        plan = self.plan()
+        self.assertEqual(self.fake.mutations, [])
+        rollback = plan["rollback"]
+        self.assertEqual(rollback["rollback_state"], "running")
+        self.assertEqual(rollback["launch_kind"], "parallel_disjoint_outputs")
+        self.assertEqual(rollback["candidate_outputs"], {"program": PROGRAM_ID, "preview": PREVIEW_ID})
+        self.assertEqual(rollback["rollback_outputs"], {"program": OPERATOR_PROGRAM_ID, "preview": OPERATOR_PREVIEW_ID})
+        self.assertEqual(rollback["overlapping_outputs"], [])
+        self.assertEqual(rollback["rollback_config"], str(self.facility.rollback_config.resolve()))
+
+    def test_stopped_rollback_may_share_outputs(self):
+        overlapping = self.facility.write_rollback(PROGRAM_ID, PREVIEW_ID, "overlap.conf")
+        plan = self.plan(operator=STOPPED_OPERATOR, rollback_config=str(overlapping))
+        rollback = plan["rollback"]
+        self.assertEqual(rollback["rollback_state"], "exited")
+        self.assertEqual(rollback["launch_kind"], "replacement_with_rollback_stopped")
+        self.assertEqual([item["flow_id"] for item in rollback["overlapping_outputs"]], [PREVIEW_ID, PROGRAM_ID])
+        self.assertEqual(self.fake.mutations, [])
+
+    def test_stopped_rollback_does_not_require_config(self):
+        plan = self.plan(operator=STOPPED_OPERATOR, rollback_config=None)
+        self.assertIsNone(plan["rollback"]["rollback_outputs"])
+        self.assertIsNone(plan["rollback"]["rollback_config"])
+
+    def test_missing_or_malformed_rollback_config_refuses(self):
+        with self.assertRaisesRegex(bundle.BundleError, "rollback config .* does not exist"):
+            self.plan(rollback_config="/nonexistent/operator.conf")
+        malformed = pathlib.Path(self.facility.dir.name) / "malformed.conf"
+        malformed.write_text("program_id=00000000-0000-4000-8000-000000000801\nnot a key value line\n")
+        with self.assertRaisesRegex(bundle.BundleError, "expected key=value"):
+            self.plan(rollback_config=str(malformed))
+        incomplete = pathlib.Path(self.facility.dir.name) / "incomplete.conf"
+        incomplete.write_text("program_id=00000000-0000-4000-8000-000000000801\n")
+        with self.assertRaisesRegex(bundle.BundleError, "missing preview_id"):
+            self.plan(rollback_config=str(incomplete))
+
+    def test_rollback_config_without_container_refuses(self):
+        with self.assertRaisesRegex(bundle.BundleError, "needs --rollback-container"):
+            self.plan(rollback_container=None)
+
+    def test_cli_reports_rollback_state_and_compared_ids(self):
+        fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": OPERATOR})
+        argv = ["launch", "--image", IMAGE, "--name", "mxl-core-candidate-1", "--config", str(self.facility.config),
+                "--definitions", str(self.facility.definitions), "--domain-volume", "example-mxl-domain",
+                "--host-port", "18195", "--rollback-container", "mxl-core-operator",
+                "--rollback-config", str(self.facility.rollback_config)]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(bundle.main(argv, docker=bundle.Docker(fake), port_check=lambda *_: True), 0)
+        rollback = json.loads(out.getvalue())["rollback"]
+        self.assertEqual(rollback["rollback_state"], "running")
+        self.assertEqual(sorted(rollback["candidate_outputs"].values()), [PROGRAM_ID, PREVIEW_ID])
+        self.assertEqual(fake.mutations, [])
+
+    def test_cli_apply_with_overlap_never_runs_docker(self):
+        overlapping = self.facility.write_rollback(PROGRAM_ID, PREVIEW_ID, "overlap.conf")
+        fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": OPERATOR})
+        argv = ["launch", "--image", IMAGE, "--name", "mxl-core-candidate-1", "--config", str(self.facility.config),
+                "--definitions", str(self.facility.definitions), "--domain-volume", "example-mxl-domain",
+                "--host-port", "18195", "--rollback-container", "mxl-core-operator",
+                "--rollback-config", str(overlapping), "--apply"]
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bundle.main(argv, docker=bundle.Docker(fake), port_check=lambda *_: True), 2)
+        self.assertIn("concurrent writers", err.getvalue())
+        self.assertEqual(fake.mutations, [])
 
 
 class CleanupTest(unittest.TestCase):
