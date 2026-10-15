@@ -264,6 +264,13 @@ Keep the Core control listener on loopback or behind an authenticated control
 proxy. A future UI may wrap this executor, but must preserve the preflight,
 confirmation, ordering, verification, and rollback gates.
 
+The reference Skin's `/health` page now provides that guarded wrapper. Its
+Source Recovery panel scans and displays the plan without exposing the EasyMXL
+token, requires a separate preflight, and keeps the reconnect control disabled
+unless the server was explicitly started with `--enable-source-reconnect`.
+The operator must type `APPLY_REBINDS`; the server then regenerates the plan
+and requires both its hash and Core revision to match the reviewed values.
+
 ## Catalog entry
 
 [`packaging/easy-mxl/mxl-switcher-core.catalog.json`](../packaging/easy-mxl/mxl-switcher-core.catalog.json)
@@ -275,6 +282,20 @@ The operator supplies a Core configuration file as a read-only host mount. The
 configuration must bind the control listener to `0.0.0.0` inside the container
 when the port is published by Docker. Do not expose that port beyond a trusted
 production network without authentication and TLS at a reverse proxy.
+
+Build the local candidate from a host that already has the licensed MXL lab
+base image and SDK runtime:
+
+```sh
+packaging/easy-mxl/build-local-image.sh 0.2.0-candidate
+```
+
+The multi-stage `Dockerfile.runtime` compiles the current checkout, labels the
+result with its Git revision, installs the acceptance definitions and guarded
+discovery/rebind tools, and adds a Core HTTP health check. It deliberately uses
+the local `mxl-lab:latest` base: MXL SDK redistribution terms must be resolved
+before publishing any runtime image. A successful local build or health check
+does not authorize registry publication.
 
 The catalog entry becoming valid JSON does **not** make the deployment
 production-ready. Promotion also requires:
@@ -289,7 +310,7 @@ production-ready. Promotion also requires:
 
 ## Suggested packaging sequence
 
-1. Build and load a versioned local image on an EasyMXL host.
+1. Build and load the versioned local candidate image on an EasyMXL host.
 2. Add this catalog file through `EASY_MXL_CATALOG`.
 3. Launch Core against a test domain and configuration.
 4. Verify state, health, routing, and restart recovery.

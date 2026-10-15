@@ -19,11 +19,32 @@ python3 server.py --core http://127.0.0.1:18085 \
   --audio-mixer-url http://127.0.0.1:9740 \
   --nmos-node-url http://127.0.0.1:8020 \
   --nmos-registry-url http://127.0.0.1:8010 \
+  --easy-mxl-url http://127.0.0.1:19700 \
+  --easy-mxl-domain zoomiso \
+  --recovery-mapping /etc/mxl/easy-mxl-mapping.json \
+  --recovery-planner /opt/mxl/tools/mxl_discovery_planner.py \
+  --recovery-executor /opt/mxl/tools/mxl_rebind_apply.py \
   --supersource-helper /home/guy/mxl-atem-skin/run-supersource-bank.sh
 ```
 
 The server binds `127.0.0.1:9700` by default. Use an SSH tunnel for remote
 operation; do not expose it directly to a public network.
+
+The engineering dashboard includes an optional ZoomISO Source Recovery panel.
+It converts the daily publisher UUID reset into an EIC workflow: **Scan
+Sources**, inspect every stable source, **Review Preflight**, then type
+`APPLY_REBINDS` before reconnecting. The EasyMXL token is read only by the
+server from `EASY_MXL_TOKEN` (or `--recovery-token-env`) and is never returned
+to the browser. Scan and preflight are read-only.
+
+Reconnect writes remain disabled unless the Skin is started with
+`--enable-source-reconnect`. Even then, the server regenerates and hashes the
+plan at every stage. A changed inventory, changed Core revision, stale binding,
+unreviewed plan, or unsafe Program dependency cancels the action. The guarded
+executor applies Preview and off-air sources before Program, verifies each
+receipt, and rolls completed source changes back if a later step fails. Keep
+the Skin, EasyMXL, and Core control listeners on loopback or behind an
+authenticated control proxy.
 
 `mxl_demo_sources.py` publishes two lightweight 1080p30 diagnostic bolt-ons:
 moving `MXL Playout TC` and `MXL Keyed TC` flows with frame-counting timecode.

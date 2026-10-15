@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#080b0f">
   <title>MXL Core Health</title>
-  <link rel="stylesheet" href="/health.css?v=1">
+  <link rel="stylesheet" href="/health.css?v=2">
+  <link rel="stylesheet" href="/recovery.css?v=1">
 </head>
 <body>
   <main class="health-shell">
@@ -23,6 +24,31 @@
     <section id="overall" class="overall unknown" aria-live="polite">
       <div><span class="lamp"></span><div><small>SYSTEM STATUS</small><h1 id="overallTitle">CONNECTING</h1></div></div>
       <p id="overallDetail">Waiting for the first complete health sample.</p>
+    </section>
+
+    <section class="panel recovery-panel" aria-labelledby="recoveryTitle">
+      <div class="panel-head recovery-head">
+        <div><small>SOURCE LIFECYCLE</small><h2 id="recoveryTitle">ZoomISO Source Recovery</h2></div>
+        <span id="recoveryBadge" class="recovery-badge neutral">NOT SCANNED</span>
+      </div>
+      <div class="recovery-layout">
+        <div class="recovery-summary">
+          <strong id="recoveryHeadline">Scan after a ZoomISO restart or daily source reset.</strong>
+          <p id="recoveryDetail">Discovery is read-only. Nothing reconnects until the plan is reviewed, preflighted, and explicitly confirmed.</p>
+          <div class="recovery-actions">
+            <button id="scanRecovery" type="button">SCAN SOURCES</button>
+            <button id="reviewRecovery" type="button" disabled>REVIEW PREFLIGHT</button>
+          </div>
+        </div>
+        <div class="recovery-confirm">
+          <label for="recoveryConfirm">TYPE TO ARM RECONNECT</label>
+          <input id="recoveryConfirm" autocomplete="off" spellcheck="false" placeholder="APPLY_REBINDS" disabled>
+          <button id="applyRecovery" type="button" disabled>RECONNECT REVIEWED SOURCES</button>
+          <small id="recoverySafety">Program is always last. Any changed revision or source inventory cancels the action.</small>
+        </div>
+      </div>
+      <div id="recoverySources" class="recovery-sources"><p class="empty">No discovery plan loaded.</p></div>
+      <pre id="recoveryReceipt" class="recovery-receipt" hidden></pre>
     </section>
 
     <section class="confidence-grid" aria-label="Decisive health indicators">
@@ -93,6 +119,6 @@
 
     <footer><span>Read-only dashboard · no switching actions</span><span id="lastUpdate">NO SAMPLE RECEIVED</span></footer>
   </main>
-  <script src="/health.js?v=1"></script>
+  <script src="/health.js?v=2"></script>
 </body>
 </html>

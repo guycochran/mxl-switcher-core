@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
+import os
 import pathlib
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -29,6 +33,13 @@ class App:
         audio_mixer_url: str | None = None,
         nmos_node_url: str | None = None,
         nmos_registry_url: str | None = None,
+        easy_mxl_url: str | None = None,
+        easy_mxl_domain: str | None = None,
+        recovery_mapping: pathlib.Path | None = None,
+        recovery_planner: pathlib.Path | None = None,
+        recovery_executor: pathlib.Path | None = None,
+        recovery_token_env: str = "EASY_MXL_TOKEN",
+        recovery_apply_enabled: bool = False,
     ):
         self.root = root
         self.core = core.rstrip("/")
@@ -40,6 +51,13 @@ class App:
         self.audio_mixer_url = audio_mixer_url.rstrip("/") if audio_mixer_url else None
         self.nmos_node_url = nmos_node_url.rstrip("/") if nmos_node_url else None
         self.nmos_registry_url = nmos_registry_url.rstrip("/") if nmos_registry_url else None
+        self.easy_mxl_url = easy_mxl_url.rstrip("/") if easy_mxl_url else None
+        self.easy_mxl_domain = easy_mxl_domain
+        self.recovery_mapping = recovery_mapping
+        self.recovery_planner = recovery_planner
+        self.recovery_executor = recovery_executor
+        self.recovery_token_env = recovery_token_env
+        self.recovery_apply_enabled = recovery_apply_enabled
         self.state_file = state_file
         self.lock = threading.Lock()
         self.banks = {
@@ -152,6 +170,135 @@ class App:
             "nmos": self.nmos_state(),
         }
 
+    def recovery_configured(self):
+        return all((
+            self.easy_mxl_url,
+            self.easy_mxl_domain,
+            self.recovery_mapping,
+            self.recovery_planner,
+            self.recovery_executor,
+        ))
+
+    @staticmethod
+    def plan_id(plan):
+        canonical = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
+        return hashlib.sha256(canonical).hexdigest()
+
+    @staticmethod
+    def command_error(result, fallback):
+        detail = (result.stderr or result.stdout or fallback).strip()
+        try:
+            parsed = json.loads(detail)
+            return parsed.get("error") or detail
+        except json.JSONDecodeError:
+            return detail
+
+    def recovery_plan(self):
+        if not self.recovery_configured():
+            return {"state": "disabled", "apply_enabled": False}
+        for path, label in (
+            (self.recovery_mapping, "mapping"),
+            (self.recovery_planner, "planner"),
+            (self.recovery_executor, "executor"),
+        ):
+            if not pathlib.Path(path).is_file():
+                raise RuntimeError(f"source recovery {label} is not installed")
+        with tempfile.TemporaryDirectory(prefix="mxl-recovery-plan-") as directory:
+            output = pathlib.Path(directory) / "plan.json"
+            command = [
+                sys.executable,
+                str(self.recovery_planner),
+                "--mapping", str(self.recovery_mapping),
+                "--easy-mxl-url", self.easy_mxl_url,
+                "--domain", self.easy_mxl_domain,
+                "--core-url", self.core,
+                "--token-env", self.recovery_token_env,
+                "--output", str(output),
+            ]
+            result = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                timeout=20,
+                check=False,
+                env=os.environ.copy(),
+            )
+            if result.returncode not in (0, 1) or not output.is_file():
+                raise RuntimeError(self.command_error(result, "source discovery failed"))
+            plan = json.loads(output.read_text())
+        _status, _kind, raw = self.core_json("/api/mxl/v1/state")
+        core = json.loads(raw)
+        return {
+            "state": "blocked" if plan.get("blocked") else "ready",
+            "apply_enabled": self.recovery_apply_enabled,
+            "plan_id": self.plan_id(plan),
+            "revision": core.get("revision"),
+            "program": core.get("program"),
+            "preview": core.get("preview"),
+            "summary": plan.get("summary") or {},
+            "sources": [
+                {
+                    "id": item.get("id"),
+                    "status": item.get("status"),
+                    "reasons": item.get("reasons") or [],
+                    "current": item.get("current"),
+                    "desired": item.get("desired"),
+                }
+                for item in plan.get("sources", [])
+            ],
+            "plan": plan,
+        }
+
+    def run_recovery_executor(self, recovery, apply=False, expected_revision=None, confirm=None):
+        with tempfile.TemporaryDirectory(prefix="mxl-recovery-exec-") as directory:
+            plan_path = pathlib.Path(directory) / "plan.json"
+            plan_path.write_text(json.dumps(recovery["plan"], sort_keys=True) + "\n")
+            command = [
+                sys.executable,
+                str(self.recovery_executor),
+                "--plan", str(plan_path),
+                "--core-url", self.core,
+            ]
+            if apply:
+                command.extend([
+                    "--apply",
+                    "--expect-revision", str(expected_revision),
+                    "--confirm", str(confirm),
+                ])
+            result = subprocess.run(command, text=True, capture_output=True, timeout=30, check=False)
+            if result.returncode:
+                raise RuntimeError(self.command_error(result, "source recovery failed"))
+            return json.loads(result.stdout)
+
+    def recovery_preflight(self, payload):
+        recovery = self.recovery_plan()
+        if recovery["state"] == "disabled":
+            raise RuntimeError("source recovery is not configured")
+        if payload.get("plan_id") != recovery["plan_id"]:
+            raise ValueError("source inventory changed; scan and review the new plan")
+        result = self.run_recovery_executor(recovery)
+        return {**result, "plan_id": recovery["plan_id"], "apply_enabled": recovery["apply_enabled"]}
+
+    def recovery_apply(self, payload):
+        if not self.recovery_apply_enabled:
+            raise RuntimeError("source reconnect is not armed on this Skin")
+        if payload.get("confirm") != "APPLY_REBINDS":
+            raise ValueError("type APPLY_REBINDS to confirm")
+        expected_revision = payload.get("expected_revision")
+        if not isinstance(expected_revision, int):
+            raise ValueError("expected_revision must be an integer")
+        recovery = self.recovery_plan()
+        if payload.get("plan_id") != recovery["plan_id"]:
+            raise ValueError("source inventory changed; scan and review the new plan")
+        if expected_revision != recovery["revision"]:
+            raise ValueError("Core revision changed; scan and review again")
+        return self.run_recovery_executor(
+            recovery,
+            apply=True,
+            expected_revision=expected_revision,
+            confirm=payload["confirm"],
+        )
+
     def audio_mixer_state(self):
         if not self.audio_mixer_url:
             return {"state": "disabled"}
@@ -255,6 +402,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, self.app.state())
             if self.path == "/api/skin/health":
                 return self.send_json(200, self.app.health_dashboard_state())
+            if self.path == "/api/skin/recovery":
+                return self.send_json(200, self.app.recovery_plan())
             if self.path.startswith("/api/mxl/v1/"):
                 status, kind, data = self.app.core_json(self.path)
                 return self.send_bytes(status, kind, data)
@@ -280,6 +429,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_bytes(status, "application/json", data)
             if self.path == "/api/skin/audio":
                 return self.send_json(200, self.app.audio_mixer_control(self.read_json()))
+            if self.path == "/api/skin/recovery/preflight":
+                return self.send_json(200, self.app.recovery_preflight(self.read_json()))
+            if self.path == "/api/skin/recovery/apply":
+                return self.send_json(200, self.app.recovery_apply(self.read_json()))
             if self.path.startswith("/api/mxl/v1/"):
                 body = self.read_json()
                 status, kind, data = self.app.core_json(self.path, "POST", body or None)
@@ -310,6 +463,14 @@ def main():
     parser.add_argument("--audio-mixer-url", help="Loopback MXL audio mixer service URL")
     parser.add_argument("--nmos-node-url", help="Loopback NMOS Node API base URL")
     parser.add_argument("--nmos-registry-url", help="Loopback NMOS Registry Query API base URL")
+    parser.add_argument("--easy-mxl-url", help="Loopback EasyMXL API base URL for source discovery")
+    parser.add_argument("--easy-mxl-domain", help="EasyMXL domain used by the Core")
+    parser.add_argument("--recovery-mapping", help="Stable-source discovery mapping JSON")
+    parser.add_argument("--recovery-planner", help="Path to mxl_discovery_planner.py")
+    parser.add_argument("--recovery-executor", help="Path to mxl_rebind_apply.py")
+    parser.add_argument("--recovery-token-env", default="EASY_MXL_TOKEN")
+    parser.add_argument("--enable-source-reconnect", action="store_true",
+                        help="allow confirmed reconnects; scan/preflight remain read-only without this")
     parser.add_argument("--state-file")
     args = parser.parse_args()
     root = pathlib.Path(__file__).with_name("static").resolve()
@@ -326,6 +487,13 @@ def main():
         args.audio_mixer_url,
         args.nmos_node_url,
         args.nmos_registry_url,
+        args.easy_mxl_url,
+        args.easy_mxl_domain,
+        pathlib.Path(args.recovery_mapping).resolve() if args.recovery_mapping else None,
+        pathlib.Path(args.recovery_planner).resolve() if args.recovery_planner else None,
+        pathlib.Path(args.recovery_executor).resolve() if args.recovery_executor else None,
+        args.recovery_token_env,
+        args.enable_source_reconnect,
     )
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(json.dumps({"event": "skin_ready", "url": f"http://{args.host}:{args.port}", "live_supersource": bool(args.supersource_helper)}), flush=True)

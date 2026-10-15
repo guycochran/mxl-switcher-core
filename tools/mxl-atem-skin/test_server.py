@@ -96,6 +96,93 @@ class AppTests(unittest.TestCase):
         self.assertEqual(dashboard["sources"][0]["id"], "input-1")
         self.assertEqual(dashboard["nmos"]["state"], "disabled")
 
+    def recovery_app(self, apply_enabled=False):
+        app = self.app()
+        app.easy_mxl_url = "http://127.0.0.1:19700"
+        app.easy_mxl_domain = "zoomiso"
+        app.recovery_apply_enabled = apply_enabled
+        for attribute in ("recovery_mapping", "recovery_planner", "recovery_executor"):
+            path = app.root / f"{attribute}.json"
+            path.write_text("{}")
+            setattr(app, attribute, path)
+        app.core_json = lambda *args, **kwargs: (
+            200, "application/json", b'{"revision":12,"program":"input-1","preview":"input-2"}'
+        )
+        return app
+
+    def planner_result(self, blocked=False):
+        return {
+            "planner": "mxl-discovery-planner",
+            "plan_version": 1,
+            "read_only": True,
+            "blocked": blocked,
+            "summary": {"rebind": 2, "noop": 0},
+            "sources": [
+                {"id": "input-1", "status": "rebind", "reasons": [], "current": {}, "desired": {}},
+                {"id": "input-2", "status": "rebind", "reasons": [], "current": {}, "desired": {}},
+            ],
+            "requests": [],
+        }
+
+    def test_recovery_is_disabled_without_configuration(self):
+        self.assertEqual(self.app().recovery_plan(), {"state": "disabled", "apply_enabled": False})
+
+    @mock.patch.object(subprocess, "run")
+    def test_recovery_scan_returns_reviewable_plan_without_token(self, run):
+        app = self.recovery_app()
+        document = self.planner_result()
+
+        def command(args, **kwargs):
+            output = pathlib.Path(args[args.index("--output") + 1])
+            output.write_text(json.dumps(document))
+            self.assertNotIn("--token", args)
+            self.assertEqual(args[args.index("--token-env") + 1], "EASY_MXL_TOKEN")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        run.side_effect = command
+        result = app.recovery_plan()
+        self.assertEqual(result["state"], "ready")
+        self.assertFalse(result["apply_enabled"])
+        self.assertEqual(result["revision"], 12)
+        self.assertEqual(result["summary"]["rebind"], 2)
+        self.assertEqual(len(result["plan_id"]), 64)
+
+    def test_recovery_preflight_rejects_changed_plan(self):
+        app = self.recovery_app()
+        app.recovery_plan = lambda: {
+            "state": "ready", "plan_id": "new", "plan": self.planner_result(), "apply_enabled": False,
+        }
+        with self.assertRaisesRegex(ValueError, "inventory changed"):
+            app.recovery_preflight({"plan_id": "old"})
+
+    def test_recovery_apply_requires_server_arm(self):
+        app = self.recovery_app(apply_enabled=False)
+        with self.assertRaisesRegex(RuntimeError, "not armed"):
+            app.recovery_apply({"plan_id": "x", "expected_revision": 12, "confirm": "APPLY_REBINDS"})
+
+    @mock.patch.object(subprocess, "run")
+    def test_recovery_apply_regenerates_plan_and_passes_guardrails(self, run):
+        app = self.recovery_app(apply_enabled=True)
+        document = self.planner_result()
+        plan_id = app.plan_id(document)
+        app.recovery_plan = lambda: {
+            "state": "ready", "plan_id": plan_id, "revision": 12,
+            "plan": document, "apply_enabled": True,
+        }
+
+        def command(args, **kwargs):
+            self.assertIn("--apply", args)
+            self.assertEqual(args[args.index("--expect-revision") + 1], "12")
+            self.assertEqual(args[args.index("--confirm") + 1], "APPLY_REBINDS")
+            return subprocess.CompletedProcess(args, 0, '{"applied":true,"final_revision":14}\n', "")
+
+        run.side_effect = command
+        result = app.recovery_apply({
+            "plan_id": plan_id, "expected_revision": 12, "confirm": "APPLY_REBINDS",
+        })
+        self.assertTrue(result["applied"])
+        self.assertEqual(result["final_revision"], 14)
+
     def test_prepare_rejects_duplicate_sources(self):
         app = self.app()
         with self.assertRaisesRegex(ValueError, "different source"):

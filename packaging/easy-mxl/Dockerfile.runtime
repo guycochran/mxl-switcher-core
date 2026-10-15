@@ -1,0 +1,30 @@
+ARG BASE_IMAGE=mxl-lab:latest
+
+FROM ${BASE_IMAGE} AS build
+WORKDIR /workspace
+COPY . /workspace
+RUN make clean \
+    && make live \
+       MXL_CFLAGS=-I/src/mxl/lib/include \
+       MXL_LIBS="-L/usr/local/lib -lmxl"
+
+FROM ${BASE_IMAGE}
+ARG VERSION=0.2.0-candidate
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="MXL Switcher Core" \
+      org.opencontainers.image.description="Deterministic Program and Preview routing for MXL" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.source="https://github.com/guycochran/mxl-switcher-core"
+
+COPY --from=build /workspace/build/mxl-core-live /usr/local/bin/mxl-core-live
+COPY packaging/acceptance /usr/local/share/mxl-switcher-core/acceptance
+COPY tools/mxl_discovery_planner.py tools/mxl_rebind_apply.py /usr/local/share/mxl-switcher-core/tools/
+
+ENV MXL_DOMAIN=/mxl-domain
+EXPOSE 18085
+HEALTHCHECK --interval=5s --timeout=2s --start-period=10s --retries=3 \
+  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18085/api/mxl/v1/health', timeout=1).read()"
+
+ENTRYPOINT ["/usr/local/bin/mxl-core-live"]
+CMD ["--config", "/etc/mxl-switcher-core.conf"]

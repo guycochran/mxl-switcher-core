@@ -5,6 +5,8 @@ let prior = null
 let baseline = null
 let lastSampleAt = 0
 let consecutiveRouteStalls = 0
+let recoveryPlan = null
+let recoveryPreflight = null
 
 const faultCounters = [
   ['invalid', 'Invalid grains'],
@@ -37,6 +39,116 @@ function setCard(id, state, value, detail) {
   card.className = `confidence ${state}`
   $(id.replace('Card', 'Value')).textContent = value
   $(id.replace('Card', 'Detail')).textContent = detail
+}
+
+function recoveryError(error) {
+  $('recoveryBadge').className = 'recovery-badge bad'
+  $('recoveryBadge').textContent = 'ATTENTION'
+  $('recoveryHeadline').textContent = 'Source recovery needs engineering attention.'
+  $('recoveryDetail').textContent = error.message
+  $('reviewRecovery').disabled = true
+  $('applyRecovery').disabled = true
+  $('recoveryConfirm').disabled = true
+}
+
+function renderRecovery(data) {
+  recoveryPlan = data
+  recoveryPreflight = null
+  $('recoveryReceipt').hidden = true
+  const badge = $('recoveryBadge')
+  const sourceBox = $('recoverySources')
+  sourceBox.replaceChildren()
+  if (data.state === 'disabled') {
+    badge.className = 'recovery-badge neutral'; badge.textContent = 'NOT CONFIGURED'
+    $('recoveryHeadline').textContent = 'Recovery controls are disabled on this Skin.'
+    $('recoveryDetail').textContent = 'The dashboard remains read-only until EasyMXL, a mapping, and the guarded tools are configured.'
+    $('reviewRecovery').disabled = true; $('applyRecovery').disabled = true; $('recoveryConfirm').disabled = true
+    sourceBox.innerHTML = '<p class="empty">No recovery configuration installed.</p>'
+    return
+  }
+  const summary = data.summary || {}
+  const reconnects = Number(summary.rebind || 0)
+  const blocked = Boolean(data.state === 'blocked')
+  badge.className = `recovery-badge ${blocked ? 'bad' : reconnects ? 'warn' : 'ok'}`
+  badge.textContent = blocked ? 'BLOCKED' : reconnects ? `${reconnects} CHANGE${reconnects === 1 ? '' : 'S'}` : 'CURRENT'
+  $('recoveryHeadline').textContent = blocked ? 'The discovery plan requires an engineer.' : reconnects ? `${reconnects} stable source${reconnects === 1 ? '' : 's'} can be reconnected.` : 'All stable source bindings are current.'
+  $('recoveryDetail').textContent = `Core revision ${data.revision} · Program ${data.program || '—'} · Preview ${data.preview || '—'}`
+  $('reviewRecovery').disabled = blocked || reconnects === 0
+  $('applyRecovery').disabled = true
+  $('recoveryConfirm').disabled = true
+  $('recoveryConfirm').value = ''
+  for (const source of data.sources || []) {
+    const item = document.createElement('div'); item.className = `recovery-source ${source.status}`
+    const lamp = document.createElement('i')
+    const body = document.createElement('div')
+    const name = document.createElement('strong'); name.textContent = source.id
+    const detail = document.createElement('small')
+    detail.textContent = source.status === 'rebind' ? 'NEW VIDEO + AUDIO PAIR READY' : source.reasons?.join(' · ') || source.status.toUpperCase()
+    body.append(name, detail)
+    const status = document.createElement('span'); status.textContent = source.status.toUpperCase()
+    item.append(lamp, body, status); sourceBox.append(item)
+  }
+  if (!(data.sources || []).length) sourceBox.innerHTML = '<p class="empty">No mapped sources returned.</p>'
+}
+
+async function scanRecovery() {
+  $('scanRecovery').disabled = true
+  $('recoveryBadge').className = 'recovery-badge neutral'; $('recoveryBadge').textContent = 'SCANNING'
+  try {
+    const response = await fetch('/api/skin/recovery', { cache: 'no-store' })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.error || response.statusText)
+    renderRecovery(data)
+  } catch (error) { recoveryError(error) }
+  finally { $('scanRecovery').disabled = false }
+}
+
+async function reviewRecovery() {
+  if (!recoveryPlan?.plan_id) return
+  $('reviewRecovery').disabled = true
+  $('recoveryBadge').className = 'recovery-badge neutral'; $('recoveryBadge').textContent = 'PREFLIGHT'
+  try {
+    const response = await fetch('/api/skin/recovery/preflight', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan_id: recoveryPlan.plan_id }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.error || response.statusText)
+    recoveryPreflight = data
+    $('recoveryBadge').className = 'recovery-badge warn'; $('recoveryBadge').textContent = 'REVIEWED'
+    $('recoveryHeadline').textContent = `Reconnect order: ${(data.order || []).join(' → ')}`
+    $('recoveryDetail').textContent = `Revision lock ${data.revision} · ${data.strategy === 'preview_off_air_program' ? 'Preview/off-air first, Program last' : 'Dependency-safe order'}`
+    $('recoveryConfirm').disabled = !data.apply_enabled
+    $('applyRecovery').disabled = true
+    $('recoverySafety').textContent = data.apply_enabled ? 'Type APPLY_REBINDS exactly. A changed revision or inventory cancels the action.' : 'Preflight passed, but reconnect writes are not armed on this Skin.'
+  } catch (error) { recoveryError(error) }
+}
+
+function updateRecoveryArm() {
+  $('applyRecovery').disabled = !(recoveryPreflight?.apply_enabled && $('recoveryConfirm').value === 'APPLY_REBINDS')
+}
+
+async function applyRecovery() {
+  if (!recoveryPlan?.plan_id || !recoveryPreflight) return
+  $('applyRecovery').disabled = true; $('scanRecovery').disabled = true
+  $('recoveryBadge').className = 'recovery-badge warn'; $('recoveryBadge').textContent = 'RECONNECTING'
+  try {
+    const response = await fetch('/api/skin/recovery/apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan_id: recoveryPlan.plan_id,
+        expected_revision: recoveryPreflight.revision,
+        confirm: $('recoveryConfirm').value,
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.error || response.statusText)
+    const receipt = $('recoveryReceipt')
+    receipt.textContent = `RECOVERY COMPLETE · REV ${data.starting_revision} → ${data.final_revision}\n${(data.receipts || []).map((item) => `✓ ${item.source}`).join('\n')}`
+    await scanRecovery()
+    receipt.hidden = false
+  } catch (error) { recoveryError(error) }
+  finally { $('scanRecovery').disabled = false }
 }
 
 function sourceName(source, sources) {
@@ -237,3 +349,8 @@ setInterval(() => {
 }, 250)
 refresh()
 setInterval(refresh, 1000)
+$('scanRecovery').addEventListener('click', scanRecovery)
+$('reviewRecovery').addEventListener('click', reviewRecovery)
+$('recoveryConfirm').addEventListener('input', updateRecoveryArm)
+$('applyRecovery').addEventListener('click', applyRecovery)
+scanRecovery()
