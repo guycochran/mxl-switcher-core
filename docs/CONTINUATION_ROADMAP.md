@@ -5,6 +5,10 @@ the October 2026 live demonstrations. It deliberately excludes private
 addresses, meeting details, flow UUIDs, participant information, and raw
 operational evidence.
 
+The active product milestone is [Preview 1: broadcast-ready vertical
+slice](PREVIEW_1_PLAN.md). The sequence below provides contributor history and
+implementation detail; when priorities differ, the Preview 1 plan wins.
+
 ## Proven foundation
 
 The current `main` branch contains a tested vertical slice:
@@ -43,7 +47,7 @@ Read these records before changing behavior:
   without restarting Core.
 - Keep the existing default Core untouched until a separate promotion decision.
 
-### 2. Build an objective A/V reference source
+### 2. Build an objective A/V reference source — complete
 
 Extend the diagnostic source into a paired reference generator with:
 
@@ -72,8 +76,8 @@ test hooks—not accepted settings.
 The index-domain Program Audio mixer now also survives inputs that are absent
 at startup or recreated later: unavailable channels remain offline and are
 re-probed, while invalidated or stalled readers are reopened without restarting
-the mixer. This lifecycle behavior is covered by offline tests and is on
-`main`; an isolated real-MXL lifecycle gate remains before production use.
+the mixer. This lifecycle behavior is covered by offline tests and a strict
+10-minute real-MXL lifecycle gate on the CPU-only cloud baseline.
 
 Run a small matrix against the objective reference source. For each setting,
 capture the audience-side result and retain:

@@ -186,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
     limits.add_argument("--max-offset-range-ms", type=float, default=defaults.max_offset_range_ms)
     limits.add_argument("--max-drift-ppm", type=float, default=defaults.max_drift_ppm)
     limits.add_argument("--max-undecodable-fraction", type=float, default=defaults.max_undecodable_fraction)
+    limits.add_argument("--max-freeze-ms", type=float, default=defaults.max_freeze_ms,
+                        help="longest repeated-frame freeze allowed; negative disables")
     limits.add_argument("--min-pairs", type=int, default=defaults.min_pairs)
     limits.add_argument("--max-skipped-grains", type=int, default=defaults.max_skipped_grains,
                         help="video grains allowed to be missing; -1 disables (reduced-rate paths)")
@@ -201,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         max_offset_range_ms=args.max_offset_range_ms,
         max_drift_ppm=args.max_drift_ppm,
         max_undecodable_fraction=args.max_undecodable_fraction,
+        max_freeze_ms=None if args.max_freeze_ms < 0 else args.max_freeze_ms,
         min_pairs=args.min_pairs,
         max_skipped_grains=None if args.max_skipped_grains < 0 else args.max_skipped_grains,
         max_repeats=None if args.max_repeats < 0 else args.max_repeats,

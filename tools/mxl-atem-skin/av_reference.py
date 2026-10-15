@@ -612,6 +612,10 @@ class Thresholds:
     max_offset_range_ms: float = 20.0
     max_drift_ppm: float = 100.0
     max_undecodable_fraction: float = 0.01
+    # A meeting may intentionally reduce cadence, but a frozen moving
+    # reference is still an operator-visible failure. Keep this independent
+    # from the total repeat allowance.
+    max_freeze_ms: float | None = 250.0
     min_pairs: int = 3
     # Capture completeness is part of the verdict. A path that legitimately
     # reduces frame rate (a meeting) must say so with a non-zero allowance;
@@ -634,6 +638,9 @@ def verdict(report: dict, thresholds: Thresholds) -> list[str]:
         failures.append("undecodable frame fraction above limit")
     if video["regressions"]:
         failures.append("video grain regressions")
+    if (thresholds.max_freeze_ms is not None
+            and video.get("longest_freeze_s", 0.0) * 1000 > thresholds.max_freeze_ms):
+        failures.append("video freeze above limit")
     if thresholds.max_skipped_grains is not None and video["skipped_grains"] > thresholds.max_skipped_grains:
         failures.append("video grains missing from capture")
     if thresholds.max_repeats is not None and video["repeats"] > thresholds.max_repeats:

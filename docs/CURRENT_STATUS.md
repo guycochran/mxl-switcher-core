@@ -53,6 +53,7 @@ Full public evidence:
 - [ZoomISO MXL acceptance](ZOOMISO_MXL_ACCEPTANCE_2026-10-12.md)
 - [NDI full-path findings](NDI_FULL_PATH_FINDINGS.md)
 - [Objective A/V reference](AV_REFERENCE.md)
+- [Preview 1 release plan](PREVIEW_1_PLAN.md)
 
 ## What is demonstrated versus productized
 

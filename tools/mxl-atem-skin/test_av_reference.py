@@ -272,10 +272,11 @@ def run_cli(args):
 
 
 class CompletenessVerdictTest(unittest.TestCase):
-    def report(self, skipped=0, repeats=0, unmatched=0):
+    def report(self, skipped=0, repeats=0, unmatched=0, freeze_s=0.0):
         return {
             "video": {"frames": 100, "undecodable": 0, "regressions": 0,
-                      "skipped_grains": skipped, "repeats": repeats},
+                      "skipped_grains": skipped, "repeats": repeats,
+                      "longest_freeze_s": freeze_s},
             "audio": {"unmatched_events": unmatched},
             "sync": {"pairs": 5, "offset_ms_min": 0.0, "offset_ms_max": 0.0,
                      "offset_ms_range": 0.0, "drift_ppm": 0.0},
@@ -295,6 +296,17 @@ class CompletenessVerdictTest(unittest.TestCase):
         self.assertEqual(ref.verdict(self.report(unmatched=2), ref.Thresholds()), [])
         self.assertIn("unmatched audio events above limit",
                       ref.verdict(self.report(unmatched=3), ref.Thresholds()))
+
+    def test_operator_visible_freeze_fails_independently_of_total_repeats(self):
+        allowance = ref.Thresholds(max_skipped_grains=None, max_repeats=None, max_freeze_ms=250)
+        self.assertEqual(ref.verdict(self.report(freeze_s=0.25), allowance), [])
+        self.assertIn("video freeze above limit",
+                      ref.verdict(self.report(freeze_s=0.251), allowance))
+
+    def test_freeze_limit_can_be_disabled_for_diagnosis(self):
+        allowance = ref.Thresholds(max_freeze_ms=None)
+        self.assertNotIn("video freeze above limit",
+                         ref.verdict(self.report(freeze_s=10.0), allowance))
 
 
 class EndToEndTest(unittest.TestCase):

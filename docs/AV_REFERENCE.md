@@ -102,6 +102,7 @@ reasons listed. Default limits:
 
 - audio lead <= 40 ms and audio lag <= 60 ms;
 - offset range <= 20 ms and drift <= 100 ppm;
+- no repeated moving-reference freeze longer than 250 ms;
 - undecodable frames <= 1%;
 - **zero missing video grains**;
 - at most two unmatched audio events (capture edges);
@@ -298,12 +299,13 @@ Across every variant: no pipeline restarts, and no Core hard-counter movement.
    about four a minute in clustered episodes. Raising latency reduces dropouts
    but cannot eliminate them, and it makes the output arrive later in wall time.
 
-**Recommended direction (not yet implemented or qualified)**
+**Implementation status**
 
-- Remove the fixed 4,800-sample lead, so audio stays at its true MXL time,
-  after confirming how the destination consumes the pair. That needs an
-  audience-side measurement in the meeting.
-- Replace clock-driven mixing with **index-domain mixing**: read every input by
+- The fixed 4,800-sample displacement remains excluded from the proposed
+  audience-return profile so audio stays at its true MXL time. The destination
+  meeting still needs to confirm the final paired presentation offset.
+- **Index-domain mixing is implemented and its input lifecycle is live
+  qualified**: it reads every input by
   sample index with a bounded wait, sum, and write at the same index. Missing
   input then becomes an explicit, counted, late-or-held condition instead of
   silent silence, and placement stays exact.
@@ -312,9 +314,10 @@ Across every variant: no pipeline restarts, and no Core hard-counter movement.
 ## Index-domain Program Audio mixer (design, 2026-10-15)
 
 `tools/mxl-atem-skin/mxl_index_mixer.py` implements the index-domain
-recommendation above as a drop-in alternative to `mxl_audio_mixer.py`. It has
-not been qualified live; the Gate C rerun against the lossless reference is the
-next step.
+recommendation above as a drop-in alternative to `mxl_audio_mixer.py`. Its
+real-MXL input lifecycle passed a strict 10-minute CPU-only cloud gate. The
+remaining Gate C work is the paired content-level Program-return capture in
+the destination meeting.
 
 - **No media clock.** For each 480-sample block ending at index `end`, it reads
   every active input at `end` through the MXL SDK (`mxl_direct.SampleReader`,

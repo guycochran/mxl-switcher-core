@@ -284,6 +284,9 @@ intermittent guest input while the clip input remained clean.
 
 ## Next qualification milestones
 
+The release target and pass/fail definition are in the
+[Preview 1 plan](docs/PREVIEW_1_PLAN.md).
+
 1. **Program Master clock recovery:** candidate stable 48 kHz Program Audio and
    AFV are live; complete content-level lip-sync, recovered-alarm analysis, and
    staged acceptance before any distribution adapter claims the paired master.
