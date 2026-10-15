@@ -7,7 +7,7 @@ operational evidence.
 
 ## Proven foundation
 
-The current feature branch contains a tested vertical slice:
+The current `main` branch contains a tested vertical slice:
 
 - native MXL Program and Preview with grain-boundary Preview, CUT, and TAKE;
 - independent read indices and cadence-hold correction;
@@ -56,8 +56,11 @@ Use a receive-side capture and measurement tool to calculate content-level
 audio/video offset, jitter, dropouts, duplicated audio, and discontinuities.
 Listening alone is useful for triage but is not an acceptance measurement.
 
-Status: the generator and analyzer are implemented and unit-tested offline;
-see [A/V reference](AV_REFERENCE.md). No live result has been recorded yet.
+Status: complete for the direct-MXL baseline and isolated CPU-only cloud Core
+gate. The 10-minute Core run delivered 18,002 consecutive 1080p30 frames and
+28,800,960 audio samples with zero skips, repeats, regressions, torn reads,
+sample gaps, or duplicates. All 600 A/V events held a constant measured offset
+with zero range and drift. See [A/V reference](AV_REFERENCE.md).
 
 ### 3. Close the meeting-to-meeting Program return
 
@@ -65,6 +68,12 @@ The reclocker has passed an isolated 10-minute cadence test, but the audience
 return still exhibited audible artifacts and apparent lag. The mixer latency,
 presentation offset, and unsynchronized-sink CLI controls are experimental
 test hooks—not accepted settings.
+
+The index-domain Program Audio mixer now also survives inputs that are absent
+at startup or recreated later: unavailable channels remain offline and are
+re-probed, while invalidated or stalled readers are reopened without restarting
+the mixer. This lifecycle behavior is covered by offline tests and is on
+`main`; an isolated real-MXL lifecycle gate remains before production use.
 
 Run a small matrix against the objective reference source. For each setting,
 capture the audience-side result and retain:
