@@ -115,3 +115,16 @@ acceptance. A continuation must measure the actual audience-side waveform and
 moving timecode before selecting latency or presentation-offset values. Do not
 promote the buffered or tuned return scripts solely because the processes are
 healthy or their MXL heads advance.
+
+## Update 2026-10-15: measured diagnosis
+
+An isolated replica of the return stages, driven by the objective A/V
+reference, attributes the reported symptoms. See
+[A/V reference, Gate C](AV_REFERENCE.md#gate-c-program-return-stage-diagnosis-2026-10-15):
+
+- the apparent lag is the reindexer's fixed +100 ms MXL placement; and
+- the artifacting is the live mixer emitting silence for late input. This is
+  severe at the 20 ms tuning and still present at 250 ms and 1,000 ms on a
+  contended host.
+
+The tuned 20 ms latency setting should not be used.

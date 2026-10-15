@@ -2,8 +2,8 @@
 
 Status: Gate A passed. A 10-minute direct-MXL baseline is zero-loss and
 sample-exact, with A/V offset 0.000 ms and no drift, using the direct capture
-reader. Nothing has been run through Core, Program Audio, or a meeting return
-yet.
+reader. The Program-return audio stages have been diagnosed in isolation (Gate C
+below). Nothing has yet been run through Core switching or into a meeting.
 
 This replaces listening as the acceptance measurement for audio cadence,
 sample continuity, and lip sync through Core, Program Audio, and meeting
@@ -255,6 +255,57 @@ co-located source running.
 and race-free. Captures through the generic `mxlsrc` element remain
 susceptible to the check-then-copy race on contended hosts, so acceptance
 captures should use the direct reader.
+
+## Gate C: Program-return stage diagnosis (2026-10-15)
+
+The deployed Program-return pair has three stages:
+
+- a live GStreamer `audiomixer` reading meeting audio over `mxlsrc`, with its
+  aggregation latency tuned to 20 ms;
+- a reindexer that republishes the mix 4,800 samples later; and
+- a video passthrough of Core Program.
+
+Each stage was replicated in isolation on the lossless reference: new flows,
+no Core, no meeting, and byte-identical copies of the deployed mixer and
+reindexer. Captures used the direct reader, so every sample and grain is
+accounted for. In this signal, silence runs are dropped audio.
+
+| Variant | Duration | Silence (dropouts) | Counter gaps | A/V offset |
+| --- | ---: | --- | ---: | ---: |
+| C1 mixer, 250 ms latency | 60 s | 6 runs, 154 ms | 6 | 0.000 ms (max 7.0 on affected events) |
+| C2 mixer, **20 ms** (as deployed) | 60 s | **175 runs, 20.4 s (34%)**, longest 3.4 s | 174 | ~0 (15 of 60 bursts lost) |
+| C3 C2 + reindex 4,800 | 60 s | 129 runs, 24.9 s | 129 | **+99.98 ms** |
+| C4 C3 + video passthrough | 60 s | similar to C3 | 90 | **+99.98 ms** |
+| C5 mixer, 1,000 ms | 60 s | 0 | 0 | 0.000 ms |
+| C5 mixer, 1,000 ms | 600 s | 41 runs, 2.4 s (0.4%), median 18.6 ms, longest 629 ms | 41 | 0.000 ms median, 0 ppm |
+| C6 reindex only, no mixer | 60 s | 0 | 0 | **+100.000 ms**, range 0 |
+
+Across every variant: no pipeline restarts, and no Core hard-counter movement.
+
+**Findings**
+
+1. **Lag is the reindexer, exactly.** It places audio 4,800 samples (+100 ms)
+   later in MXL time. Otherwise it is sample-exact. A receiver that aligns
+   audio and video by MXL time presents audio 100 ms behind the picture. The
+   video passthrough and the mixer do not move the timeline.
+2. **Artifacting is the live mixer dropping late input.** A clock-driven
+   `audiomixer` emits silence for any input that has not arrived within its
+   latency budget. On this CPU-contended host, input arrival stalls of several
+   hundred milliseconds occur. At 20 ms a third of the audio is lost; at the
+   250 ms default about six dropouts a minute remain; even 1,000 ms leaves
+   about four a minute in clustered episodes. Raising latency reduces dropouts
+   but cannot eliminate them, and it makes the output arrive later in wall time.
+
+**Recommended direction (not yet implemented or qualified)**
+
+- Remove the fixed 4,800-sample lead, so audio stays at its true MXL time,
+  after confirming how the destination consumes the pair. That needs an
+  audience-side measurement in the meeting.
+- Replace clock-driven mixing with **index-domain mixing**: read every input by
+  sample index with a bounded wait, sum, and write at the same index. Missing
+  input then becomes an explicit, counted, late-or-held condition instead of
+  silent silence, and placement stays exact.
+- Reduce co-located CPU contention, which drives the arrival stalls.
 
 ## Next live gate
 
