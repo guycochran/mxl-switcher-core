@@ -721,6 +721,41 @@ correct fix for the remaining cadence behavior. Preview 1 therefore keeps the
 strict zero-repeat/zero-skip limit and treats Core video scheduling as the open
 item before an audience-meeting promotion.
 
+The root cause was the per-frame selection of `source_head - delay`. Source
+commit and Core output wake occur at the same MXL tick, so a rare phase crossing
+sampled one stale head and produced a repeat followed by a skip. The configured
+delay shifted the selected index but did not absorb that head-sampling race.
+
+A cadence-lock candidate now establishes a delayed source timeline once and
+then consumes one readable input grain per output. A deterministic offline
+regression reproduces the old `100, 100, 102` head sequence and verifies
+sequential `99, 100, 101` selection. The same candidate passed a 70-second
+smoke and this 610-second CPU-only cloud gate:
+
+| Measure | Result |
+| --- | ---: |
+| Video frames | 18,302 / 18,302 decoded |
+| Video repeats / skips / regressions | 0 / 0 / 0 |
+| Audio samples | 29,280,960 |
+| Audio gaps / duplicates / regressions | 0 / 0 / 0 |
+| A/V event pairs | 610 / 610 |
+| A/V offset median / range / drift | 0.000 ms / 0.000 ms / 0 ppm |
+| Core hard counters and alarms | all zero |
+| Mixer degraded blocks / history misses | 0 / 0 |
+
+Neither reference publisher recorded a late frame. Core used 9.28-11.36% of
+one CPU and about 76 MiB RSS; the index mixer used 0.91-1.56% and about 17 MiB.
+All exact temporary containers were removed and the paid VM was verified
+deallocated after evidence collection.
+
+An independent code review identified one additional soak boundary: a true
+source stall, faster source, or writer re-anchor could accumulate cursor lag
+until the ring edge. The branch now drains excess lag one grain at a time once
+it exceeds the configured delay plus one grain, and exposes current and maximum
+input lag globally and per source. Offline fast-source coverage and the full
+test suite pass. That hardening still requires real-ZoomISO qualification before
+the 30-minute or eight-hour audience-return gates.
+
 A larger 8,000-sample presentation delay also exposed an integration boundary:
 reading old samples directly from the source ring can exceed a producer's
 retained history even when the mixer itself is healthy. The index mixer now
@@ -733,11 +768,10 @@ larger-delay profile remains an implementation proof, not a promoted profile.
 
 ## Next live gate
 
-1. Isolate and remove the rare Core video repeat/skip event without relaxing
-   the strict cadence threshold.
-2. Repeat the paired 10-minute gate on the CPU-only cloud profile.
-3. Feed that unchanged candidate to the meeting return and analyze an
+1. Qualify bounded cadence-lock recovery with real ZoomISO source stalls and
+   re-anchors while watching the new input-lag telemetry.
+2. Feed that unchanged candidate to the meeting return and analyze an
    audience-side recording before attempting the 30-minute and eight-hour
    holds.
-4. Repeat the isolated profile with real ZoomISO sources before using the result
+3. Repeat the isolated profile with real ZoomISO sources before using the result
    as an end-to-end contribution claim.

@@ -80,10 +80,13 @@ Core's media hot path.
   audio but failed the strict offset-range limit because Core video shifted by
   one frame under shared CPU load. Two further 610-second runs on the 32-vCPU
   CPU-only cloud profile held audio and A/V alignment exactly but each recorded
-  three isolated video repeats/skips. The current blocker is therefore the rare
-  Core video scheduling event, not audio drift or aggregate CPU. The strict
-  limit has not been relaxed, and meeting-to-meeting audience acceptance
-  remains open.
+  three isolated video repeats/skips. The resulting source-head sampling race
+  was reproduced offline and corrected with a sequential input timeline. A
+  strict 610-second cloud repeat then passed 18,302 sequential frames, zero
+  video faults, sample-perfect audio, and 610/610 A/V events at exactly 0 ms.
+  Bounded recovery for genuinely fast/re-anchored sources and input-lag
+  telemetry are implemented; real-ZoomISO recovery and meeting-to-meeting
+  audience acceptance remain open.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.

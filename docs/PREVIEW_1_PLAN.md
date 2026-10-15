@@ -118,10 +118,14 @@ needed. Paid cloud machines must be deallocated after each test window.
   A longer repeat on the loaded older lab host kept audio perfect but exposed
   one-frame Core video-cadence shifts. Two 610-second repeats on the qualified
   CPU-only cloud profile kept audio and A/V alignment exact but each retained
-  three isolated video repeats/skips. That makes Core video scheduling—not
-  audio timing or aggregate CPU—the current P1 blocker. A mixer-owned sample
-  history now also makes long presentation delays independent of an upstream
-  writer's ring depth; that boundary has unit and real-MXL audio proof but is
-  not yet a promoted cloud profile.
+  three isolated video repeats/skips. The head-sampling race was reproduced
+  offline and corrected with a sequential input-timeline cursor. Its strict
+  610-second cloud repeat passed 18,302 frames with zero repeats/skips,
+  sample-perfect audio, and all 610 A/V events at exactly 0 ms. Bounded
+  fast-source relock and input-lag telemetry are implemented and awaiting
+  real-ZoomISO recovery qualification. A mixer-owned sample history also makes
+  long presentation delays independent of an upstream writer's ring depth;
+  that boundary has unit and real-MXL audio proof but is not yet a promoted
+  cloud profile.
 - Work has begun on P1 by making operator-visible video freeze an explicit A/V
   analyzer threshold rather than an informal observation.
