@@ -24,12 +24,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import shlex
 import socket
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 
 REPOSITORY = "mxl-switcher-core"
 SOURCE_URL = "https://github.com/guycochran/mxl-switcher-core"
@@ -377,7 +381,70 @@ def check_output_collision(candidate: dict, rollback_state: str, rollback: dict 
     }
 
 
-def launch_plan(docker: Docker, args, port_check=port_free) -> dict:
+def _redact_url(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc.split("@")[-1], parts.path, "", ""))
+
+
+def easy_mxl_get(url: str, token: str | None, timeout: float = 5.0):
+    """Read-only GET against EasyMXL. The token travels in a header and is never echoed."""
+
+    if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+        raise BundleError("EasyMXL URL must be http or https")
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        raise BundleError(f"EasyMXL GET {_redact_url(url)} failed with HTTP {error.code}") from None
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        raise BundleError(f"EasyMXL GET {_redact_url(url)} failed: {type(error).__name__}") from None
+
+
+def check_active_writers(flows, candidate_ids: dict) -> dict:
+    """Refuse if EasyMXL shows a live writer on any candidate output flow.
+
+    This catches *any* writer, not only the named rollback. After a rollback is
+    stopped for replacement its flows must be inactive, so the rule holds for
+    parallel and replacement launches alike. Unknown writer state fails closed.
+    """
+
+    if isinstance(flows, dict):
+        flows = flows.get("flows")
+    if not isinstance(flows, list) or not all(isinstance(flow, dict) for flow in flows):
+        raise BundleError("EasyMXL flow inventory is malformed; refusing to launch without it")
+    by_id: dict[str, list[dict]] = {}
+    for flow in flows:
+        if isinstance(flow.get("id"), str):
+            by_id.setdefault(flow["id"].lower(), []).append(flow)
+    report, live, unknown = {}, [], []
+    for role, flow_id in sorted(candidate_ids.items()):
+        entries = by_id.get(flow_id, [])
+        writers = sorted({(flow.get("writerContainer") or {}).get("name") or "unattributed"
+                          for flow in entries if flow.get("active") is True})
+        if any(flow.get("active") is None for flow in entries):
+            unknown.append(f"{role} {flow_id}")
+        if writers:
+            live.append(f"{role} {flow_id} (writer: {', '.join(writers)})")
+        report[flow_id] = {
+            "role": role,
+            "present": bool(entries),
+            "statuses": sorted({str(flow.get("status")) for flow in entries}),
+            "active_writers": writers,
+        }
+    if live:
+        raise BundleError("refusing: EasyMXL shows a live writer on " + "; ".join(live)
+                          + "; launching would create concurrent writers to the same MXL flow")
+    if unknown:
+        raise BundleError("refusing: EasyMXL cannot determine the writer state of " + ", ".join(unknown)
+                          + " (is /proc/locks readable?)")
+    return report
+
+
+def launch_plan(docker: Docker, args, port_check=port_free, fetch=easy_mxl_get) -> dict:
     if not NAME_RE.match(args.name or ""):
         raise BundleError("container --name must match ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")
     if args.mode == "production":
@@ -393,6 +460,21 @@ def launch_plan(docker: Docker, args, port_check=port_free) -> dict:
     if definitions is not None and not definitions.is_dir():
         raise BundleError(f"definitions directory {args.definitions} does not exist")
     summary = validate_config(config_path.read_text(), definitions, args.mode)
+
+    easy_url = getattr(args, "easy_mxl_url", None)
+    easy_domain = getattr(args, "easy_mxl_domain", None)
+    writer_check = None
+    if bool(easy_url) != bool(easy_domain):
+        raise BundleError("the EasyMXL active-writer check needs both --easy-mxl-url and --easy-mxl-domain")
+    if easy_url:
+        token = os.environ.get(getattr(args, "easy_mxl_token_env", None) or "EASY_MXL_TOKEN") or None
+        flows_url = (f"{easy_url.rstrip('/')}/api/domains/"
+                     f"{urllib.parse.quote(easy_domain, safe='')}/flows")
+        candidate_ids = {role: summary["outputs"][role]["id"] for role in ("program", "preview")}
+        writer_check = {
+            "source": _redact_url(flows_url),
+            "outputs": check_active_writers(fetch(flows_url, token), candidate_ids),
+        }
 
     if bool(args.domain_volume) == bool(args.domain_path):
         raise BundleError("give exactly one explicit MXL domain: --domain-volume NAME or --domain-path /abs/path")
@@ -447,6 +529,7 @@ def launch_plan(docker: Docker, args, port_check=port_free) -> dict:
         "outputs": summary["outputs"],
         "sources_configured": summary["sources"],
         "rollback": rollback,
+        "active_writer_check": writer_check,
         "cleanup": cleanup_commands(args.name, None),
         "bolt_ons_started": [],
         "docker": run,
@@ -489,7 +572,7 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
-def main(argv=None, docker: Docker | None = None, port_check=port_free) -> int:
+def main(argv=None, docker: Docker | None = None, port_check=port_free, fetch=easy_mxl_get) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -522,6 +605,10 @@ def main(argv=None, docker: Docker | None = None, port_check=port_free) -> int:
     launch.add_argument("--rollback-config",
                         help="that service's own facility config; required while it runs, to prove disjoint outputs")
     launch.add_argument("--mode", default="production", choices=("production", "test"))
+    launch.add_argument("--easy-mxl-url", help="optional: refuse if EasyMXL shows a live writer on an output flow")
+    launch.add_argument("--easy-mxl-domain", help="EasyMXL domain name for the active-writer check")
+    launch.add_argument("--easy-mxl-token-env", default="EASY_MXL_TOKEN",
+                        help="environment variable holding the EasyMXL token (never printed)")
     launch.add_argument("--apply", action="store_true")
 
     clean = sub.add_parser("cleanup", help="remove exactly one candidate container (dry run by default)")
@@ -538,7 +625,7 @@ def main(argv=None, docker: Docker | None = None, port_check=port_free) -> int:
         elif args.command == "verify":
             result = verify_image(docker, args.image, args.version, args.revision)
         elif args.command == "launch":
-            result = launch_plan(docker, args, port_check)
+            result = launch_plan(docker, args, port_check, fetch)
             result["applied"] = False
             if args.apply:
                 docker.mutate(*result["docker"])
