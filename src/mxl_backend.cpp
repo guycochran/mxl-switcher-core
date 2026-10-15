@@ -278,6 +278,10 @@ class MxlBackend::Impl {
       source.latest_input_lag_frames = input_lag;
       source.max_input_lag_frames =
           std::max(source.max_input_lag_frames, input_lag);
+      if (selection->presentation_fallback) {
+        ++stats_.presentation_fallbacks;
+        ++source.presentation_fallbacks;
+      }
       if (selection->timeline_reset) {
         ++stats_.input_timeline_resets;
       }

@@ -65,6 +65,7 @@ struct OutputReadSelection {
   InputIndexStep cadence;
   bool timeline_reset{false};
   bool forward_clamped{false};
+  bool presentation_fallback{false};
 };
 
 // Owns the input cursor for each (output, source) timeline. Selection is locked
@@ -72,7 +73,9 @@ struct OutputReadSelection {
 // frame accounts for a source grain committed on the same MXL tick as the
 // output wake. This makes presentation delay deterministic across CUTs, holds,
 // and writer re-anchors instead of depending on when the source head was
-// sampled. A CUT resets cadence comparison with the prior source.
+// sampled. Producers whose indexes are not output-clock anchored fall back to
+// the bounded head-relative cursor rather than becoming permanently
+// unavailable. A CUT resets cadence comparison with the prior source.
 class OutputReadTimelines {
  public:
   std::optional<OutputReadSelection> select(

@@ -205,6 +205,46 @@ void test_output_relative_delay_is_deterministic() {
   require(early_phase->window.selected_index == 99 &&
               late_phase->window.selected_index == 99,
           "source-head phase changed the output-relative delay");
+  require(!early_phase->presentation_fallback &&
+              !late_phase->presentation_fallback,
+          "anchored source unexpectedly used the adaptive fallback");
+}
+
+void test_nonanchored_source_uses_bounded_fallback() {
+  OutputReadTimelines timelines;
+  const std::vector<std::uint64_t> heads{95, 96, 97, 98, 99, 100};
+  for (std::size_t i = 0; i < heads.size(); ++i) {
+    const auto selected = timelines.select("pgm", "source-a", {heads[i], 20},
+                                           1, 101 + i);
+    require(selected.has_value(), "nonanchored source became unavailable");
+    require(selected->presentation_fallback,
+            "nonanchored source hid its presentation fallback");
+    require(selected->cadence.kind ==
+                (i == 0 ? InputIndexStepKind::First
+                        : InputIndexStepKind::Sequential),
+            "steady nonanchored source lost sequential cadence");
+  }
+}
+
+void test_fast_nonanchored_fallback_stays_bounded() {
+  OutputReadTimelines timelines;
+  const std::vector<std::uint64_t> heads{130, 132, 134, 136, 138, 140};
+  std::uint64_t max_lag = 0;
+  std::uint64_t skips = 0;
+  for (std::size_t i = 0; i < heads.size(); ++i) {
+    const auto selected = timelines.select("pgm", "source-a", {heads[i], 20},
+                                           1, 101 + i);
+    require(selected.has_value(), "fast nonanchored source became unavailable");
+    require(selected->presentation_fallback,
+            "nonanchored source hid its presentation fallback");
+    max_lag =
+        std::max(max_lag, heads[i] - selected->window.selected_index);
+    if (selected->cadence.kind == InputIndexStepKind::Skip) {
+      skips += selected->cadence.magnitude;
+    }
+  }
+  require(max_lag <= 2, "fallback cursor escaped its bounded lag band");
+  require(skips > 0, "fallback cursor hid fast-source drift");
 }
 
 void test_stall_recovery_restores_output_relative_delay() {
@@ -271,6 +311,9 @@ int main() {
       {"head-regression target",
        test_output_relative_target_survives_head_regression},
       {"output-relative delay", test_output_relative_delay_is_deterministic},
+      {"nonanchored fallback", test_nonanchored_source_uses_bounded_fallback},
+      {"fast nonanchored fallback",
+       test_fast_nonanchored_fallback_stays_bounded},
       {"stall recovery delay", test_stall_recovery_restores_output_relative_delay},
       {"out-of-ring recovery hold", test_recovery_holds_when_floor_left_ring},
       {"sustained unavailable one-shot",

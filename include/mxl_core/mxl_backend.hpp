@@ -28,6 +28,7 @@ struct MxlSourceStats {
   std::uint64_t latest_selected_index{0};
   std::uint64_t latest_input_lag_frames{0};
   std::uint64_t max_input_lag_frames{0};
+  std::uint64_t presentation_fallbacks{0};
 };
 
 struct MxlBackendStats {
@@ -66,6 +67,7 @@ struct MxlBackendStats {
   std::uint64_t selected_input_skip_events{0};
   std::uint64_t selected_input_skipped_grains{0};
   std::uint64_t selected_input_regressions{0};
+  std::uint64_t presentation_fallbacks{0};
   std::unordered_map<FlowId, MxlSourceStats> sources;
 };
 

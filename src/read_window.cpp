@@ -117,28 +117,45 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
   const auto target = output_index - presentation_delay;
   auto selected = target;
   bool clamped = false;
-  if (target < candidate.oldest_index) {
-    // The writer has lapped the fixed presentation target. Catching up would
-    // silently change A/V alignment, so publish unavailable and expose the
-    // source clock/ring fault instead.
-    return std::nullopt;
-  }
-  if (target > candidate.newest_index) {
-    // A real source stall exhausted the presentation reservoir. Hold the last
-    // successfully targeted grain while it remains readable. Recovery returns
-    // directly to the output-relative target, restoring the configured delay.
-    if (!previous || *previous < candidate.oldest_index ||
-        *previous > candidate.newest_index) {
-      return std::nullopt;
+  const auto presentation_fallback =
+      target < candidate.oldest_index || target > candidate.newest_index;
+  if (presentation_fallback) {
+    // A producer may intentionally use an index phase that differs from the
+    // output clock (for example a decoder or NDI ingress). Preserve service by
+    // using the proven bounded head-relative cursor, while surfacing the
+    // fallback so the fixed A/V contract is never claimed silently.
+    selected = candidate.selected_index;
+    if (previous) {
+      if (*previous == std::numeric_limits<std::uint64_t>::max()) {
+        return std::nullopt;
+      }
+      const auto next = *previous + 1U;
+      if (next >= candidate.oldest_index && next <= candidate.newest_index) {
+        selected = next;
+        const auto lag = candidate.newest_index - selected;
+        if (lag > safety_margin_frames &&
+            lag - safety_margin_frames > 1U) {
+          ++selected;
+        }
+        clamped = candidate.selected_index < *previous;
+      } else if (*previous >= candidate.oldest_index &&
+                 *previous <= candidate.newest_index &&
+                 next > candidate.newest_index) {
+        selected = *previous;
+        clamped = true;
+      } else if (next < candidate.oldest_index) {
+        selected = candidate.selected_index;
+      } else {
+        return std::nullopt;
+      }
     }
-    selected = *previous;
-    clamped = true;
   }
   const auto cadence = classify_input_index_step(previous, selected);
   timelines[source_flow] = selected;
   auto window = candidate;
   window.selected_index = selected;
-  return OutputReadSelection{window, cadence, timeline_reset, clamped};
+  return OutputReadSelection{window, cadence, timeline_reset, clamped,
+                             presentation_fallback};
 }
 
 void OutputReadTimelines::reset_source(const std::string& source_flow) {
