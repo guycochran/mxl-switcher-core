@@ -165,6 +165,42 @@ EasyMXL listens on port 9700 by default. That is also the reference operator
 Skin's default port, so run the Skin on another port (for example 9710) on a
 shared host.
 
+### Read-only six-source qualification (2026-10-15)
+
+The planner was exercised against a live six-source ZoomISO bank without
+changing Core or either writer. EasyMXL v1.0.0 ran as a temporary loopback-only
+service with a token. The existing MXL domain was mounted read-only. EasyMXL
+found 31 flows, classified 27 as active, and attributed the two ZoomISO writers
+separately even though they published identical labels, groups, and roles.
+
+The planner returned exit 0 with this result:
+
+| Status | Count |
+| --- | ---: |
+| `rebind` | 6 |
+| `noop` | 0 |
+| `missing` | 0 |
+| `ambiguous` | 0 |
+| `incompatible` | 0 |
+| `create_required` | 0 |
+
+All six current Core video flow IDs already matched the desired active flows
+from the selected writer. Each proposed request preserved that video flow and
+added the audio flow from the same writer, group, and output number. Nothing
+was applied. The temporary service reported zero restarts and was removed with
+its credential and build directory after the plan was saved.
+
+ZoomISO stores its MXL domain as the root of a Docker volume, while EasyMXL
+normally scans child directories of a domain root. For read-only discovery,
+mount the volume's domain directory as a named child such as
+`/domains/zoomiso:ro`, then set `EASY_MXL_DOMAIN_ROOT=/domains`. Do not point
+EasyMXL at the volume's parent and assume `_data` will be accepted as a domain
+name; domain names must start with an alphanumeric character.
+
+This qualifies discovery and planning only. The next gate is one manually
+approved atomic PUT on a candidate Core, followed by Program/Preview continuity
+checks and rollback. An automatic apply mode remains out of scope.
+
 ## Catalog entry
 
 [`packaging/easy-mxl/mxl-switcher-core.catalog.json`](../packaging/easy-mxl/mxl-switcher-core.catalog.json)
