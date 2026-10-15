@@ -84,10 +84,42 @@ Inside the container:
   name, never a prefix or pattern;
 - the host port is free on the bind address, which defaults to loopback;
 - in production mode, the image is immutable and its labels verify, and a
-  `--rollback-container` is named.
+  `--rollback-container` is named;
+- **no MXL output flow would get a second writer** (see below).
 
 Production launches must supply their own output definitions. The acceptance
 definitions bundled in the image are accepted only with `--mode test`.
+
+## One writer per MXL flow
+
+**Two writers to one MXL flow are forbidden.** Two Cores writing the same
+Program or Preview flow corrupt it for every reader. `launch` therefore compares
+the candidate's outputs with those of the named `--rollback-container`, using
+that service's own facility config (`--rollback-config`). It never infers
+safety from container names or ports.
+
+There are two kinds of launch:
+
+| Rollback container | Outputs | Result | `launch_kind` |
+| --- | --- | --- | --- |
+| running (or restarting, paused, unknown) | no `--rollback-config` | **refused**: disjointness cannot be proven | |
+| running | the candidate's Program or Preview equals the rollback's Program or Preview, in either role | **refused**: concurrent writers | |
+| running | proven disjoint | allowed: **parallel isolated qualification** | `parallel_disjoint_outputs` |
+| stopped (`created`, `exited`, `dead`) | same IDs allowed | allowed: **maintenance-window replacement** | `replacement_with_rollback_stopped` |
+
+For a parallel qualification, give the candidate its own facility config with
+qualification-only Program and Preview IDs. For a replacement, stop (but keep)
+the operator container first. The `--rollback-config` is optional then; when
+given, the overlap is reported. The dry run's `rollback` block shows:
+
+- the container's state;
+- the rollback config path;
+- the candidate and rollback output IDs it compared;
+- any overlapping flows.
+
+Limits: the check covers the named rollback service. Make sure no other Core
+writes those flows. The check runs immediately before `--apply`, so do not
+start the rollback container between the dry run and the apply.
 
 ## Preflight and launch
 
@@ -99,7 +131,8 @@ python3 packaging/core-bundle/mxl_core_bundle.py launch \
   --definitions packaging/core-bundle/example-facility/definitions \
   --domain-volume example-mxl-domain \
   --host-port 18195 \
-  --rollback-container mxl-core-operator
+  --rollback-container mxl-core-operator \
+  --rollback-config /srv/mxl/operator/core.conf
 ```
 
 The dry run prints JSON with:
@@ -109,7 +142,8 @@ The dry run prints JSON with:
 - the loopback publish mapping;
 - the domain, config, and definitions mounts;
 - both output IDs;
-- the rollback target (inspected read-only and left untouched);
+- the rollback target, inspected read-only and left untouched, with its
+  state and the output comparison;
 - the exact cleanup command;
 - `bolt_ons_started: []`;
 - the full `docker run` command.
@@ -140,8 +174,10 @@ maintenance window and outside this tool:
 1. Record the operator container's name, image ID, and config path. This is
    the `rollback` block from the dry run.
 2. Stop the operator container. Do not remove it.
-3. Launch the immutable candidate under a new name on the operator port. Then
-   verify state, health, routing, and every bolt-on against it.
+3. Re-run the dry run. It must now report `rollback_state` as `exited` and
+   `launch_kind` as `replacement_with_rollback_stopped`. Then launch the
+   immutable candidate under a new name on the operator port, with the same
+   output IDs. Verify state, health, routing, and every bolt-on against it.
 4. To roll back, stop and clean up the candidate exactly, then start the
    recorded operator container again.
 5. Only after an agreed soak, remove the old operator container by its exact
