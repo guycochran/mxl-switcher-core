@@ -213,11 +213,34 @@ vCPUs. The safety monitor stopped the test, as designed. During the 10-minute
 runs the test container used about 150-210% CPU: the publisher plus a reader
 that copies every 5.5 MB grain.
 
+**Runs C-E, with CPU headroom (owner-approved window).** The software
+diagnostic sources were stopped and four stale probe readers were removed.
+The run was then repeated on the shared disk-backed MXL domain, and on a
+temporary tmpfs domain to test whether disk-backed flow storage causes the
+laps:
+
+| Run | Domain | Grains | Lapped (`index - code = -6`) | Audio | A/V offset | Operator Core |
+| --- | --- | ---: | ---: | --- | ---: | --- |
+| C sanity, 60 s | disk | 1,782 | 6 | exact | constant, 0 ppm (0.000 ms on unaffected events) | unchanged |
+| D sanity, 60 s | tmpfs | 1,819 | 0 | exact | -0.021 ms | unchanged |
+| E 10 min | tmpfs | 17,983 | 14 | exact (28.8 M samples) | -0.021 ms, range 0, 0 ppm | unchanged |
+
+The laps also occur on tmpfs, so **disk-backed storage is not their cause**.
+Disk-backed MXL flow storage is still not recommended for 1080p rings. The
+consistent pattern is the upstream `mxlsrc` check-then-copy race, which
+appears whenever the reader thread is preempted on a CPU-contended host (CPU
+pressure about 20-25%). The publisher was also frequently late against the
+pipeline clock, by up to about 1.6 s, while still writing every grain at its
+correct index. With the diagnostic sources stopped and the probes removed, the
+operator Core's hard counters stayed flat for the full 10 minutes.
+
 **Gate A status: not yet passed.** The measurement tool is now trustworthy and
-complete. The remaining failures come from CPU contention on the shared host,
-not from the reference path. Before another long run the gate needs dedicated
-headroom: fewer co-located software-rendered sources, a dedicated core set for
-the test, or a separate host.
+complete. The audio path and A/V alignment are proven exact. The remaining video
+failures come from the capture reader: the generic `mxlsrc` element copies
+every 5.5 MB grain and validates only before the copy. The next step is a
+capture reader that reads only the sampled code pixels straight from the ring
+and re-validates the grain index after reading. That makes the measurement
+immune to the race and cuts its CPU cost by orders of magnitude.
 
 ## Next live gate
 
