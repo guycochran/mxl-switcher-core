@@ -510,6 +510,17 @@ class DomainInputsTest(unittest.TestCase):
         def __init__(self, rate=48_000):
             self.rate = rate
             self.created = []
+            self.instances = []
+            self.destroyed = []
+
+        def mxlCreateInstance(self, domain, options):
+            instance = len(self.instances) + 10
+            self.instances.append((instance, domain, options))
+            return instance
+
+        def mxlDestroyInstance(self, instance):
+            self.destroyed.append(instance)
+            return mxl.MXL_STATUS_OK
 
         def mxlCreateFlowReader(self, instance, flow, options, handle):
             self.created.append(flow.decode())
@@ -546,6 +557,16 @@ class DomainInputsTest(unittest.TestCase):
         self.add_flow("00000000-0000-4000-8000-000000000002")
         reader = mixer.DomainInputs(api, None, self.domain.name).open("00000000-0000-4000-8000-000000000002")
         self.assertEqual(reader.ring_length, 19_456)
+
+    def test_isolated_reader_owns_and_releases_its_instance(self):
+        api = self.Api()
+        flow = "00000000-0000-4000-8000-000000000004"
+        self.add_flow(flow)
+        reader = mixer.DomainInputs(api, None, self.domain.name, isolated_instances=True).open(flow)
+        self.assertEqual(reader.ring_length, 19_456)
+        self.assertEqual(len(api.instances), 1)
+        reader.close()
+        self.assertEqual(api.destroyed, [api.instances[0][0]])
 
     def test_wrong_rate_is_unavailable_not_a_crash(self):
         self.add_flow("00000000-0000-4000-8000-000000000003")

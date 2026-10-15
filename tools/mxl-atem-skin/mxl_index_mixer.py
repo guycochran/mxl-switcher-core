@@ -148,11 +148,30 @@ class InputUnavailable(RuntimeError):
     """The input flow cannot be opened now (absent, or not a 48 kHz audio flow)."""
 
 
+class IsolatedSampleReader:
+    """A reader that owns the MXL instance used to resolve its flow mapping."""
+
+    def __init__(self, reader, api, instance) -> None:
+        self.reader, self.api, self.instance = reader, api, instance
+
+    def __getattr__(self, name):
+        return getattr(self.reader, name)
+
+    def close(self) -> None:
+        try:
+            self.reader.close()
+        finally:
+            if self.instance:
+                self.api.mxlDestroyInstance(self.instance)
+                self.instance = None
+
+
 class DomainInputs:
     """Open MXL audio inputs safely: never ask the SDK for a flow that is not there."""
 
-    def __init__(self, api, instance, domain: str) -> None:
+    def __init__(self, api, instance, domain: str, isolated_instances: bool = False) -> None:
         self.api, self.instance, self.domain = api, instance, domain
+        self.isolated_instances = isolated_instances
 
     def exists(self, flow_id: str) -> bool:
         return mxl.flow_exists(self.domain, flow_id)
@@ -160,7 +179,16 @@ class DomainInputs:
     def open(self, flow_id: str) -> mxl.SampleReader:
         if not self.exists(flow_id):
             raise InputUnavailable(f"flow {flow_id} is not in the domain")
-        return open_input(self.api, self.instance, flow_id)
+        if not self.isolated_instances:
+            return open_input(self.api, self.instance, flow_id)
+        instance = self.api.mxlCreateInstance(self.domain.encode(), b"")
+        if not instance:
+            raise InputUnavailable(f"could not create an isolated reader instance for {flow_id}")
+        try:
+            return IsolatedSampleReader(open_input(self.api, instance, flow_id), self.api, instance)
+        except Exception:
+            self.api.mxlDestroyInstance(instance)
+            raise
 
 
 class IndexMixer:
@@ -529,7 +557,7 @@ def main() -> int:
     instance = api.mxlCreateInstance(args.domain.encode(), b"")
     if not instance:
         raise RuntimeError("mxlCreateInstance failed")
-    inputs = DomainInputs(api, instance, args.domain)
+    inputs = DomainInputs(api, instance, args.domain, isolated_instances=True)
     flows = {str(number): flow for number, flow in enumerate(args.input, 1)}
     readers = {}
     for number, flow in flows.items():
