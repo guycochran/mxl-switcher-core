@@ -23,7 +23,8 @@ Every status a source can receive:
 - ``create_required``: the stable source is not registered in Core;
 - ``missing``: no active flow matches (or required audio is absent);
 - ``ambiguous``: more than one candidate, or the binding would conflict with
-  another source; an operator must decide;
+  another source (a video *or audio* flow claimed twice, or already owned by
+  another Core source); an operator must decide;
 - ``incompatible``: matching flows exist but their format does not match.
 """
 
@@ -349,42 +350,71 @@ def _demote(entry: dict, reason: str) -> None:
     entry["request"] = None
 
 
-def _reject_conflicts(entries: list[dict], core: dict[str, dict]) -> None:
-    """Never assign one video flow to two stable sources; never steal a bound flow."""
+def _ownership_keys(binding: dict | None) -> list[tuple[str, str]]:
+    """The flows a binding owns: its video flow and, when present, its audio flow."""
 
-    by_flow: dict[str, list[dict]] = {}
+    if not binding:
+        return []
+    keys = [("video", binding["flow_id"])] if binding.get("flow_id") else []
+    if binding.get("audio_flow_id"):
+        keys.append(("audio", binding["audio_flow_id"]))
+    return keys
+
+
+def _reject_conflicts(entries: list[dict], core: dict[str, dict]) -> None:
+    """One flow, video or audio, may have exactly one owner. Never steal one.
+
+    ``null`` audio (optional audio absent) owns nothing and never collides.
+    Only active flows reach ``desired``, so inactive or stale candidates
+    cannot reserve an ownership slot.
+    """
+
+    by_key: dict[tuple[str, str], list[dict]] = {}
     for entry in entries:
-        if entry["desired"]:
-            by_flow.setdefault(entry["desired"]["flow_id"], []).append(entry)
-    for flow_id, claimants in by_flow.items():
+        for key in _ownership_keys(entry["desired"]):
+            by_key.setdefault(key, []).append(entry)
+    for (kind, _flow_id), claimants in sorted(by_key.items()):
         if len(claimants) > 1:
             for entry in claimants:
-                _demote(entry, "duplicate_video_assignment")
+                _demote(entry, f"duplicate_{kind}_assignment")
     planned = {entry["id"]: entry for entry in entries}
-    for entry in entries:
-        if entry["status"] not in ("rebind", "create_required"):
-            continue
-        flow_id = entry["desired"]["flow_id"]
-        for other_id, other in core.items():
-            if other_id == entry["id"] or (other.get("flow_id") or "").lower() != flow_id:
+    # Repeat until stable: demoting one source can invalidate a claim that
+    # relied on it releasing a flow.
+    changed = True
+    while changed:
+        changed = False
+        for entry in entries:
+            if entry["status"] not in ("rebind", "create_required"):
                 continue
-            other_plan = planned.get(other_id)
-            moving_away = (other_plan is not None and other_plan["status"] == "rebind"
-                           and other_plan["desired"]["flow_id"] != flow_id)
-            if not moving_away:
-                _demote(entry, f"video_flow_bound_to_other_source:{other_id}")
+            for kind, flow_id in _ownership_keys(entry["desired"]):
+                field = "flow_id" if kind == "video" else "audio_flow_id"
+                for other_id, other in sorted(core.items()):
+                    if other_id == entry["id"] or (other.get(field) or "").lower() != flow_id:
+                        continue
+                    other_plan = planned.get(other_id)
+                    moving_away = (other_plan is not None and other_plan["status"] == "rebind"
+                                   and other_plan["desired"][field] != flow_id)
+                    if not moving_away and entry["status"] != "ambiguous":
+                        _demote(entry, f"{kind}_flow_bound_to_other_source:{other_id}")
+                        changed = True
 
 
 def _order_requests(entries: list[dict], core: dict[str, dict]) -> list[dict]:
-    """Order proposed rebinds so a flow is released before it is claimed; refuse cycles."""
+    """Order proposed rebinds so a flow (video or audio) is released before it is claimed.
+
+    Rebinding cycles, such as two sources swapping flows, are refused.
+    """
 
     rebinds = {entry["id"]: entry for entry in entries if entry["status"] == "rebind"}
-    current_owner = {(source.get("flow_id") or "").lower(): source_id for source_id, source in core.items()}
-    depends = {
-        source_id: {current_owner[entry["desired"]["flow_id"]]}
-        & (set(rebinds) - {source_id}) if entry["desired"]["flow_id"] in current_owner else set()
-        for source_id, entry in rebinds.items()
-    }
+    owner: dict[tuple[str, str], str] = {}
+    for source_id, source in core.items():
+        for key in _ownership_keys({"flow_id": (source.get("flow_id") or "").lower() or None,
+                                    "audio_flow_id": (source.get("audio_flow_id") or "").lower() or None}):
+            owner[key] = source_id
+    depends = {}
+    for source_id, entry in rebinds.items():
+        holders = {owner.get(key) for key in _ownership_keys(entry["desired"])}
+        depends[source_id] = (holders & set(rebinds)) - {source_id}
     ordered, done = [], set()
     while len(done) < len(rebinds):
         ready = sorted(source_id for source_id in rebinds if source_id not in done and depends[source_id] <= done)
