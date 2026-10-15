@@ -888,6 +888,62 @@ def run_probe(args) -> int:
     return 0
 
 
+def frame_signature(address: int, size: int, samples: int = 64, width: int = 64) -> bytes:
+    """A cheap content fingerprint: ``samples`` evenly spaced ``width``-byte windows of the grain."""
+
+    import ctypes
+
+    if size <= width:
+        return ctypes.string_at(address, size)
+    step = (size - width) // max(1, samples - 1)
+    return b"".join(ctypes.string_at(address + i * step, width) for i in range(samples))
+
+
+def run_motion(args) -> int:
+    """Prove changing content: count frame-to-frame changes over ``--seconds``.
+
+    An advancing MXL head is not live content. ZoomISO keeps publishing cadence
+    while an output is unassigned or a meeting is between restarts, so the
+    gate measures how often consecutive grains actually differ.
+    """
+
+    import mxl_direct as mxl
+
+    if not FLOW_ID.match(args.flow):
+        print(json.dumps({"error": "flow id is not a UUID"}))
+        return 2
+    if not mxl.flow_exists(args.domain, args.flow):
+        print(json.dumps({"flow": args.flow, "error": "flow is not in the domain"}))
+        return 1
+    api = mxl.load_library(args.library)
+    instance = api.mxlCreateInstance(args.domain.encode(), b"")
+    probe = mxl.Reader(api, instance, args.flow)
+    grains = probe.config().discrete.grainCount
+    probe.close()
+    reader = mxl.GrainReader(api, instance, args.flow, grains)
+    index = reader.head() or 0
+    frames = changes = 0
+    previous = None
+    started = time.monotonic()
+    while time.monotonic() - started < args.seconds:
+        result = reader.read(index, 200_000_000, frame_signature)
+        if result.status == mxl.MXL_STATUS_OK and result.value is not None:
+            frames += 1
+            changes += int(previous is not None and result.value != previous)
+            previous = result.value
+            index += 1
+        elif result.status == mxl.MXL_ERR_OUT_OF_RANGE_TOO_LATE:
+            index = reader.head() or index + 1
+        elif result.status != mxl.MXL_ERR_TIMEOUT:
+            index += 1
+    elapsed = time.monotonic() - started
+    reader.close()
+    api.mxlDestroyInstance(instance)
+    print(json.dumps({"flow": args.flow, "frames": frames, "changes": changes, "seconds": round(elapsed, 3),
+                      "change_fps": round(changes / elapsed, 2) if elapsed else 0.0}))
+    return 0
+
+
 def run_domain_check(args) -> int:
     present = {flow: os.path.isdir(os.path.join(args.domain, f"{flow}.mxl-flow")) for flow in args.flow
                if FLOW_ID.match(flow)}
@@ -909,10 +965,9 @@ def run_remove_flows(args) -> int:
 
 
 # --- command line ----------------------------------------------------------------------
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    sub = parser.add_subparsers(dest="command")
-    p = sub.add_parser("plan", help="plan (default) or, with --apply, observe the gate")
+def add_plan_arguments(p: argparse.ArgumentParser) -> None:
+    """Options shared by every isolated-candidate gate (this one and the flow-rotation gate)."""
+
     p.add_argument("--image", required=True, help="immutable candidate Core image")
     p.add_argument("--probe-image", required=True, help="local image with python3 and libmxl")
     p.add_argument("--library", default="libmxl.so")
@@ -950,12 +1005,23 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--dry-run", action="store_true", help="print the plan; change nothing (default)")
     mode.add_argument("--apply", action="store_true")
 
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command")
+    add_plan_arguments(sub.add_parser("plan", help="plan (default) or, with --apply, observe the gate"))
+
     probe = sub.add_parser("probe")
     probe.add_argument("--domain", required=True)
     probe.add_argument("--flow", required=True)
     probe.add_argument("--library", default="libmxl.so")
     probe.add_argument("--stall-ms", type=float, default=200.0)
     probe.add_argument("--wait-seconds", type=float, default=30.0)
+    motion = sub.add_parser("motion")
+    motion.add_argument("--domain", required=True)
+    motion.add_argument("--flow", required=True)
+    motion.add_argument("--seconds", type=float, default=5.0)
+    motion.add_argument("--library", default="libmxl.so")
     for name in ("domain-check", "remove-flows"):
         helper = sub.add_parser(name)
         helper.add_argument("--domain", required=True)
@@ -971,6 +1037,8 @@ def main(argv=None, docker: Docker | None = None, fetch=http_get, port_check=por
         return run_probe(args)
     if args.command == "domain-check":
         return run_domain_check(args)
+    if args.command == "motion":
+        return run_motion(args)
     if args.command == "remove-flows":
         return run_remove_flows(args)
     if args.command != "plan":
