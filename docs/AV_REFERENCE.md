@@ -369,7 +369,8 @@ next step.
 ## Real-MXL mixer lifecycle gate (harness, 2026-10-15)
 
 `tools/mxl-atem-skin/mxl_index_mixer_gate.py` proves the input lifecycle
-against a real MXL domain. It has not been run live yet.
+against a real MXL domain. Its corrected smoke and 10-minute confirmation have
+now passed on the CPU-only cloud baseline.
 
 **Isolation.** The gate creates a new tmpfs Docker volume as the domain and
 never accepts a domain path. All gate containers run with `--network none` and
@@ -383,6 +384,13 @@ run. The gate refuses, before any change, if any of these is true:
 - the tools directory lacks the mixer;
 - the evidence directory exists;
 - Docker is unusable.
+
+The gate writes an explicit 1-second history setting into its private,
+audio-only domain. This is deliberate test isolation: container lifecycle
+commands can pause processes longer than MXL's default roughly 200 ms readable
+history window, which turns a reader-lifecycle test into a host-scheduling
+test. This setting does **not** change a production MXL domain and should not be
+copied to a mixed audio/video domain without accounting for video memory.
 
 **Sequence.** Two constant-tone writers drive the mixer: A at 0.125 and B at
 0.25. The output sample therefore shows exactly who contributes (0.25 = B
@@ -418,6 +426,41 @@ pattern.
 removal (writer A's exit) and re-creation apart by `--gap-seconds`, but a
 crash fails the gate with the exit code recorded.
 
+**Live result.** The first real runs found two distinct issues rather than
+weakening the verdict:
+
+1. Releasing an invalid reader through the shared MXL instance blocked or
+   invalidated other real-time reader work. The mixer now gives each lifecycle
+   reader its own MXL instance, detaches invalid readers immediately, and
+   releases retired handles only during orderly shutdown. Pending releases and
+   release errors are visible in state.
+2. With the default history window, the Docker-driven transition produced one
+   overrun on the always-present B input on both the loaded older host and a
+   cloud smoke. Those runs are retained as scheduling evidence. The audio-only
+   lifecycle gate now declares a 1-second private history window and leaves
+   capacity/cadence qualification to the separate cadence gates.
+
+The corrected 60-second smoke passed, followed by this CPU-only cloud result:
+
+| Measure | 10-minute result |
+| --- | ---: |
+| Verdict / samples | PASS / 65 |
+| Output blocks written | 62,366 |
+| Output samples during hold | 0.375 throughout |
+| Output-head stalls | 0 |
+| Mixer restarts / non-running samples | 0 / 0 |
+| A opens / closes / invalid detections | 2 / 1 / 1 |
+| B stalls / skips | 0 / 0 |
+| Write errors / reader-release errors | 0 / 0 |
+| Mixer CPU, min / average / max | 1.10% / 2.77% / 3.22% |
+| Mixer RSS, min / max | 17.55 / 19.39 MiB |
+| Cleanup refusals | 0 |
+
+The loaded older CPU host completed the same 10-minute default-history
+sequence with stable output, zero restarts, 62 samples, and bounded
+16.48-17.03 MiB RSS, but correctly failed the strict gate for one B overrun.
+That is a useful capacity boundary, not a hidden pass.
+
 ```sh
 # dry run (default): read-only collision checks and the exact plan
 python3 tools/mxl-atem-skin/mxl_index_mixer_gate.py plan \
@@ -429,6 +472,9 @@ python3 tools/mxl-atem-skin/mxl_index_mixer_gate.py plan \
   --image <local MXL test image> --library <libmxl path in that image> \
   --hold-seconds 600 --apply
 ```
+
+Use `--history-ms 200` only when intentionally combining lifecycle with a
+default-window scheduling stress test.
 
 Use `--docker "sudo -n docker"` where the daemon needs it. The exit code is 0
 for PASS, 1 for FAIL, and 2 for a refusal. `test_index_mixer_gate.py` covers

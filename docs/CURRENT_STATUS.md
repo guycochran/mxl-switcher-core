@@ -14,6 +14,9 @@ forcing a particular UI, cloud, I/O protocol, or show workflow.
 - Eight registered 1920x1080p30 sources on the current live-lab profile.
 - Runtime source registration, removal, and atomic rebinding while preserving a
   stable logical source ID.
+- Real-MXL audio-input lifecycle recovery: absent inputs can join, disappear,
+  and recreate the same flow ID without restarting the index mixer; a strict
+  10-minute CPU-only cloud gate passed with zero skips on the surviving input.
 - Versioned HTTP control, reconnectable SSE state/tally, and detailed health
   telemetry.
 - Immutable container deployment with dry-run preflight, retained rollback,
