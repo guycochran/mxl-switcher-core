@@ -100,6 +100,7 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
   if (timeline_reset) {
     active_source = source_flow;
     last_index_by_output_source_[output_flow].erase(source_flow);
+    presentation_fallback_by_output_source_[output_flow].erase(source_flow);
   }
 
   auto& timelines = last_index_by_output_source_[output_flow];
@@ -117,8 +118,18 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
   const auto target = output_index - presentation_delay;
   auto selected = target;
   bool clamped = false;
+  auto& fallback_modes = presentation_fallback_by_output_source_[output_flow];
+  auto& fallback_active = fallback_modes[source_flow];
+  const auto target_readable = target >= candidate.oldest_index &&
+                               target <= candidate.newest_index;
+  const auto rejoin_ready =
+      target_readable && target < candidate.newest_index &&
+      (!previous || target >= *previous);
   const auto presentation_fallback =
-      target < candidate.oldest_index || target > candidate.newest_index;
+      fallback_active ? !rejoin_ready : !target_readable;
+  const auto presentation_fallback_entry =
+      presentation_fallback && !fallback_active;
+  fallback_active = presentation_fallback;
   if (presentation_fallback) {
     // A producer may intentionally use an index phase that differs from the
     // output clock (for example a decoder or NDI ingress). Preserve service by
@@ -149,19 +160,30 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
         return std::nullopt;
       }
     }
+  } else if (previous && target < *previous) {
+    // Output indexes normally rise monotonically. Preserve that property even
+    // if a caller supplies a regressed output index or a future mode change
+    // violates the rejoin guard.
+    selected = *previous;
+    clamped = true;
   }
   const auto cadence = classify_input_index_step(previous, selected);
   timelines[source_flow] = selected;
   auto window = candidate;
   window.selected_index = selected;
   return OutputReadSelection{window, cadence, timeline_reset, clamped,
-                             presentation_fallback};
+                             presentation_fallback,
+                             presentation_fallback_entry};
 }
 
 void OutputReadTimelines::reset_source(const std::string& source_flow) {
   for (auto& [output, timelines] : last_index_by_output_source_) {
     (void)output;
     timelines.erase(source_flow);
+  }
+  for (auto& [output, modes] : presentation_fallback_by_output_source_) {
+    (void)output;
+    modes.erase(source_flow);
   }
   for (auto it = active_source_by_output_.begin();
        it != active_source_by_output_.end();) {

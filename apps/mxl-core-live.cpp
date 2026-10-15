@@ -78,6 +78,8 @@ std::string health_json(const MxlBackendStats& stats) {
          << stats.max_selected_input_lag_frames
          << ",\"presentation_fallbacks\":"
          << stats.presentation_fallbacks
+         << ",\"presentation_fallback_entries\":"
+         << stats.presentation_fallback_entries
          << ",\"last_common_window_width\":"
          << stats.last_common_window_width
          << ",\"min_common_window_width\":"
@@ -122,6 +124,8 @@ std::string health_json(const MxlBackendStats& stats) {
            << source.max_input_lag_frames
            << ",\"presentation_fallbacks\":"
            << source.presentation_fallbacks
+           << ",\"presentation_fallback_entries\":"
+           << source.presentation_fallback_entries
            << '}';
   }
   output << "]}";
@@ -303,6 +307,8 @@ int main(int argc, char** argv) {
               << stats.max_selected_input_lag_frames
               << " presentation_fallbacks="
               << stats.presentation_fallbacks
+              << " presentation_fallback_entries="
+              << stats.presentation_fallback_entries
               << " last_common_window_width="
               << stats.last_common_window_width
               << " min_common_window_width="
@@ -347,7 +353,9 @@ int main(int argc, char** argv) {
                 << " max_input_lag_frames="
                 << source_stats.max_input_lag_frames
                 << " presentation_fallbacks="
-                << source_stats.presentation_fallbacks << '\n';
+                << source_stats.presentation_fallbacks
+                << " presentation_fallback_entries="
+                << source_stats.presentation_fallback_entries << '\n';
     }
     return 0;
   } catch (const std::exception& error) {

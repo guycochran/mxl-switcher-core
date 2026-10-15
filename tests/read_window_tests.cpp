@@ -264,6 +264,31 @@ void test_stall_recovery_restores_output_relative_delay() {
           "recovery did not restore fixed output-relative delay");
 }
 
+void test_core_catchup_rejoins_without_regression() {
+  OutputReadTimelines timelines;
+  const std::vector<std::pair<std::uint64_t, std::uint64_t>> samples{
+      {101, 100}, {102, 101}, {103, 108}, {104, 108}, {105, 108},
+      {106, 108}, {107, 108}, {108, 108}, {109, 108}, {110, 109},
+      {111, 110}};
+  std::uint64_t regressions = 0;
+  std::uint64_t fallback_entries = 0;
+  std::uint64_t repeats = 0;
+  std::optional<OutputReadSelection> last;
+  for (const auto& [output, head] : samples) {
+    last = timelines.select("pgm", "source-a", {head, 6}, 1, output);
+    require(last.has_value(), "Core catch-up became unavailable");
+    regressions += last->cadence.kind == InputIndexStepKind::Regression;
+    fallback_entries += last->presentation_fallback_entry;
+    repeats += last->cadence.kind == InputIndexStepKind::Repeat;
+  }
+  require(regressions == 0, "fallback rejoin rewound source content");
+  require(fallback_entries == 1, "one catch-up episode was not counted once");
+  require(repeats > 0, "forward-only rejoin did not expose its holds");
+  require(last && !last->presentation_fallback &&
+              last->window.selected_index == 109,
+          "catch-up did not restore the fixed two-frame delay");
+}
+
 void test_recovery_holds_when_floor_left_ring() {
   OutputReadTimelines timelines;
   require(timelines.select("pgm", "source-a", {100, 6}, 0, 101).has_value(),
@@ -315,6 +340,7 @@ int main() {
       {"fast nonanchored fallback",
        test_fast_nonanchored_fallback_stays_bounded},
       {"stall recovery delay", test_stall_recovery_restores_output_relative_delay},
+      {"Core catch-up rejoin", test_core_catchup_rejoins_without_regression},
       {"out-of-ring recovery hold", test_recovery_holds_when_floor_left_ring},
       {"sustained unavailable one-shot",
        test_sustained_unavailable_alarm_is_one_shot},

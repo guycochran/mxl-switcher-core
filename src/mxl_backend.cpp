@@ -282,6 +282,10 @@ class MxlBackend::Impl {
         ++stats_.presentation_fallbacks;
         ++source.presentation_fallbacks;
       }
+      if (selection->presentation_fallback_entry) {
+        ++stats_.presentation_fallback_entries;
+        ++source.presentation_fallback_entries;
+      }
       if (selection->timeline_reset) {
         ++stats_.input_timeline_resets;
       }

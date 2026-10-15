@@ -66,6 +66,7 @@ struct OutputReadSelection {
   bool timeline_reset{false};
   bool forward_clamped{false};
   bool presentation_fallback{false};
+  bool presentation_fallback_entry{false};
 };
 
 // Owns the input cursor for each (output, source) timeline. Selection is locked
@@ -89,6 +90,8 @@ class OutputReadTimelines {
   std::unordered_map<std::string,
                      std::unordered_map<std::string, std::uint64_t>>
       last_index_by_output_source_;
+  std::unordered_map<std::string, std::unordered_map<std::string, bool>>
+      presentation_fallback_by_output_source_;
 };
 
 // Converts a run of unavailable frames into one latched alarm. Availability
