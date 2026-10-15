@@ -96,7 +96,7 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
   const auto candidate =
       select_independent_read_index(source, safety_margin_frames);
   auto& active_source = active_source_by_output_[output_flow];
-  const auto timeline_reset = active_source != source_flow;
+  auto timeline_reset = active_source != source_flow;
   if (timeline_reset) {
     active_source = source_flow;
     last_index_by_output_source_[output_flow].erase(source_flow);
@@ -105,9 +105,21 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
 
   auto& timelines = last_index_by_output_source_[output_flow];
   const auto prior = timelines.find(source_flow);
-  const auto previous = prior == timelines.end()
-                            ? std::optional<std::uint64_t>{}
-                            : std::optional(prior->second);
+  auto previous = prior == timelines.end()
+                      ? std::optional<std::uint64_t>{}
+                      : std::optional(prior->second);
+  if (previous && (*previous < candidate.oldest_index ||
+                   *previous > candidate.newest_index)) {
+    // A recreated writer can briefly expose a reset ring before it re-anchors
+    // to the current MXL clock. Do not compare that new epoch with the old
+    // cursor: doing so turns a lifecycle event into an enormous synthetic skip
+    // or regression. The reopen remains visible through timeline-reset and
+    // reader-reopen telemetry.
+    previous.reset();
+    timelines.erase(source_flow);
+    presentation_fallback_by_output_source_[output_flow].erase(source_flow);
+    timeline_reset = true;
+  }
   if (safety_margin_frames == std::numeric_limits<std::uint64_t>::max()) {
     return std::nullopt;
   }

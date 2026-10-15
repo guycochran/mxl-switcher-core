@@ -311,12 +311,34 @@ void test_core_catchup_converges_without_late_commit() {
           "steady catch-up did not restore the fixed two-frame delay");
 }
 
-void test_recovery_holds_when_floor_left_ring() {
+void test_out_of_ring_recovery_resets_timeline() {
   OutputReadTimelines timelines;
   require(timelines.select("pgm", "source-a", {100, 6}, 0, 101).has_value(),
           "initial timeline selection failed");
-  require(!timelines.select("pgm", "source-a", {10, 6}, 0, 102).has_value(),
-          "an out-of-ring recovery floor was accepted");
+  const auto reset =
+      timelines.select("pgm", "source-a", {10, 6}, 0, 102);
+  require(reset && reset->timeline_reset &&
+              reset->cadence.kind == InputIndexStepKind::First,
+          "an out-of-ring writer epoch was not reset");
+}
+
+void test_writer_reanchor_starts_fresh_timeline() {
+  OutputReadTimelines timelines;
+  const auto before =
+      timelines.select("pgm", "source-a", {100, 10}, 1, 101);
+  const auto reset_ring =
+      timelines.select("pgm", "source-a", {10, 10}, 1, 102);
+  const auto reanchored =
+      timelines.select("pgm", "source-a", {1000, 60}, 1, 1001);
+  require(before && reset_ring && reanchored, "writer re-anchor became unavailable");
+  require(reset_ring->timeline_reset &&
+              reset_ring->cadence.kind == InputIndexStepKind::First,
+          "reset ring was compared with the prior writer epoch");
+  require(reanchored->timeline_reset &&
+              reanchored->cadence.kind == InputIndexStepKind::First &&
+              !reanchored->presentation_fallback &&
+              reanchored->window.selected_index == 999,
+          "re-anchored writer did not start a deterministic fresh timeline");
 }
 
 void test_sustained_unavailable_alarm_is_one_shot() {
@@ -365,7 +387,9 @@ int main() {
       {"Core catch-up rejoin", test_core_catchup_rejoins_without_regression},
       {"Core catch-up convergence",
        test_core_catchup_converges_without_late_commit},
-      {"out-of-ring recovery hold", test_recovery_holds_when_floor_left_ring},
+      {"out-of-ring recovery reset",
+       test_out_of_ring_recovery_resets_timeline},
+      {"writer re-anchor reset", test_writer_reanchor_starts_fresh_timeline},
       {"sustained unavailable one-shot",
        test_sustained_unavailable_alarm_is_one_shot},
   };
