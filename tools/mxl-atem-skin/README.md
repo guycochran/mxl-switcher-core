@@ -149,6 +149,7 @@ without restarting its bank container.
 ## A/V reference
 
 `mxl_av_reference_source.py` publishes paired frame-coded video and 48 kHz
-event audio. `mxl_av_analyze.py` measures captures for cadence, sample
+event audio. `mxl_av_capture.py` records a paired MXL flow into the analyzer's raw inputs, and
+`mxl_av_analyze.py` measures captures for cadence, sample
 continuity, A/V offset, and drift. `av_reference.py` holds the shared timeline
 and is standard-library only. See [the A/V reference guide](../../docs/AV_REFERENCE.md).

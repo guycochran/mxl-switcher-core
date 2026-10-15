@@ -1,8 +1,8 @@
 # A/V reference source and analyzer
 
-Status: implemented and unit-tested offline. **Not yet run on a live MXL
-domain.** No live A/V-sync result exists until a capture is analyzed and
-recorded.
+Status: implemented, unit-tested, and run once as an isolated 60-second
+zero-offset baseline directly from MXL (results below). It has not yet been
+run through Core, Program Audio, or a meeting return.
 
 This replaces listening as the acceptance measurement for audio cadence,
 sample continuity, and lip sync through Core, Program Audio, and meeting
@@ -52,9 +52,10 @@ The analyzer needs the video and audio on one capture timeline:
 
 - **Audience side**: a local recording of the destination meeting, or any
   capture ffmpeg can decode. Analyze it with `--media`.
-- **Inside MXL**: one GStreamer pipeline with two `mxlsrc` branches muxed into
-  one file. Two separately started pipelines do not share a timeline. Validate
-  the exact capture pipeline on the lab before relying on it.
+- **Inside MXL**: `mxl_av_capture.py` runs both `mxlsrc` branches in one
+  pipeline and writes the raw inputs below, plus `meta.json` with timestamp
+  gaps, arrival times, and the exact analyzer arguments. Two separately
+  started pipelines do not share a timeline.
 - **Raw**: 8-bit luma frames (`--video-raw`, `--width`, `--height`), one capture
   time per frame (`--video-pts`, or `--fps`), and interleaved Float32 48 kHz
   audio (`--audio-raw`, `--audio-start-s` for its first sample's capture time).
@@ -105,13 +106,44 @@ The tests run on the standard library only. They cover:
 - full CLI runs on synthetic captures, including one with 100 ms of audio lag
   and a frozen video segment.
 
+## Live zero-offset baseline — 2026-10-15
+
+An isolated container published the reference in lossless mode on new flow
+identities. Nothing was routed to Core or a meeting. `mxl_av_capture.py`
+captured both flows directly from MXL for 60 seconds on the shared lab host,
+which was CPU-saturated (load average about 23-25 on 20 vCPUs).
+
+| Measure | Result |
+| --- | ---: |
+| Publisher heads | video +71 grains and audio +115,200 samples over 2.4 s; both advancing |
+| Audio captured | 2,874,240 samples, 0 buffer timestamp gaps |
+| Sample counter | 2,874,239 continuous steps; gain 1.0; 0 gaps, 0 duplicates, 0 regressions |
+| Audio events / paired | 60 / 44 (16 bursts fell on frames missing from the video capture) |
+| A/V offset | -1.25 ms on every pair; range 0.00 ms; drift 0 ppm |
+| Video frames decoded | 1,437 of 1,437; 0 repeats, 0 regressions |
+| Video grains missing | 349 (about 19%) in 193 short skips; longest 24 grains |
+| Pass/fail | passed with default thresholds |
+
+The content-level audio/video relationship is locked: the offset is
+constant to the measurement resolution and does not drift. The audio path
+is sample-exact.
+
+The video skips are a capture-environment finding, not an A/V-sync finding.
+A 15-second reader without colour conversion missed about 6% of grains,
+against 19% with conversion. So most of the loss is the capture's 1080p
+conversion on a saturated host, and a remainder is on the publisher or reader
+side. Before a long gate, give the publisher and capture dedicated CPU (or
+crop before converting), then repeat the baseline until video skips are zero.
+
+During the run, both Cores' hard counters were unchanged, no container
+restarted, and only the exact test container was removed.
+
 ## Next live gate
 
-1. Publish the reference in an isolated container with new flow identities.
-2. Capture it directly from MXL. This is the zero-offset baseline and the
-   lossless sample-counter check.
-3. Register it with the isolated Core candidate, take it to Program, and capture
+1. Repeat the direct-MXL baseline with dedicated CPU until video skips are
+   zero.
+2. Register it with the isolated Core candidate, take it to Program, and capture
    Program video with its paired audio.
-4. Feed the meeting return and analyze an audience-side recording.
-5. Record offsets, drift, cadence, and counters for 10 minutes before changing
+3. Feed the meeting return and analyze an audience-side recording.
+4. Record offsets, drift, cadence, and counters for 10 minutes before changing
    any latency or presentation-offset setting.
