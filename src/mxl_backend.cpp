@@ -257,7 +257,7 @@ class MxlBackend::Impl {
     }
     const auto selection = timelines_.select(
         output_flow, source_flow, {runtime.headIndex, grain_count},
-        input_delay_frames_);
+        input_delay_frames_, output_index);
     if (!selection) {
       commit_unavailable(writer_it->second, output_index);
       return;

@@ -92,7 +92,7 @@ ReadWindowSelection select_independent_read_index(
 std::optional<OutputReadSelection> OutputReadTimelines::select(
     const std::string& output_flow, const std::string& source_flow,
     const ReadWindowSource& source,
-    std::uint64_t safety_margin_frames) {
+    std::uint64_t safety_margin_frames, std::uint64_t output_index) {
   const auto candidate =
       select_independent_read_index(source, safety_margin_frames);
   auto& active_source = active_source_by_output_[output_flow];
@@ -107,48 +107,32 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
   const auto previous = prior == timelines.end()
                             ? std::optional<std::uint64_t>{}
                             : std::optional(prior->second);
-  auto selected = candidate.selected_index;
+  if (safety_margin_frames == std::numeric_limits<std::uint64_t>::max()) {
+    return std::nullopt;
+  }
+  const auto presentation_delay = safety_margin_frames + 1U;
+  if (output_index < presentation_delay) {
+    return std::nullopt;
+  }
+  const auto target = output_index - presentation_delay;
+  auto selected = target;
   bool clamped = false;
-  if (previous) {
-    if (*previous == std::numeric_limits<std::uint64_t>::max()) {
+  if (target < candidate.oldest_index) {
+    // The writer has lapped the fixed presentation target. Catching up would
+    // silently change A/V alignment, so publish unavailable and expose the
+    // source clock/ring fault instead.
+    return std::nullopt;
+  }
+  if (target > candidate.newest_index) {
+    // A real source stall exhausted the presentation reservoir. Hold the last
+    // successfully targeted grain while it remains readable. Recovery returns
+    // directly to the output-relative target, restoring the configured delay.
+    if (!previous || *previous < candidate.oldest_index ||
+        *previous > candidate.newest_index) {
       return std::nullopt;
     }
-    const auto next = *previous + 1U;
-    if (next >= candidate.oldest_index && next <= candidate.newest_index) {
-      // Once a source timeline is established, consume it at exactly one
-      // grain per output. Re-sampling newest-minus-delay on every frame turns
-      // harmless producer/consumer phase jitter into a repeat followed by a
-      // skip. The safety margin is the initial jitter reservoir; temporarily
-      // consuming closer to the committed head absorbs that jitter without
-      // reading an uncommitted grain.
-      selected = next;
-      const auto lag = candidate.newest_index - selected;
-      if (lag > safety_margin_frames &&
-          lag - safety_margin_frames > 1U) {
-        // A persistently fast or re-anchored producer must not ratchet the
-        // cursor all the way to the ring edge. Drain one excess grain per
-        // output until the timeline is back inside a one-grain hysteresis
-        // band around the configured safety margin.
-        ++selected;
-      }
-      clamped = candidate.selected_index < *previous;
-    } else if (*previous >= candidate.oldest_index &&
-               *previous <= candidate.newest_index &&
-               next > candidate.newest_index) {
-      // The jitter reservoir is exhausted and the next grain is not committed
-      // yet. Hold the last valid picture rather than reading out of range.
-      selected = *previous;
-      clamped = true;
-    } else if (next < candidate.oldest_index) {
-      // A genuine producer leap lapped the sequential target. Catch up to the
-      // delayed safe point and expose the skip through cadence telemetry.
-      selected = candidate.selected_index;
-    } else {
-      // A reset/regression moved both the previous and next indices outside
-      // the readable ring. The caller must publish unavailable rather than
-      // rewind or mislabel content.
-      return std::nullopt;
-    }
+    selected = *previous;
+    clamped = true;
   }
   const auto cadence = classify_input_index_step(previous, selected);
   timelines[source_flow] = selected;

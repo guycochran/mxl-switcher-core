@@ -67,17 +67,18 @@ struct OutputReadSelection {
   bool forward_clamped{false};
 };
 
-// Owns the forward-only input cursor for each (output, source) timeline. After
-// the first delayed selection it consumes one readable source grain per output
-// instead of re-sampling newest-minus-delay every frame. The initial delay is
-// therefore a bounded jitter reservoir rather than a phase-sensitive selector.
-// A CUT changes timeline identity, so the new source begins at its current safe
-// index and is never compared with the prior source's unrelated counter.
+// Owns the input cursor for each (output, source) timeline. Selection is locked
+// to the output clock: output index N reads source index N-(margin+1). The extra
+// frame accounts for a source grain committed on the same MXL tick as the
+// output wake. This makes presentation delay deterministic across CUTs, holds,
+// and writer re-anchors instead of depending on when the source head was
+// sampled. A CUT resets cadence comparison with the prior source.
 class OutputReadTimelines {
  public:
   std::optional<OutputReadSelection> select(
       const std::string& output_flow, const std::string& source_flow,
-      const ReadWindowSource& source, std::uint64_t safety_margin_frames);
+      const ReadWindowSource& source, std::uint64_t safety_margin_frames,
+      std::uint64_t output_index);
   void reset_source(const std::string& source_flow);
 
  private:

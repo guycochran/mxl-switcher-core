@@ -133,10 +133,14 @@ void test_valid_cadence_hold_breaks_unavailable_run() {
 
 void test_cut_resets_unrelated_input_timeline() {
   OutputReadTimelines timelines;
-  const auto a1 = timelines.select("pgm", "source-a", {900'000, 6}, 0);
-  const auto b1 = timelines.select("pgm", "source-b", {12'000, 6}, 0);
-  const auto a2 = timelines.select("pgm", "source-a", {900'001, 6}, 0);
-  const auto b2 = timelines.select("pgm", "source-b", {12'001, 6}, 0);
+  const auto a1 =
+      timelines.select("pgm", "source-a", {900'000, 6}, 0, 900'001);
+  const auto b1 =
+      timelines.select("pgm", "source-b", {12'000, 6}, 0, 12'001);
+  const auto a2 =
+      timelines.select("pgm", "source-a", {900'001, 6}, 0, 900'002);
+  const auto b2 =
+      timelines.select("pgm", "source-b", {12'001, 6}, 0, 12'002);
   require(a1 && b1 && a2 && b2, "cut timeline selection failed");
   require(a1->timeline_reset && b1->timeline_reset && a2->timeline_reset &&
               b2->timeline_reset,
@@ -153,9 +157,9 @@ void test_cut_resets_unrelated_input_timeline() {
 
 void test_buffered_timeline_absorbs_phase_wobble() {
   OutputReadTimelines timelines;
-  const auto first = timelines.select("pgm", "source-a", {100, 10}, 1);
-  const auto second = timelines.select("pgm", "source-a", {100, 10}, 1);
-  const auto third = timelines.select("pgm", "source-a", {102, 10}, 1);
+  const auto first = timelines.select("pgm", "source-a", {100, 10}, 1, 101);
+  const auto second = timelines.select("pgm", "source-a", {100, 10}, 1, 102);
+  const auto third = timelines.select("pgm", "source-a", {102, 10}, 1, 103);
   require(first && second && third, "phase-wobble timeline was rejected");
   require(first->window.selected_index == 99 &&
               second->window.selected_index == 100 &&
@@ -168,48 +172,63 @@ void test_buffered_timeline_absorbs_phase_wobble() {
 
 void test_exhausted_jitter_reservoir_holds() {
   OutputReadTimelines timelines;
-  const auto first = timelines.select("pgm", "source-a", {100, 10}, 1);
-  const auto second = timelines.select("pgm", "source-a", {100, 10}, 1);
-  const auto exhausted = timelines.select("pgm", "source-a", {100, 10}, 1);
+  const auto first = timelines.select("pgm", "source-a", {100, 10}, 1, 101);
+  const auto second = timelines.select("pgm", "source-a", {100, 10}, 1, 102);
+  const auto exhausted =
+      timelines.select("pgm", "source-a", {100, 10}, 1, 103);
   require(first && second && exhausted, "jitter-reservoir hold was rejected");
   require(exhausted->window.selected_index == 100 &&
               exhausted->cadence.kind == InputIndexStepKind::Repeat,
           "an actual source stall did not produce a cadence hold");
 }
 
-void test_recovery_remains_forward_only() {
+void test_output_relative_target_survives_head_regression() {
   OutputReadTimelines timelines;
-  const auto first = timelines.select("pgm", "source-a", {105, 10}, 5);
-  const auto recovered = timelines.select("pgm", "source-a", {104, 10}, 5);
+  const auto first = timelines.select("pgm", "source-a", {105, 10}, 5, 106);
+  const auto recovered =
+      timelines.select("pgm", "source-a", {104, 10}, 5, 107);
   require(first && recovered, "recoverable source regression was rejected");
-  require(recovered->forward_clamped &&
+  require(!recovered->forward_clamped &&
               recovered->window.selected_index == 101 &&
               recovered->cadence.kind == InputIndexStepKind::Sequential,
-          "recovery did not preserve the forward sequential timeline");
+          "head regression changed the output-relative timeline");
 }
 
-void test_fast_source_lag_stays_bounded() {
+void test_output_relative_delay_is_deterministic() {
   OutputReadTimelines timelines;
-  const std::vector<std::uint64_t> heads{100, 102, 104, 106, 108, 110};
-  std::uint64_t max_lag = 0;
-  std::uint64_t skips = 0;
-  for (const auto head : heads) {
-    const auto selected = timelines.select("pgm", "source-a", {head, 20}, 1);
-    require(selected.has_value(), "fast source selection failed");
-    max_lag = std::max(max_lag, head - selected->window.selected_index);
-    if (selected->cadence.kind == InputIndexStepKind::Skip) {
-      skips += selected->cadence.magnitude;
-    }
-  }
-  require(max_lag <= 2, "fast source escaped the bounded hysteresis band");
-  require(skips > 0, "fast source drift was hidden instead of measured");
+  const auto early_phase =
+      timelines.select("pgm", "source-a", {100, 20}, 1, 101);
+  timelines.reset_source("source-a");
+  const auto late_phase =
+      timelines.select("pgm", "source-a", {101, 20}, 1, 101);
+  require(early_phase && late_phase, "phase-independent selection failed");
+  require(early_phase->window.selected_index == 99 &&
+              late_phase->window.selected_index == 99,
+          "source-head phase changed the output-relative delay");
+}
+
+void test_stall_recovery_restores_output_relative_delay() {
+  OutputReadTimelines timelines;
+  const auto first = timelines.select("pgm", "source-a", {100, 10}, 1, 101);
+  const auto second = timelines.select("pgm", "source-a", {100, 10}, 1, 102);
+  const auto held = timelines.select("pgm", "source-a", {100, 10}, 1, 103);
+  const auto recovered =
+      timelines.select("pgm", "source-a", {104, 10}, 1, 104);
+  require(first && second && held && recovered, "stall recovery failed");
+  require(held->window.selected_index == 100 &&
+              held->cadence.kind == InputIndexStepKind::Repeat,
+          "source stall did not hold its last target");
+  require(recovered->window.selected_index == 102 &&
+              recovered->cadence.kind == InputIndexStepKind::Skip &&
+              recovered->cadence.magnitude == 1,
+          "recovery did not restore fixed output-relative delay");
 }
 
 void test_recovery_holds_when_floor_left_ring() {
   OutputReadTimelines timelines;
-  require(timelines.select("pgm", "source-a", {100, 6}, 0).has_value(),
+  require(timelines.select("pgm", "source-a", {100, 6}, 0, 101).has_value(),
           "initial timeline selection failed");
-  require(!timelines.select("pgm", "source-a", {10, 6}, 0).has_value(),
+  require(!timelines.select("pgm", "source-a", {10, 6}, 0, 102).has_value(),
           "an out-of-ring recovery floor was accepted");
 }
 
@@ -249,8 +268,10 @@ int main() {
       {"cut timeline reset", test_cut_resets_unrelated_input_timeline},
       {"buffered phase wobble", test_buffered_timeline_absorbs_phase_wobble},
       {"exhausted jitter reservoir", test_exhausted_jitter_reservoir_holds},
-      {"forward-only recovery", test_recovery_remains_forward_only},
-      {"fast source bounded lag", test_fast_source_lag_stays_bounded},
+      {"head-regression target",
+       test_output_relative_target_survives_head_regression},
+      {"output-relative delay", test_output_relative_delay_is_deterministic},
+      {"stall recovery delay", test_stall_recovery_restores_output_relative_delay},
       {"out-of-ring recovery hold", test_recovery_holds_when_floor_left_ring},
       {"sustained unavailable one-shot",
        test_sustained_unavailable_alarm_is_one_shot},
