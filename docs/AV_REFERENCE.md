@@ -804,7 +804,8 @@ larger-delay profile remains an implementation proof, not a promoted profile.
 
 1. Run a controlled real-ZoomISO output interruption/recovery while preserving
    the operator mappings and watching input lag, timeline resets, reader
-   reopens, and `presentation_fallbacks`.
+   reopens, and `presentation_fallbacks`. Use the fail-closed
+   [real ZoomISO recovery gate](REAL_ZOOMISO_RECOVERY_GATE.md).
 2. Feed that unchanged candidate to the meeting return and analyze an
    audience-side recording before attempting the 30-minute and eight-hour
    holds.

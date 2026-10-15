@@ -91,6 +91,8 @@ Choose the entry point that matches what you want to build:
 - **Run the complete demonstrated workflow:** use the
   [operator demo profile](docs/OPERATOR_DEMO.md) and the
   [community presentation](docs/decks/mxl-switcher-community-demo-v5-3.pptx).
+- **Reproduce controlled source recovery:** follow the operator-approved,
+  fail-closed [real ZoomISO recovery gate](docs/REAL_ZOOMISO_RECOVERY_GATE.md).
 
 ## Architecture at a glance
 
