@@ -1,8 +1,10 @@
 # A/V reference source and analyzer
 
-Status: implemented, unit-tested, and run once as an isolated 60-second
-zero-offset baseline directly from MXL (results below). It has not yet been
-run through Core, Program Audio, or a meeting return.
+Status: implemented and unit-tested. Short direct-MXL runs are clean and
+deterministic (zero loss, code = MXL index, A/V offset 0.000 ms). The 10-minute
+direct-MXL gate has not passed because of host CPU contention (see Gate A
+below). Nothing has been run through Core, Program Audio, or a meeting return
+yet.
 
 This replaces listening as the acceptance measurement for audio cadence,
 sample continuity, and lip sync through Core, Program Audio, and meeting
@@ -164,6 +166,55 @@ crop before converting), then repeat the baseline until video skips are zero.
 
 During the run, both Cores' hard counters were unchanged, no container
 restarted, and only the exact test container was removed.
+
+## Gate A: zero-loss direct-MXL baseline (2026-10-15)
+
+After the first baseline, three changes removed avoidable loss and ambiguity
+from the measurement path:
+
+- the publisher packs v210 directly and has no scaler, converter, or leaky
+  queue;
+- the capture decodes codes from raw v210 instead of converting frames; and
+- buffer timestamps are anchored to MXL time.
+
+| Run | Duration | Grains | Missing / regressions | Code = MXL index | Audio | A/V offset | Verdict |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | --- |
+| Before changes | 60 s | 1,437 | 349 / 0 | not checked | exact | -1.25 ms | fail (loss) |
+| Direct v210, unanchored | 30 s | 894 | 0 / 0 | not checked | exact | -10.83 ms | pass |
+| Anchored | 30 s | 906 | 0 / 0 | 906 / 906 | exact | -0.042 ms | pass |
+| Anchored, reps 1-3 | 3 x 60 s | 5,421 | 0 / 0 | all | exact | -0.021 ms | pass x3 |
+| Tightest clock sample | 60 s | 1,807 | 0 / 0 | all | exact | 0.000 ms | pass |
+| 10-minute run A | 600 s | 18,004 | 6 / 1 | 18,003 | exact (28.79 M samples) | 0.000 ms, 0 ppm | **fail** |
+| 10-minute run B | stopped at 398 s | - | - | - | - | - | **stopped** |
+
+Audio was sample-exact in every run: no gaps, duplicates, or regressions, and
+zero offset range and drift once anchored.
+
+**Run A.** The single video failure came during a host stall of about 0.5 s:
+the publisher logged buffers about 530 ms late at the same moment. The capture
+skipped two indices and then received one grain labelled with index `i` but
+carrying the picture of grain `i + 6`. The ring holds six grains. This matches
+a check-then-copy race in the upstream `mxlsrc` discrete reader. It validates
+the ring slot's grain index before copying the payload, but not after. If the
+reader is preempted mid-copy long enough for the writer to lap the ring, the
+copied picture belongs to a newer grain. Core's own reader also copies from the
+ring without a post-copy check, but its read window keeps a two-grain margin
+from the oldest slot. Proposed hardening for both: after copying, re-read the
+flow head, and treat the grain as unavailable if the writer could have lapped
+the slot. Without the content-code check this failure would have been
+invisible.
+
+**Run B.** The default operator Core recorded one `too_late` event on a
+software-rendered diagnostic source while host load reached about 35 on 20
+vCPUs. The safety monitor stopped the test, as designed. During the 10-minute
+runs the test container used about 150-210% CPU: the publisher plus a reader
+that copies every 5.5 MB grain.
+
+**Gate A status: not yet passed.** The measurement tool is now trustworthy and
+complete. The remaining failures come from CPU contention on the shared host,
+not from the reference path. Before another long run the gate needs dedicated
+headroom: fewer co-located software-rendered sources, a dedicated core set for
+the test, or a separate host.
 
 ## Next live gate
 
