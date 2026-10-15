@@ -183,6 +183,64 @@ class AppTests(unittest.TestCase):
         self.assertTrue(result["applied"])
         self.assertEqual(result["final_revision"], 14)
 
+    def test_recovery_preflight_fails_closed_on_duplicate_audio_ownership(self):
+        """The real executor, run by the Skin, refuses a malformed plan and never writes."""
+
+        import http.server
+        import threading
+
+        def uid(n):
+            return f"00000000-0000-4000-8000-{n:012d}"
+
+        writes = []
+        state = {"revision": 12, "program": "input-1", "preview": "input-2"}
+        sources = [{"id": "input-1", "flow_id": uid(1), "audio_flow_id": None},
+                   {"id": "input-2", "flow_id": uid(2), "audio_flow_id": None}]
+
+        class FakeCore(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                body = json.dumps(state if self.path.endswith("/state") else sources).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_PUT(self):  # noqa: N802
+                writes.append(self.path)
+                self.send_response(500)
+                self.end_headers()
+
+            def log_message(self, *_):
+                return
+
+        core = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeCore)
+        threading.Thread(target=core.serve_forever, daemon=True).start()
+        self.addCleanup(core.server_close)
+        self.addCleanup(core.shutdown)
+
+        app = self.recovery_app()
+        app.core = f"http://127.0.0.1:{core.server_address[1]}"
+        app.recovery_executor = pathlib.Path(__file__).resolve().parents[1] / "mxl_rebind_apply.py"
+        shared = uid(30)
+        entries, requests = [], []
+        for source_id, old, new in (("input-1", 1, 11), ("input-2", 2, 12)):
+            desired = {"flow_id": uid(new), "audio_flow_id": shared}
+            entries.append({"id": source_id, "status": "rebind", "reasons": [],
+                            "current": {"flow_id": uid(old), "audio_flow_id": None}, "desired": desired})
+            requests.append({"source": source_id, "method": "PUT",
+                             "path": f"/api/mxl/v1/sources/{source_id}", "body": desired})
+        document = {"planner": "mxl-discovery-planner", "plan_version": 1, "read_only": True,
+                    "blocked": False, "sources": entries, "requests": requests}
+        app.recovery_plan = lambda: {"state": "ready", "plan_id": "reviewed", "revision": 12,
+                                     "plan": document, "apply_enabled": True}
+        with self.assertRaisesRegex(RuntimeError, "one audio flow to more than one source"):
+            app.recovery_preflight({"plan_id": "reviewed"})
+        app.recovery_apply_enabled = True
+        with self.assertRaisesRegex(RuntimeError, "one audio flow to more than one source"):
+            app.recovery_apply({"plan_id": "reviewed", "expected_revision": 12, "confirm": "APPLY_REBINDS"})
+        self.assertEqual(writes, [])
+
     def test_prepare_rejects_duplicate_sources(self):
         app = self.app()
         with self.assertRaisesRegex(ValueError, "different source"):

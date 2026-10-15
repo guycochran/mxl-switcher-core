@@ -135,6 +135,33 @@ Trust boundary:
 - Two mapping entries with the same writer, group and video role are rejected
   as a configuration error.
 
+### Flow ownership
+
+Every flow, **video or audio**, has at most one owner. The planner fails closed
+and never chooses a winner by ordering or label:
+
+- Two stable sources claiming the same active audio flow both become
+  `ambiguous` (`duplicate_audio_assignment`). This happens, for example, when
+  two video roles in one group are both mapped to that group's single audio
+  role.
+- A source claiming an audio or video flow that Core already binds to another
+  source becomes `ambiguous`
+  (`audio_flow_bound_to_other_source:<id>` or `video_flow_bound_to_other_source:<id>`).
+  The exception is when that other source is rebinding away in the same plan.
+  Then the release is ordered before the claim.
+- If the release a claim relies on is itself blocked, the claim is blocked too.
+- Only active flows can be desired, so a stale or inactive copy of an audio
+  output never reserves ownership. It appears only in diagnostics.
+- `audio_flow_id: null` (optional audio absent) owns nothing, so any number of
+  video-only sources may carry it.
+
+For example, with synthetic identities, writer `contrib-a` publishes group
+`Camera Output 1` with roles `Video 1`, `Video 2` and one `Audio 1`. A mapping
+that gives `cam-wide` (`Video 1`) and `cam-tight` (`Video 2`) the same
+`audio_role: "Audio 1"` yields two `ambiguous` sources and no requests. The
+operator must assign the audio to one of them, or mark audio optional on the
+other.
+
 ### Statuses
 
 | Status | Meaning |
@@ -143,11 +170,11 @@ Trust boundary:
 | `rebind` | The writer regenerated its flow UUIDs. The stable source ID stays the same, and a `PUT /api/mxl/v1/sources/{id}` is proposed. |
 | `create_required` | The stable source is not registered in Core. |
 | `missing` | No active compatible flow, or required audio is absent. |
-| `ambiguous` | More than one valid candidate; a duplicate video assignment; a flow already bound to another Core source; or a rebinding cycle such as a swap. The operator decides. |
+| `ambiguous` | More than one valid candidate; a duplicate video or audio assignment; a flow already bound to another Core source; or a rebinding cycle such as a swap. The operator decides. |
 | `incompatible` | Matching flows exist, but the format, resolution or cadence differ, or the flow differs from Core's operating point. |
 
-Proposed requests are ordered so that a flow is released before another source
-claims it. Every collection is sorted, and the JSON is rendered with sorted
+Proposed requests are ordered so that a flow, video or audio, is released
+before another source claims it. Every collection is sorted, and the JSON is rendered with sorted
 keys, so identical inputs give byte-identical plans. The exit status is `0`
 when every source is `noop` or `rebind`, `1` when any source needs operator
 action, and `2` for an input or configuration error.
@@ -247,6 +274,14 @@ the live binding after every receipt. If a request or verification fails, it
 rolls completed requests back in reverse order. A dependent plan that would
 require releasing Program before another source is rejected for manual
 handling.
+
+The executor enforces flow ownership independently of the planner, so a
+malformed or hand-edited plan cannot bypass it. It rejects a plan whose
+resulting bindings give any video or audio flow two owners. It then simulates
+the ordered apply against live Core, including sources outside the plan, and
+refuses if any intermediate step would. Audio transfers between sources
+must release before they claim. The Skin's Source Recovery preflight and apply
+both run through this check.
 
 ```sh
 # Safe default: preflight only. It prints the required revision and order.

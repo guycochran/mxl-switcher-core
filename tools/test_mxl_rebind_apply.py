@@ -148,5 +148,59 @@ class ExecuteTest(unittest.TestCase):
         self.assertEqual(self.bindings["program"], {"flow_id": uid(3), "audio_flow_id": uid(4)})
 
 
+class AudioOwnershipPreflightTest(unittest.TestCase):
+    STATE = {"revision": 4, "program": "cam-a", "preview": "cam-b"}
+
+    def test_malformed_plan_claiming_one_audio_flow_twice_is_rejected(self):
+        # Supplied directly: blocked=False and statuses look actionable, but two
+        # sources would own the same audio flow.
+        document = plan(request("cam-a", uid(1), None, uid(11), uid(30)),
+                        request("cam-b", uid(2), None, uid(12), uid(30)))
+        live = [source("cam-a", uid(1), None), source("cam-b", uid(2), None)]
+        with self.assertRaisesRegex(apply_tool.ApplyError, "plan assigns one audio flow to more than one source"):
+            apply_tool.preflight(document, self.STATE, live)
+
+    def test_noop_entry_sharing_audio_with_a_rebind_is_rejected(self):
+        entry, req = request("cam-b", uid(2), None, uid(12), uid(30))
+        noop = {"id": "cam-a", "status": "noop", "current": {"flow_id": uid(1), "audio_flow_id": uid(30)},
+                "desired": {"flow_id": uid(1), "audio_flow_id": uid(30)}}
+        document = plan((entry, req))
+        document["sources"].append(noop)
+        live = [source("cam-a", uid(1), uid(30)), source("cam-b", uid(2), None)]
+        with self.assertRaisesRegex(apply_tool.ApplyError, "one audio flow to more than one source"):
+            apply_tool.preflight(document, self.STATE, live)
+
+    def test_audio_held_by_a_source_outside_the_plan_is_rejected(self):
+        document = plan(request("cam-a", uid(1), None, uid(11), uid(30)))
+        live = [source("cam-a", uid(1), None), source("program-audio", uid(9), uid(30))]
+        with self.assertRaisesRegex(apply_tool.ApplyError, "applying cam-a assigns one audio flow"):
+            apply_tool.preflight(document, self.STATE, live)
+
+    def test_audio_transfer_must_release_before_claim(self):
+        # cam-b releases audio 30 to cam-a. The executor must order cam-b first.
+        claim = request("cam-a", uid(1), None, uid(11), uid(30))
+        release = request("cam-b", uid(2), uid(30), uid(12), uid(31))
+        live = [source("cam-a", uid(1), None), source("cam-b", uid(2), uid(30))]
+        state = {"revision": 4, "program": "other", "preview": "none"}
+        prepared = apply_tool.preflight(plan(release, claim), state, live)
+        self.assertEqual([item["source"] for item in prepared["requests"]], ["cam-b", "cam-a"])
+        with self.assertRaisesRegex(apply_tool.ApplyError, "violates a live flow dependency"):
+            apply_tool.preflight(plan(claim, release), state, live)
+
+    def test_optional_null_audio_on_several_sources_is_allowed(self):
+        document = plan(request("gfx-1", uid(1), uid(20), uid(11), None),
+                        request("gfx-2", uid(2), uid(21), uid(12), None))
+        live = [source("gfx-1", uid(1), uid(20)), source("gfx-2", uid(2), uid(21))]
+        prepared = apply_tool.preflight(document, {"revision": 4, "program": "gfx-1", "preview": "gfx-2"}, live)
+        self.assertEqual([item["source"] for item in prepared["requests"]], ["gfx-2", "gfx-1"])
+
+    def test_distinct_audio_pairs_pass(self):
+        document = plan(request("cam-a", uid(1), None, uid(11), uid(30)),
+                        request("cam-b", uid(2), None, uid(12), uid(31)))
+        live = [source("cam-a", uid(1), None), source("cam-b", uid(2), None)]
+        prepared = apply_tool.preflight(document, self.STATE, live)
+        self.assertEqual([item["source"] for item in prepared["requests"]], ["cam-b", "cam-a"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -277,6 +277,127 @@ class SafetyTest(unittest.TestCase):
             planner.plan([], bad, [])
 
 
+def rule(source_id, writer, group, video_role="Video 1", audio_role="Audio 1", required=None):
+    entry = {"id": source_id, "match": {"writer_container": writer, "group": group,
+                                        "video_role": video_role, "audio_role": audio_role}}
+    if audio_role is None:
+        del entry["match"]["audio_role"]
+    if required is not None:
+        entry["audio"] = {"required": required}
+    return entry
+
+
+class AudioOwnershipTest(unittest.TestCase):
+    def test_two_sources_claiming_one_active_audio_flow_are_ambiguous(self):
+        # Two video roles in one group, both (wrongly) mapped to the group's only audio role.
+        flows = [video(1, "contrib-a", "Camera Output 1", role="Video 1"),
+                 video(2, "contrib-a", "Camera Output 1", role="Video 2"),
+                 audio(3, "contrib-a", "Camera Output 1")]
+        rules = mapping(rule("cam-wide", "contrib-a", "Camera Output 1", video_role="Video 1"),
+                        rule("cam-tight", "contrib-a", "Camera Output 1", video_role="Video 2"))
+        result = planner.plan(flows, rules, [core_source("cam-wide", 90), core_source("cam-tight", 91)])
+        entries = by_id(result)
+        for source_id in ("cam-wide", "cam-tight"):
+            self.assertEqual(entries[source_id]["status"], "ambiguous")
+            self.assertIn("duplicate_audio_assignment", entries[source_id]["reasons"])
+        self.assertEqual(result["requests"], [])
+        self.assertTrue(result["blocked"])
+
+    def test_video_from_other_writer_never_borrows_audio(self):
+        # contrib-b publishes the same group name but no audio; it must not take contrib-a's.
+        flows = [video(1, "contrib-a", "Camera Output 1"), audio(2, "contrib-a", "Camera Output 1"),
+                 video(3, "contrib-b", "Camera Output 1")]
+        rules = mapping(rule("cam-a", "contrib-a", "Camera Output 1"), rule("cam-b", "contrib-b", "Camera Output 1"))
+        entries = by_id(planner.plan(flows, rules, [core_source("cam-a", 1), core_source("cam-b", 3)]))
+        self.assertEqual(entries["cam-a"]["desired"], {"flow_id": uid(1), "audio_flow_id": uid(2)})
+        self.assertEqual(entries["cam-b"]["status"], "missing")
+        self.assertIn("audio_missing", entries["cam-b"]["reasons"])
+
+    def test_stale_audio_copy_cannot_reserve_ownership(self):
+        flows = [video(1, "contrib-a", "Camera Output 1"),
+                 audio(2, "contrib-a", "Camera Output 1", active=False, status="stale"),
+                 audio(3, "contrib-a", "Camera Output 1")]
+        # Core still records the stale audio on an unrelated legacy source.
+        core = [core_source("cam-a", 1), core_source("legacy", 50, 2)]
+        result = planner.plan(flows, mapping(rule("cam-a", "contrib-a", "Camera Output 1")), core)
+        entry = by_id(result)["cam-a"]
+        self.assertEqual(entry["status"], "rebind")
+        self.assertEqual(entry["desired"], {"flow_id": uid(1), "audio_flow_id": uid(3)})
+        self.assertEqual([c["flow_id"] for c in entry["audio"]["not_active"]], [uid(2)])
+
+    def test_optional_null_audio_never_collides(self):
+        flows = [video(1, "gfx-a", "Graphics 1"), video(2, "gfx-b", "Graphics 1")]
+        rules = mapping(rule("gfx-1", "gfx-a", "Graphics 1", required=False),
+                        rule("gfx-2", "gfx-b", "Graphics 1", required=False))
+        result = planner.plan(flows, rules, [core_source("gfx-1", 90, 91), core_source("gfx-2", 92, 93)])
+        entries = by_id(result)
+        for source_id, flow in (("gfx-1", 1), ("gfx-2", 2)):
+            self.assertEqual(entries[source_id]["status"], "rebind")
+            self.assertEqual(entries[source_id]["desired"], {"flow_id": uid(flow), "audio_flow_id": None})
+        self.assertFalse(result["blocked"])
+
+    def test_distinct_audio_pairs_are_valid(self):
+        flows = [video(1, "contrib-a", "Camera Output 1"), audio(2, "contrib-a", "Camera Output 1"),
+                 video(3, "contrib-a", "Camera Output 2"), audio(4, "contrib-a", "Camera Output 2")]
+        rules = mapping(rule("cam-1", "contrib-a", "Camera Output 1"), rule("cam-2", "contrib-a", "Camera Output 2"))
+        result = planner.plan(flows, rules, [core_source("cam-1", 1), core_source("cam-2", 3)])
+        self.assertEqual({e["status"] for e in result["sources"]}, {"rebind"})
+        self.assertEqual([r["body"]["audio_flow_id"] for r in result["requests"]], [uid(2), uid(4)])
+
+    def test_audio_owned_by_another_core_source_is_not_stolen(self):
+        flows = [video(1, "contrib-a", "Camera Output 1"), audio(2, "contrib-a", "Camera Output 1")]
+        core = [core_source("cam-a", 1), core_source("program-audio", 60, 2)]
+        entry = by_id(planner.plan(flows, mapping(rule("cam-a", "contrib-a", "Camera Output 1")), core))["cam-a"]
+        self.assertEqual(entry["status"], "ambiguous")
+        self.assertIn("audio_flow_bound_to_other_source:program-audio", entry["reasons"])
+
+    def test_audio_released_before_it_is_claimed(self):
+        # cam-b moves to its new audio, releasing the flow cam-a now claims.
+        flows = [video(1, "contrib-a", "Camera Output 1"), audio(2, "contrib-a", "Camera Output 1"),
+                 video(3, "contrib-b", "Camera Output 1"), audio(4, "contrib-b", "Camera Output 1")]
+        rules = mapping(rule("cam-a", "contrib-a", "Camera Output 1"), rule("cam-b", "contrib-b", "Camera Output 1"))
+        core = [core_source("cam-a", 1), core_source("cam-b", 3, 2)]
+        result = planner.plan(flows, rules, core)
+        self.assertEqual([r["source"] for r in result["requests"]], ["cam-b", "cam-a"])
+
+    def test_audio_swap_cycle_requires_operator(self):
+        flows = [video(1, "contrib-a", "Camera Output 1"), audio(2, "contrib-a", "Camera Output 1"),
+                 video(3, "contrib-b", "Camera Output 1"), audio(4, "contrib-b", "Camera Output 1")]
+        rules = mapping(rule("cam-a", "contrib-a", "Camera Output 1"), rule("cam-b", "contrib-b", "Camera Output 1"))
+        core = [core_source("cam-a", 1, 4), core_source("cam-b", 3, 2)]
+        result = planner.plan(flows, rules, core)
+        self.assertEqual({e["status"] for e in result["sources"]}, {"ambiguous"})
+        self.assertEqual(result["requests"], [])
+
+    def test_claim_relying_on_a_blocked_release_is_also_blocked(self):
+        # cam-a claims the video cam-b holds; cam-b would move away, but cam-b is itself
+        # blocked by an audio conflict, so cam-a must not proceed either.
+        flows = [video(1, "contrib-a", "Camera Output 1"), audio(2, "contrib-a", "Camera Output 1"),
+                 video(3, "contrib-b", "Camera Output 1"), audio(4, "contrib-b", "Camera Output 1")]
+        rules = mapping(rule("cam-a", "contrib-a", "Camera Output 1"), rule("cam-b", "contrib-b", "Camera Output 1"))
+        core = [core_source("cam-a", 90), core_source("cam-b", 1), core_source("program-audio", 61, 4)]
+        entries = by_id(planner.plan(flows, rules, core))
+        self.assertEqual(entries["cam-b"]["status"], "ambiguous")
+        self.assertEqual(entries["cam-a"]["status"], "ambiguous")
+        self.assertIn("video_flow_bound_to_other_source:cam-b", entries["cam-a"]["reasons"])
+
+    def test_conflict_plans_are_byte_stable_under_shuffling(self):
+        flows = [video(1, "contrib-a", "Camera Output 1", role="Video 1"),
+                 video(2, "contrib-a", "Camera Output 1", role="Video 2"),
+                 audio(3, "contrib-a", "Camera Output 1"),
+                 audio(5, "contrib-a", "Camera Output 1", active=False, status="stale"),
+                 video(6, None, "Camera Output 9")]
+        rules = mapping(rule("cam-wide", "contrib-a", "Camera Output 1", video_role="Video 1"),
+                        rule("cam-tight", "contrib-a", "Camera Output 1", video_role="Video 2"))
+        core = [core_source("cam-wide", 90), core_source("cam-tight", 91), core_source("legacy", 92, 3)]
+        expected = planner.render(planner.plan(flows, rules, core))
+        rng = random.Random(11)
+        for _ in range(8):
+            f, r, c = copy.deepcopy(flows), copy.deepcopy(rules), copy.deepcopy(core)
+            rng.shuffle(f); rng.shuffle(r["sources"]); rng.shuffle(c)
+            self.assertEqual(planner.render(planner.plan(f, r, c)), expected)
+
+
 class DeterminismTest(unittest.TestCase):
     def test_output_is_byte_stable_under_input_reordering(self):
         flows = json.loads((FIXTURES / "flows.json").read_text())

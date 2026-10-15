@@ -7,7 +7,9 @@ requires an expected Core revision and the literal confirmation phrase
 ``APPLY_REBINDS``. Core must be reachable through loopback.
 
 Before writing, the executor verifies that every current binding still equals
-the plan's snapshot. For ordinary publisher UUID regeneration (no flow is
+the plan's snapshot, and that no video or audio flow would ever have two owners:
+neither in the plan's resulting bindings nor in Core at any step of the ordered
+apply. This holds even for a malformed plan supplied directly. For ordinary publisher UUID regeneration (no flow is
 being transferred between sources), Preview is applied first, other off-air
 sources follow, and Program is last. Every receipt and resulting binding is
 verified. A failure rolls back completed requests in reverse order.
@@ -124,7 +126,28 @@ def _normalise_plan(plan: dict) -> list[dict]:
     expected_ids = sorted(entry["id"] for entry in source_entries if entry["status"] == "rebind")
     if sorted(requested_ids) != expected_ids or len(requested_ids) != len(set(requested_ids)):
         raise ApplyError("plan requests do not exactly cover its rebind sources")
+    final = {}
+    for entry in source_entries:
+        binding = entry.get("desired") if entry["status"] == "rebind" else (entry.get("desired") or entry.get("current"))
+        if isinstance(binding, dict):
+            final[entry["id"]] = _binding(binding)
+    _require_single_owners(final, "plan")
     return result
+
+
+def _require_single_owners(bindings: dict[str, dict], context: str) -> None:
+    """Every non-null video or audio flow must belong to at most one source."""
+
+    owners: dict[tuple[str, str], list[str]] = {}
+    for source_id, binding in sorted(bindings.items()):
+        for kind, field in (("video", "flow_id"), ("audio", "audio_flow_id")):
+            flow_id = binding.get(field)
+            if flow_id:
+                owners.setdefault((kind, flow_id), []).append(source_id)
+    for (kind, _flow_id), source_ids in sorted(owners.items()):
+        if len(source_ids) > 1:
+            raise ApplyError(f"{context} assigns one {kind} flow to more than one source: "
+                             + ", ".join(source_ids))
 
 
 def _sources_by_id(snapshot) -> dict[str, dict]:
@@ -139,14 +162,33 @@ def _sources_by_id(snapshot) -> dict[str, dict]:
 
 
 def _dependency_edges(requests: list[dict], live: dict[str, dict]) -> set[tuple[str, str]]:
-    owners = {_binding(source)["flow_id"]: source_id for source_id, source in live.items()}
+    """(releaser, claimant) pairs: a source must release a video or audio flow before another claims it."""
+
+    owners = {}
+    for source_id, source in live.items():
+        binding = _binding(source)
+        for field in ("flow_id", "audio_flow_id"):
+            if binding[field]:
+                owners[(field, binding[field])] = source_id
     requested = {request["source"] for request in requests}
     edges = set()
     for request in requests:
-        owner = owners.get(request["desired"]["flow_id"])
-        if owner and owner != request["source"] and owner in requested:
-            edges.add((owner, request["source"]))
+        for field in ("flow_id", "audio_flow_id"):
+            flow_id = request["desired"][field]
+            owner = owners.get((field, flow_id)) if flow_id else None
+            if owner and owner != request["source"] and owner in requested:
+                edges.add((owner, request["source"]))
     return edges
+
+
+def _require_safe_sequence(requests: list[dict], live: dict[str, dict]) -> None:
+    """Simulate the ordered apply; no step may leave one flow with two owners."""
+
+    bindings = {source_id: _binding(source) for source_id, source in live.items()}
+    _require_single_owners(bindings, "live Core already")
+    for request in requests:
+        bindings[request["source"]] = _binding(request["desired"])
+        _require_single_owners(bindings, f"applying {request['source']}")
 
 
 def preflight(plan: dict, state: dict, sources) -> dict:
@@ -182,6 +224,7 @@ def preflight(plan: dict, state: dict, sources) -> dict:
             key=lambda pair: (0 if pair[1]["source"] == preview else
                               2 if pair[1]["source"] == program else 1, pair[0]))]
         strategy = "preview_off_air_program"
+    _require_safe_sequence(ordered, live)
     return {
         "revision": state["revision"],
         "program": program,
