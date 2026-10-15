@@ -297,6 +297,30 @@ the local `mxl-lab:latest` base: MXL SDK redistribution terms must be resolved
 before publishing any runtime image. A successful local build or health check
 does not authorize registry publication.
 
+### Versioned local image qualification (2026-10-15)
+
+Candidate `0.2.0-candidate.a89fe17` was built from exact revision `a89fe17`
+using the licensed local base image, then run as an isolated container against
+two live 1080p30 sources. The first start failed closed because a test
+configuration supplied output UUIDs that did not match the bundled output
+definitions. The corrected gate used the definitions' declared acceptance
+UUIDs and a loopback port mapping; the operator Core was never replaced.
+
+The corrected candidate became Docker-healthy with zero restarts. During the
+qualification window both stable outputs advanced at approximately 30 fps,
+resident memory stayed near 77 MiB, and invalid, early, late, timeout,
+reader-reopen, synchronization, no-common-window, regression, and sustained
+alarm counters remained zero. Cadence holds/skips and a small number of
+observed-window/copy-lap measurements were retained as load telemetry; neither
+output stalled or regressed.
+
+The isolated container and exact temporary output flows were removed after the
+gate. Permanent ZoomISO, operator Core, Program Audio, and NMOS services stayed
+running with zero restarts. The qualified image remains installed locally as
+both `mxl-switcher-core:0.2.0-candidate.a89fe17` and the catalog alias
+`mxl-switcher-core:0.2.0-candidate`. It has not been pushed to a registry and
+has not replaced the operator Core.
+
 The catalog entry becoming valid JSON does **not** make the deployment
 production-ready. Promotion also requires:
 
