@@ -1,0 +1,41 @@
+{
+  "id": "00000000-0000-4000-8000-000000000902",
+  "description": "Example facility Preview (synthetic)",
+  "label": "Example Preview",
+  "parents": [],
+  "tags": {
+    "urn:x-nmos:tag:grouphint/v1.0": [
+      "ExampleCorePreview:Video"
+    ]
+  },
+  "format": "urn:x-nmos:format:video",
+  "media_type": "video/v210",
+  "grain_rate": {
+    "numerator": 30,
+    "denominator": 1
+  },
+  "frame_width": 1920,
+  "frame_height": 1080,
+  "interlace_mode": "progressive",
+  "colorspace": "BT709",
+  "components": [
+    {
+      "name": "Y",
+      "width": 1920,
+      "height": 1080,
+      "bit_depth": 10
+    },
+    {
+      "name": "Cb",
+      "width": 960,
+      "height": 1080,
+      "bit_depth": 10
+    },
+    {
+      "name": "Cr",
+      "width": 960,
+      "height": 1080,
+      "bit_depth": 10
+    }
+  ]
+}
