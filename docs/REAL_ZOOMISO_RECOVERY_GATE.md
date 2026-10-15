@@ -96,6 +96,96 @@ Do not publish participant names, meeting credentials, private addresses, flow
 identities, raw evidence paths, or operational logs. Public documentation should
 contain only aggregated results.
 
+## Observer harness
+
+`tools/mxl-atem-skin/mxl_recovery_observer.py` prepares and watches this gate.
+**The operator still performs the interruption and restoration by hand.** The
+harness never calls a ZoomISO API or container, and never changes a meeting,
+a mapping, the network, or a permanent service.
+
+```sh
+python3 tools/mxl-atem-skin/mxl_recovery_observer.py plan \
+  --image <immutable candidate Core image> --probe-image <local MXL test image> \
+  --library <libmxl path in that image> --domain-path <host MXL domain> \
+  --selected-source gate-selected --selected-flow <ZoomISO output video flow> \
+  --selected-audio-flow <its audio flow>        # or --selected-audio-channel N
+  --control-source gate-control --control-flow <different, untouched output> \
+  --operator-core-url http://127.0.0.1:<operator port> \
+  --program-audio-url http://127.0.0.1:<Program Audio port> \
+  --permanent <container> --permanent <container> ...  \
+  --host-port <unused loopback port> --forbid-port <each permanent port>
+# Without --apply it only plans. Add --apply to run.
+```
+
+### Before anything starts
+
+The harness runs these read-only checks first. A dry run performs only these
+checks and starts nothing. It refuses if any of the following holds:
+
+- the selected output is the operator Core's Program source;
+- the selected output is on the operator Preview (unless
+  `--allow-operator-preview` is given);
+- the selected output is active in Program Audio;
+- its Program Audio input cannot be identified;
+- the selected and control outputs are the same;
+- a container name, the loopback port, or a declared permanent port
+  collides;
+- an image is absent;
+- a permanent container is not running;
+- the evidence directory exists;
+- a source flow is missing;
+- a candidate output flow already exists in the domain.
+
+### Phases
+
+| Phase | What happens | Bound |
+| --- | --- | --- |
+| Start | The candidate Core runs on fresh output IDs, with selected on Program and control on Preview, confirmed from `/state`. Two `--network none` probes then read those outputs by index, with the domain mounted read-only. | `--start-timeout` |
+| Baseline | Both probes sustain 29–31 fps with no new drops or stalls, and holds, skips, and fallbacks are quiet. | `--baseline-seconds` |
+| Awaiting interruption | The harness tells the operator to interrupt, then waits for the selected head to freeze or the reader to reopen. | `--interruption-timeout` |
+| Awaiting restoration | The harness tells the operator to restore the exact assignment, then waits for the head to advance again. | `--restoration-timeout` |
+| Recovery | The lag must fall to `input_delay_frames + 1` or less, fallbacks must stop, and the alarm must clear. | `--recovery-timeout` |
+| Stable hold | Fallback frames and entries must not move, and the lag must stay bounded. | `--stable-seconds` (≥ 30) |
+
+### Failures at any point
+
+These fail the gate immediately:
+
+- any change in `invalid`, `too_early`, `too_late`, `timeouts`, or
+  `selected_input_regressions`;
+- a probe drop or stall after the baseline;
+- a candidate or probe container exiting or restarting;
+- Program or Preview no longer carrying selected or control.
+
+### Verdict
+
+The verdict requires **exactly one** recovery signature:
+
+- **destroyed/recreated**: the selected reader reopened at least once, a
+  timeline reset occurred, there were no skips, and an alarm was raised;
+- **stopped/continued**: no reopen, no alarm, and one skip whose magnitude is
+  within one grain of the measured outage. The outage is measured as held
+  output frames.
+
+A skip of a million grains or more always fails as an epoch artefact.
+Permanent containers must keep their start time and restart count.
+
+### Evidence and cleanup
+
+Evidence is written before cleanup, including after a timeout, a failure, or
+Ctrl-C:
+
+- `plan.json`, `preflight.json`, `samples.jsonl`, `events.json`,
+  `verdict.json`, and container logs;
+- `public-summary.json`, which holds aggregates only, with no flow IDs,
+  source names, URLs, or paths.
+
+Cleanup removes only containers labelled `org.mxl.recovery-gate.run=<run id>`.
+Then, once the candidate Core is gone, it removes the two candidate output flow
+directories with a one-shot helper. It never removes source flows.
+
+Exit codes: 0 is PASS, 1 is FAIL, 2 is refused with nothing changed.
+
 ## Next gate
 
 After this gate passes, feed the unchanged Program video and aligned Program
