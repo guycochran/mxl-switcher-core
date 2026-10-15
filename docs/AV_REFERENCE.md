@@ -779,6 +779,17 @@ This qualifies the synthetic writer-disappearance/recreation behavior. A
 controlled real-ZoomISO recovery and the paired audience-return gate remain
 required before the 30-minute or eight-hour audience-return holds.
 
+A separate read-only smoke then exercised the same candidate against two live
+ZoomISO MXL sources without changing meeting mappings or permanent services.
+After startup warmup was excluded from the baseline, 35 samples over 70 seconds
+advanced 4,262 routes with no movement in hard counters, reader reopens,
+selected repeats/skips/regressions, presentation fallbacks, or availability
+alarms. Program and Preview probes averaged 30.01 and 30.02 fps respectively
+with zero drops, and both sources finished one frame behind the output head.
+Temporary candidates were removed and permanent services retained zero
+restarts. This qualifies steady-state real-ZoomISO ingestion; it does not yet
+qualify recovery from a deliberate ZoomISO output interruption.
+
 A larger 8,000-sample presentation delay also exposed an integration boundary:
 reading old samples directly from the source ring can exceed a producer's
 retained history even when the mixer itself is healthy. The index mixer now
@@ -791,9 +802,9 @@ larger-delay profile remains an implementation proof, not a promoted profile.
 
 ## Next live gate
 
-1. Repeat the qualified isolated writer-reanchor behavior against real ZoomISO
-   without altering the operator mappings, while watching input lag,
-   timeline resets, reader reopens, and `presentation_fallbacks`.
+1. Run a controlled real-ZoomISO output interruption/recovery while preserving
+   the operator mappings and watching input lag, timeline resets, reader
+   reopens, and `presentation_fallbacks`.
 2. Feed that unchanged candidate to the meeting return and analyze an
    audience-side recording before attempting the 30-minute and eight-hour
    holds.

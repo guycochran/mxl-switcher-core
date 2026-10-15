@@ -128,7 +128,10 @@ needed. Paid cloud machines must be deallocated after each test window.
   sources inside the fixed target window. An isolated two-flow writer
   stop/recreate gate then passed with both outputs near 30 fps, zero probe
   drops, zero selected skips/regressions, clean epoch resets, and deterministic
-  recovery. Real-ZoomISO recovery qualification remains open. A mixer-owned
+  recovery. A read-only two-source real-ZoomISO smoke subsequently held 4,262
+  routes over 70 seconds with no post-baseline counter movement and zero probe
+  drops at approximately 30 fps. Controlled real-ZoomISO interruption recovery
+  remains open. A mixer-owned
   sample history also makes
   long presentation delays independent of an upstream writer's ring depth;
   that boundary has unit and real-MXL audio proof but is not yet a promoted

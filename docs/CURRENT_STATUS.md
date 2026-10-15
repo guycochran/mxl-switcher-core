@@ -91,7 +91,11 @@ Core's media hot path.
   heads within the deterministic window. An isolated two-flow writer
   stop/recreate gate passed at 30 fps with zero output-probe drops, selected
   skips, or regressions after adding explicit writer-epoch reset handling.
-  Real-ZoomISO recovery and meeting-to-meeting audience acceptance remain open.
+  A subsequent read-only two-source real-ZoomISO smoke held 4,262 routes over
+  70 seconds with no post-baseline counter movement; Program and Preview stayed
+  near 30 fps with zero drops and one-frame final source lag. Controlled
+  real-ZoomISO interruption recovery and meeting-to-meeting audience acceptance
+  remain open.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.
