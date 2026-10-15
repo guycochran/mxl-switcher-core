@@ -119,6 +119,77 @@ Repeats and skips are expected when the capture rate differs from 30 fps or a
 meeting reduces frame rate. Interpret them against the capture rate; a long
 freeze or any regression is a finding.
 
+## Qualification matrix
+
+`tools/mxl-atem-skin/mxl_av_matrix.py` runs the analyzer over a set of
+existing audience-side captures, one per named Program-return configuration,
+and writes one qualification report. It works offline: it never records,
+joins a meeting, or touches a container or the network.
+
+```json
+{
+  "schema": "mxl-av-matrix/1",
+  "matrix": "preview1-program-return",
+  "stage": "10min",
+  "defaults": {
+    "limits": {"max_skipped_grains": -1, "max_freeze_ms": 250},
+    "event_channel": "left"
+  },
+  "cases": [
+    {"name": "index-mixer", "capture": "captures/index-mixer.mkv",
+     "configuration": {"name": "index-mixer+clock-recovery", "max_wait_ms": 500}},
+    {"name": "clock-mixer", "capture": "captures/clock-mixer.mkv",
+     "configuration": {"name": "clock-driven-mixer"}, "required": false}
+  ]
+}
+```
+
+```sh
+python3 tools/mxl-atem-skin/mxl_av_matrix.py matrix.json            # plan only
+python3 tools/mxl-atem-skin/mxl_av_matrix.py matrix.json \
+  --apply --result-dir results/preview1-10min-1                     # run
+```
+
+**Manifest.** `limits` keys are the analyzer's threshold flags in snake
+case. `-1` disables `max_freeze_ms`, `max_skipped_grains` and `max_repeats`.
+Case limits override `defaults`. Capture paths are relative to the manifest.
+`configuration` is free-form but must have a `name`. A case is required
+unless it says `"required": false`.
+
+**Refusals.** These are refused with exit 2, before anything is written:
+
+- unknown keys;
+- malformed or out-of-range limits;
+- duplicate or unsafe case names;
+- a missing capture;
+- an empty matrix;
+- an unknown stage;
+- an existing result directory, or one whose parent is absent.
+
+**Plan.** Without `--apply`, the runner prints every case and its exact
+analyzer command.
+
+**Apply.** With `--apply`, the runner creates only the named result directory.
+For each case it records:
+
+- the capture's SHA-256 and size;
+- the declared configuration and the effective limits;
+- the analyzer command, exit status, and full report.
+
+The runner also records the source revision: the Git commit, whether the tools
+directory is dirty, and tool hashes. It keeps each case's raw analyzer output
+next to `report.json`.
+
+**Stages.** The stages are `smoke` (60 s), `10min` (600 s), `30min` (1,800 s)
+and `8h` (28,800 s). A case covers the reference time it decoded: the sum of
+its forward grain-code steps divided by 30. So a short or frozen capture
+cannot satisfy a longer stage; capture a little longer than the stage. Use
+`--stage` to re-check a manifest against another stage.
+
+**Verdict.** The matrix passes only if at least one case is required and every
+required case passes. An analyzer error counts as a failure. Exit codes are 0
+for PASS, 1 for FAIL, and 2 for a refusal.
+
 ## Tests
 
 ```sh
