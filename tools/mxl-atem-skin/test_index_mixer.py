@@ -388,6 +388,7 @@ class InputLifecycleTest(unittest.TestCase):
         new.write_through(START + 10 * BLOCK)
         domain.flows["zoom"] = new
         mix.mix_block(START + 2 * BLOCK)
+        self.assertTrue(mix.wait_for_retired(1.0))
         stats = mix.stats["1"]
         self.assertEqual((stats.skipped_reasons["invalid"], stats.closes, stats.opens, old.released),
                          (1, 1, 1, 1))
@@ -430,6 +431,7 @@ class InputLifecycleTest(unittest.TestCase):
         replacement = FakeInput(counter, negative, on_wait=never)  # recreated under the same ID, still silent
         domain.flows["zoom"] = replacement
         mix.mix_block(START + 2 * BLOCK)
+        self.assertTrue(mix.wait_for_retired(1.0))
         self.assertEqual((stats.opens, stats.closes, stats.stalled, stuck.released), (1, 1, True, 1))
         self.assertEqual(replacement.waits, 0)  # the stall survives the reopen: no second hold
         mix.mix_block(START + 3 * BLOCK)
@@ -447,8 +449,40 @@ class InputLifecycleTest(unittest.TestCase):
         mix.mix_block(START + BLOCK)
         del domain.flows["zoom"]
         mix.mix_block(START + 2 * BLOCK)
+        self.assertTrue(mix.wait_for_retired(1.0))
         stats = mix.stats["1"]
         self.assertEqual((stats.online, stuck.released, stats.skipped_reasons["offline"]), (False, 1, 1))
+
+    def test_slow_reader_release_does_not_block_the_surviving_input(self):
+        release_started = threading.Event()
+        release_allowed = threading.Event()
+
+        class SlowRelease(FakeInput):
+            def mxlReleaseFlowReader(self, instance, handle):
+                release_started.set()
+                release_allowed.wait(2.0)
+                return super().mxlReleaseFlowReader(instance, handle)
+
+        old = SlowRelease(counter, negative)
+        old.write_through(START + 10 * BLOCK)
+        domain = FakeDomain(zoom=old, live=self.live)
+        mix, out = make_live(domain, {"1": "zoom", "2": "live"}, self.clock)
+        self.on_air_both(mix)
+        old.invalid = True
+        replacement = FakeInput(lambda s: 0.5, lambda s: 0.5)
+        replacement.write_through(START + 10 * BLOCK)
+        domain.flows["zoom"] = replacement
+
+        mix.mix_block(START + BLOCK)
+        self.assertTrue(release_started.wait(1.0))
+        self.assertEqual(mix.stats["2"].on_time, 1)
+        self.assertEqual(out.written, [START + BLOCK])
+        self.assertEqual(mix.state()["reader_releases_pending"], 1)
+
+        release_allowed.set()
+        self.assertTrue(mix.wait_for_retired(1.0))
+        self.assertEqual(old.released, 1)
+        self.assertEqual(mix.state()["reader_release_errors"], 0)
 
     def test_wait_cap_follows_the_open_rings(self):
         domain = FakeDomain(long=FakeInput(counter, negative, length=48_000))

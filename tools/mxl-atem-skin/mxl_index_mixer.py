@@ -202,6 +202,9 @@ class IndexMixer:
         self.output_end_index = None
         self.output_lag_samples = None
         self.output_progress_at = time.monotonic()
+        self._retire_lock = threading.Lock()
+        self._retire_threads: list[threading.Thread] = []
+        self.reader_release_errors = 0
 
     # --- control (same contract as mxl_audio_mixer.py) ---------------------
     def _enabled(self, number: str) -> bool:
@@ -258,6 +261,8 @@ class IndexMixer:
             "blocks_degraded": self.blocks_degraded,
             "write_errors": self.write_errors,
             "last_write_status": self.last_write_status,
+            "reader_releases_pending": sum(thread.is_alive() for thread in self._retire_threads),
+            "reader_release_errors": self.reader_release_errors,
             "channels": {
                 number: {**channel, "active": self._enabled(number), **asdict(self.stats[number])}
                 for number, channel in self.channels.items()
@@ -279,14 +284,40 @@ class IndexMixer:
     def _close_input(self, number: str) -> None:
         reader = self.readers[number]
         if reader is not None:
+            # Detach first. Releasing a dead SDK reader can take longer than
+            # the audio history window on a busy host; doing that release on
+            # the mix thread makes healthy inputs overrun while an unrelated
+            # flow is being recreated.
+            self.readers[number] = None
+            stats = self.stats[number]
+            stats.online = False
+            stats.closes += 1
+            self._update_wait_cap()
+            self._retire_input(reader)
+
+    def _retire_input(self, reader) -> None:
+        def release() -> None:
             try:
                 reader.close()
-            finally:
-                self.readers[number] = None
-                stats = self.stats[number]
-                stats.online = False
-                stats.closes += 1
-                self._update_wait_cap()
+            except Exception:  # release failure is telemetry, never a media-loop failure
+                with self._retire_lock:
+                    self.reader_release_errors += 1
+
+        thread = threading.Thread(target=release, name="mxl-reader-release", daemon=True)
+        with self._retire_lock:
+            self._retire_threads.append(thread)
+        thread.start()
+
+    def wait_for_retired(self, timeout: float | None = None) -> bool:
+        """Wait for detached reader releases during tests or orderly shutdown."""
+
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with self._retire_lock:
+            threads = list(self._retire_threads)
+        for thread in threads:
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            thread.join(remaining)
+        return all(not thread.is_alive() for thread in threads)
 
     def _open_input(self, number: str, stalled: bool = False) -> bool:
         """Try to open an offline input now; on failure, wait one reopen interval.
