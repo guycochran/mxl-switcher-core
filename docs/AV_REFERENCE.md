@@ -400,10 +400,12 @@ the destination meeting.
   behind, it catches up without waiting, so a CPU stall delays output but does
   not lose it while the input rings still hold the samples.
 - **Explicit presentation alignment.** With the default zero delay, input and
-  output use the same sample index. `--output-delay-samples N` instead reads
-  the block ending at `end - N` and writes it at `end`. This moves content by
-  exactly `N` samples without changing the 48 kHz output cadence or resampling.
-  `/state` exposes both samples and milliseconds, so the setting is auditable.
+  output use the same sample index. `--output-delay-samples N` captures current
+  input into a bounded mixer-owned history, reads the range ending at
+  `end - N`, and writes it at `end`. This moves content by exactly `N` samples
+  without changing the 48 kHz output cadence or resampling, and it does not
+  depend on an upstream writer retaining `N` old samples. `/state` exposes the
+  delay and history misses, so the setting is auditable.
 - **Bounded wait, in MXL time.** An input that has not reached `end` is waited
   for until MXL time reaches `end + max_wait`. The default is 500 ms, capped at
   half the shortest input ring so waiting cannot let another input's samples be
@@ -702,10 +704,40 @@ This is a one-frame video-cadence shift under shared CPU load, not audio clock
 drift. Keep this failed result; use the qualified CPU-capacity profile for the
 audience-return acceptance rather than loosening the sync limit.
 
+### Cloud paired-path boundary
+
+The paired Core Program plus index-audio path was then repeated for 610 seconds
+on the 32-vCPU CPU-only cloud profile with RAM-backed media storage. Both the
+one-grain/3,200-sample and two-grain/4,800-sample configurations retained
+sample-perfect audio and exact measured A/V alignment. Each run decoded 18,302
+video frames and paired all 610 reference events at 0.000 ms median offset,
+0.000 ms range, and 0 ppm drift. Neither configuration eliminated a rare
+long-run video-cadence event: each recorded three repeated and three skipped
+video frames, with no regressions or freeze longer than one frame.
+
+This rules out audio resampling, audio-clock drift, and insufficient aggregate
+cloud CPU as the cause. Increasing the fixed input/audio displacement is not a
+correct fix for the remaining cadence behavior. Preview 1 therefore keeps the
+strict zero-repeat/zero-skip limit and treats Core video scheduling as the open
+item before an audience-meeting promotion.
+
+A larger 8,000-sample presentation delay also exposed an integration boundary:
+reading old samples directly from the source ring can exceed a producer's
+retained history even when the mixer itself is healthy. The index mixer now
+captures current blocks into bounded mixer-owned history before applying a
+presentation delay. Unit coverage proves an 8,000-sample delay with only 4,800
+samples of upstream ring history, and a real-MXL smoke recorded 8,451 output
+blocks with zero history misses, degraded blocks, overruns, or write failures.
+The older shared host could not meet the corresponding video gate, so this
+larger-delay profile remains an implementation proof, not a promoted profile.
+
 ## Next live gate
 
-1. Feed the meeting return and analyze an audience-side recording.
-2. Record offsets, drift, cadence, and counters for 10 minutes before changing
-   any latency or presentation-offset setting.
-3. Repeat the isolated profile with real ZoomISO sources before using the result
+1. Isolate and remove the rare Core video repeat/skip event without relaxing
+   the strict cadence threshold.
+2. Repeat the paired 10-minute gate on the CPU-only cloud profile.
+3. Feed that unchanged candidate to the meeting return and analyze an
+   audience-side recording before attempting the 30-minute and eight-hour
+   holds.
+4. Repeat the isolated profile with real ZoomISO sources before using the result
    as an end-to-end contribution claim.

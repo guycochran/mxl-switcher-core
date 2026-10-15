@@ -78,8 +78,12 @@ Core's media hot path.
   -0.021 ms median offset with zero range and drift after explicit presentation
   alignment. A 610-second repeat on the loaded older lab host retained perfect
   audio but failed the strict offset-range limit because Core video shifted by
-  one frame under shared CPU load. Meeting-to-meeting audience acceptance on
-  the qualified capacity profile remains open.
+  one frame under shared CPU load. Two further 610-second runs on the 32-vCPU
+  CPU-only cloud profile held audio and A/V alignment exactly but each recorded
+  three isolated video repeats/skips. The current blocker is therefore the rare
+  Core video scheduling event, not audio drift or aggregate CPU. The strict
+  limit has not been relaxed, and meeting-to-meeting audience acceptance
+  remains open.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.

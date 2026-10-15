@@ -4,12 +4,14 @@
 The GStreamer ``audiomixer`` used by ``mxl_audio_mixer.py`` is clock-driven:
 an input that has not arrived within its latency budget is mixed as silence
 (see docs/AV_REFERENCE.md, Gate C). This mixer has no media clock of its own.
-For each 480-sample output block ending at index ``end`` it reads every active
-input at ``end`` through the MXL SDK, waits for late input up to a bounded
-budget measured in MXL time, sums with per-input gain, and writes the result at
-the same ``end``. Output sample ``s`` is therefore the gain-weighted sum of
-input samples ``s``, whatever the arrival jitter, and the wait only delays when
-the block is written, never where.
+For each 480-sample output block ending at index ``end`` it reads every input
+at ``end`` through the MXL SDK, waits for late input up to a bounded budget
+measured in MXL time, and retains a small local sample history. It then sums
+the requested presentation index with per-input gain and writes the result at
+``end``. With no presentation delay, output sample ``s`` is therefore the
+gain-weighted sum of input samples ``s``. With a delay, the history—not an
+upstream writer's finite ring—provides the older samples. The wait only delays
+when the block is written, never where.
 
 Input that cannot be had is never mixed in as uncounted silence. Each block an
 active input contributes is classified per input as ``on_time``, ``late``
@@ -65,6 +67,61 @@ DEFAULT_REOPEN_INTERVAL_MS = 1000.0
 GAIN_LIMIT = 1.5
 TAI = getattr(time, "CLOCK_TAI", time.CLOCK_REALTIME)
 GROUPHINT_TAG = "urn:x-nmos:tag:grouphint/v1.0"
+
+
+class SampleHistory:
+    """Small contiguous stereo history used for presentation delay.
+
+    Reading an old index directly from an upstream MXL ring makes the usable
+    delay depend on that writer's buffer size and write-ahead.  This history
+    captures each current block while it is available and serves the delayed
+    range later.  Invalid source blocks remain explicit holes rather than
+    becoming uncounted silence.
+    """
+
+    def __init__(self, keep_samples: int) -> None:
+        self.keep_samples = max(BLOCK * 2, keep_samples)
+        self.start: int | None = None
+        self.left = array("f")
+        self.right = array("f")
+        self.valid = bytearray()
+
+    def append(self, end: int, channels) -> None:
+        start = end - BLOCK
+        if self.start is None or start != self.start + len(self.valid):
+            self.start = start
+            self.left = array("f")
+            self.right = array("f")
+            self.valid = bytearray()
+        if channels is None:
+            self.left.extend([0.0] * BLOCK)
+            self.right.extend([0.0] * BLOCK)
+            self.valid.extend(bytes(BLOCK))
+        else:
+            left = array("f", channels[0])
+            right = array("f", channels[min(1, len(channels) - 1)])
+            if len(left) != BLOCK or len(right) != BLOCK:
+                raise ValueError("input block does not contain exactly 480 samples")
+            self.left.extend(left)
+            self.right.extend(right)
+            self.valid.extend(bytes([1]) * BLOCK)
+        excess = len(self.valid) - self.keep_samples
+        if excess > 0:
+            del self.left[:excess]
+            del self.right[:excess]
+            del self.valid[:excess]
+            self.start += excess
+
+    def read(self, end: int):
+        start = end - BLOCK
+        if self.start is None:
+            return None
+        offset = start - self.start
+        if offset < 0 or offset + BLOCK > len(self.valid):
+            return None
+        if 0 in self.valid[offset:offset + BLOCK]:
+            return None
+        return [self.left[offset:offset + BLOCK].tobytes(), self.right[offset:offset + BLOCK].tobytes()]
 
 
 def nonnegative_int(value: str) -> int:
@@ -249,6 +306,10 @@ class IndexMixer:
         self._retire_lock = threading.Lock()
         self._retired_readers: list = []
         self.reader_release_errors = 0
+        self.delay_history_misses = 0
+        self.delay_histories = {
+            number: SampleHistory(output_delay_samples + BLOCK * 3) for number in readers
+        } if output_delay_samples else {}
 
     # --- control (same contract as mxl_audio_mixer.py) ---------------------
     def _enabled(self, number: str) -> bool:
@@ -309,6 +370,7 @@ class IndexMixer:
             "last_write_status": self.last_write_status,
             "reader_releases_pending": len(self._retired_readers),
             "reader_release_errors": self.reader_release_errors,
+            "delay_history_misses": self.delay_history_misses,
             "channels": {
                 number: {**channel, "active": self._enabled(number), **asdict(self.stats[number])}
                 for number, channel in self.channels.items()
@@ -462,6 +524,12 @@ class IndexMixer:
         """Mix and write the block of samples ending at ``end``; return the write status."""
 
         self.maintain_inputs()
+        if self.output_delay_samples:
+            # Capture current source samples before they age out of the
+            # producer's ring.  All inputs are kept warm so an operator cut is
+            # immediate even when the channel was previously off air.
+            for number in self.readers:
+                self.delay_histories[number].append(end, self._read_input(number, end))
         with self.lock:
             targets = {number: self._target_gain(number) for number in self.readers}
         contributions = []
@@ -471,7 +539,12 @@ class IndexMixer:
             self.applied[number] = gain_to
             if gain_from == 0.0 and gain_to == 0.0:
                 continue
-            channels = self._read_input(number, end - self.output_delay_samples)
+            if self.output_delay_samples:
+                channels = self.delay_histories[number].read(end - self.output_delay_samples)
+                if channels is None:
+                    self.delay_history_misses += 1
+            else:
+                channels = self._read_input(number, end)
             if channels is None:
                 degraded = True
             else:

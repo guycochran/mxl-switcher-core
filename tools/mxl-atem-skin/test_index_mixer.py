@@ -217,8 +217,9 @@ class PlacementTest(unittest.TestCase):
         mix.control({"mode": "manual", "channel": 1, "on": True})
         mix.applied["1"] = 1.0
         output_end = START + 10 * BLOCK
-        self.assertEqual(mix.mix_block(output_end), mxl.MXL_STATUS_OK)
-        self.assertEqual(out.written, [output_end])
+        for end in range(START + BLOCK, output_end + BLOCK, BLOCK):
+            self.assertEqual(mix.mix_block(end), mxl.MXL_STATUS_OK)
+        self.assertEqual(out.written, list(range(START + BLOCK, output_end + BLOCK, BLOCK)))
         for output_index in range(output_end - BLOCK, output_end):
             source_index = output_index - delay
             self.assertEqual(out.value(0, output_index), counter(source_index))
@@ -226,6 +227,26 @@ class PlacementTest(unittest.TestCase):
         state = mix.state()
         self.assertEqual(state["output_delay_samples"], delay)
         self.assertAlmostEqual(state["output_delay_ms"], 66.6666666667)
+
+    def test_output_delay_does_not_depend_on_upstream_ring_history(self):
+        delay = 8_000
+        clock = Clock(START + 20 * BLOCK)
+        source = FakeInput(counter, negative, length=4_800)
+        mix, out = make([source], clock, output_delay_samples=delay)
+        mix.control({"mode": "manual", "channel": 1, "on": True})
+        mix.applied["1"] = 1.0
+        first_end = clock.now
+        for offset in range(24):
+            end = first_end + offset * BLOCK
+            clock.now = end
+            source.write_through(end)
+            self.assertEqual(mix.mix_block(end), mxl.MXL_STATUS_OK)
+        output_end = first_end + 23 * BLOCK
+        for output_index in range(output_end - BLOCK, output_end):
+            source_index = output_index - delay
+            self.assertEqual(out.value(0, output_index), counter(source_index))
+            self.assertEqual(out.value(1, output_index), negative(source_index))
+        self.assertEqual(mix.stats["1"].skipped_reasons["overrun"], 0)
 
     def test_negative_output_delay_is_refused(self):
         clock = Clock(START + BLOCK)
