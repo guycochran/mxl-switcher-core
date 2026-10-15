@@ -1,0 +1,274 @@
+{
+  "blocked": true,
+  "diagnostics": [],
+  "domain": "example-domain",
+  "plan_version": 1,
+  "planner": "mxl-discovery-planner",
+  "read_only": true,
+  "requests": [
+    {
+      "body": {
+        "audio_flow_id": "00000000-0000-4000-8000-000000000112",
+        "flow_id": "00000000-0000-4000-8000-000000000111"
+      },
+      "method": "PUT",
+      "path": "/api/mxl/v1/sources/cam-1",
+      "source": "cam-1"
+    }
+  ],
+  "sources": [
+    {
+      "audio": {
+        "compatible": [
+          {
+            "channels": 2,
+            "flow_id": "00000000-0000-4000-8000-000000000112",
+            "media_type": "audio/float32",
+            "sample_rate": "48000/1",
+            "state": "active"
+          }
+        ],
+        "incompatible": [],
+        "not_active": [
+          {
+            "channels": 2,
+            "flow_id": "00000000-0000-4000-8000-000000000102",
+            "media_type": "audio/float32",
+            "sample_rate": "48000/1",
+            "state": "stale"
+          }
+        ]
+      },
+      "current": {
+        "audio_flow_id": "00000000-0000-4000-8000-000000000102",
+        "flow_id": "00000000-0000-4000-8000-000000000101"
+      },
+      "desired": {
+        "audio_flow_id": "00000000-0000-4000-8000-000000000112",
+        "flow_id": "00000000-0000-4000-8000-000000000111"
+      },
+      "id": "cam-1",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Camera Output 1",
+        "video_role": "Video 1",
+        "writer_container": "contrib-a"
+      },
+      "reasons": [],
+      "request": {
+        "body": {
+          "audio_flow_id": "00000000-0000-4000-8000-000000000112",
+          "flow_id": "00000000-0000-4000-8000-000000000111"
+        },
+        "method": "PUT",
+        "path": "/api/mxl/v1/sources/cam-1"
+      },
+      "status": "rebind",
+      "video": {
+        "compatible": [
+          {
+            "flow_id": "00000000-0000-4000-8000-000000000111",
+            "height": 1080,
+            "media_type": "video/v210",
+            "rate": "30/1",
+            "state": "active",
+            "width": 1920
+          }
+        ],
+        "incompatible": [],
+        "not_active": [
+          {
+            "flow_id": "00000000-0000-4000-8000-000000000101",
+            "height": 1080,
+            "media_type": "video/v210",
+            "rate": "30/1",
+            "state": "stale",
+            "width": 1920
+          }
+        ]
+      }
+    },
+    {
+      "audio": {
+        "compatible": [
+          {
+            "channels": 2,
+            "flow_id": "00000000-0000-4000-8000-000000000122",
+            "media_type": "audio/float32",
+            "sample_rate": "48000/1",
+            "state": "active"
+          }
+        ],
+        "incompatible": [],
+        "not_active": []
+      },
+      "current": {
+        "audio_flow_id": "00000000-0000-4000-8000-000000000122",
+        "flow_id": "00000000-0000-4000-8000-000000000121"
+      },
+      "desired": {
+        "audio_flow_id": "00000000-0000-4000-8000-000000000122",
+        "flow_id": "00000000-0000-4000-8000-000000000121"
+      },
+      "id": "cam-2",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Camera Output 2",
+        "video_role": "Video 1",
+        "writer_container": "contrib-a"
+      },
+      "reasons": [],
+      "request": null,
+      "status": "noop",
+      "video": {
+        "compatible": [
+          {
+            "flow_id": "00000000-0000-4000-8000-000000000121",
+            "height": 1080,
+            "media_type": "video/v210",
+            "rate": "30/1",
+            "state": "active",
+            "width": 1920
+          }
+        ],
+        "incompatible": [],
+        "not_active": []
+      }
+    },
+    {
+      "audio": {
+        "compatible": [
+          {
+            "channels": 2,
+            "flow_id": "00000000-0000-4000-8000-000000000132",
+            "media_type": "audio/float32",
+            "sample_rate": "48000/1",
+            "state": "active"
+          }
+        ],
+        "incompatible": [],
+        "not_active": []
+      },
+      "current": {
+        "audio_flow_id": "00000000-0000-4000-8000-000000000132",
+        "flow_id": "00000000-0000-4000-8000-000000000131"
+      },
+      "desired": {
+        "audio_flow_id": "00000000-0000-4000-8000-000000000132",
+        "flow_id": "00000000-0000-4000-8000-000000000131"
+      },
+      "id": "cam-3",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Camera Output 1",
+        "video_role": "Video 1",
+        "writer_container": "contrib-b"
+      },
+      "reasons": [],
+      "request": null,
+      "status": "noop",
+      "video": {
+        "compatible": [
+          {
+            "flow_id": "00000000-0000-4000-8000-000000000131",
+            "height": 1080,
+            "media_type": "video/v210",
+            "rate": "30/1",
+            "state": "active",
+            "width": 1920
+          }
+        ],
+        "incompatible": [],
+        "not_active": []
+      }
+    },
+    {
+      "audio": {
+        "compatible": [],
+        "incompatible": [],
+        "not_active": []
+      },
+      "current": {
+        "audio_flow_id": "00000000-0000-4000-8000-000000000142",
+        "flow_id": "00000000-0000-4000-8000-000000000141"
+      },
+      "desired": null,
+      "id": "cam-4",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Camera Output 2",
+        "video_role": "Video 1",
+        "writer_container": "contrib-b"
+      },
+      "reasons": [
+        "audio_missing",
+        "video_missing"
+      ],
+      "request": null,
+      "status": "missing",
+      "video": {
+        "compatible": [],
+        "incompatible": [],
+        "not_active": [
+          {
+            "flow_id": "00000000-0000-4000-8000-000000000141",
+            "height": 1080,
+            "media_type": "video/v210",
+            "rate": "30/1",
+            "state": "inactive",
+            "width": 1920
+          }
+        ]
+      }
+    },
+    {
+      "audio": {
+        "compatible": [],
+        "incompatible": [],
+        "not_active": []
+      },
+      "current": {
+        "audio_flow_id": null,
+        "flow_id": "00000000-0000-4000-8000-000000000151"
+      },
+      "desired": {
+        "audio_flow_id": null,
+        "flow_id": "00000000-0000-4000-8000-000000000151"
+      },
+      "id": "playout",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Playout",
+        "video_role": "Video 1",
+        "writer_container": "playout-a"
+      },
+      "reasons": [
+        "audio_missing_optional"
+      ],
+      "request": null,
+      "status": "noop",
+      "video": {
+        "compatible": [
+          {
+            "flow_id": "00000000-0000-4000-8000-000000000151",
+            "height": 1080,
+            "media_type": "video/v210",
+            "rate": "30/1",
+            "state": "active",
+            "width": 1920
+          }
+        ],
+        "incompatible": [],
+        "not_active": []
+      }
+    }
+  ],
+  "summary": {
+    "ambiguous": 0,
+    "create_required": 0,
+    "incompatible": 0,
+    "missing": 1,
+    "noop": 3,
+    "rebind": 1
+  }
+}

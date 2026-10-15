@@ -1,0 +1,67 @@
+{
+  "defaults": {
+    "audio": {
+      "channels": 2,
+      "media_type": "audio/float32",
+      "sample_rate": 48000
+    },
+    "video": {
+      "height": 1080,
+      "media_type": "video/v210",
+      "rate": "30/1",
+      "width": 1920
+    }
+  },
+  "domain": "example-domain",
+  "sources": [
+    {
+      "id": "cam-1",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Camera Output 1",
+        "video_role": "Video 1",
+        "writer_container": "contrib-a"
+      }
+    },
+    {
+      "id": "cam-2",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Camera Output 2",
+        "video_role": "Video 1",
+        "writer_container": "contrib-a"
+      }
+    },
+    {
+      "id": "cam-3",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Camera Output 1",
+        "video_role": "Video 1",
+        "writer_container": "contrib-b"
+      }
+    },
+    {
+      "id": "cam-4",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Camera Output 2",
+        "video_role": "Video 1",
+        "writer_container": "contrib-b"
+      }
+    },
+    {
+      "audio": {
+        "required": false
+      },
+      "id": "playout",
+      "match": {
+        "audio_role": "Audio 1",
+        "group": "Playout",
+        "video_role": "Video 1",
+        "writer_container": "playout-a"
+      }
+    }
+  ],
+  "version": 1
+}
