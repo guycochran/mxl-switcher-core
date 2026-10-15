@@ -273,6 +273,7 @@ class DryRunTest(Harness):
         self.assertEqual(report["mode"], "dry_run")
         self.assertEqual(report["plan"]["containers"]["mixer"], f"{RUN}-mixer")
         self.assertEqual(report["plan"]["volume"], f"{RUN}-domain")
+        self.assertEqual(report["plan"]["history_ms"], 1000)
         self.assertTrue(all(command[1] in READ_ONLY or command[1:3] in (["image", "inspect"], ["volume", "inspect"],
                                                                           ["container", "inspect"])
                             for command in self.docker.log), self.docker.log)
@@ -503,7 +504,9 @@ class InContainerRolesTest(unittest.TestCase):
             self.assertEqual(gate.tone_writer(args), 0)
         self.assertIn("created=True", err.getvalue())
         self.assertIn("tone_writer=removed", err.getvalue())
-        self.assertEqual(os.listdir(domain.name), [f"{FLOWS['b']}.mxl-flow"])
+        self.assertEqual(set(os.listdir(domain.name)), {f"{FLOWS['b']}.mxl-flow", "options.json"})
+        self.assertEqual(json.loads(pathlib.Path(domain.name, "options.json").read_text()),
+                         {"urn:x-mxl:option:history_duration/v1.0": 1_000_000_000})
 
     def test_tone_writer_refuses_a_non_uuid_flow(self):
         args = SimpleNamespace(flow="../escape", domain="/nowhere", value=0.1, library="x", remove_flow_on_exit=True)

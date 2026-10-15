@@ -96,7 +96,8 @@ class Plan:
                  docker: str = "docker", flows: dict | None = None, reopen_interval_ms: float = 1000.0,
                  max_wait_ms: float = 500.0, interval: float = 2.0, hold_interval: float = 10.0,
                  hold_seconds: float = 60.0, absent_seconds: float = 6.0, gap_seconds: float = 3.0,
-                 start_timeout: float = 30.0, transition_slack: float = 15.0, volume_size_mb: int = 64) -> None:
+                 start_timeout: float = 30.0, transition_slack: float = 15.0, volume_size_mb: int = 64,
+                 history_ms: int = 1000) -> None:
         if not RUN_ID.match(run_id):
             raise Refused(f"run id {run_id!r} must match {RUN_ID.pattern}")
         self.run_id = run_id
@@ -121,10 +122,11 @@ class Plan:
         self.start_timeout = start_timeout
         self.transition_timeout = 2 * reopen_interval_ms / 1000 + transition_slack
         self.volume_size_mb = volume_size_mb
+        self.history_ms = history_ms
         for name, value in (("interval", interval), ("hold-interval", hold_interval),
                             ("hold-seconds", hold_seconds), ("absent-seconds", absent_seconds),
                             ("gap-seconds", gap_seconds), ("start-timeout", start_timeout),
-                            ("reopen-interval-ms", reopen_interval_ms)):
+                            ("reopen-interval-ms", reopen_interval_ms), ("history-ms", history_ms)):
             if not value > 0:
                 raise Refused(f"--{name} must be positive")
         if absent_seconds < 2 * interval:
@@ -159,7 +161,8 @@ class Plan:
         flow = self.flows["b" if role == "writer_b" else "a"]
         value = VALUE_B if role == "writer_b" else VALUE_A
         entry = [f"{TOOLS_MOUNT}/mxl_index_mixer_gate.py", "tone-writer", "--domain", DOMAIN_MOUNT,
-                 "--flow", flow, "--value", repr(value), "--library", self.library]
+                 "--flow", flow, "--value", repr(value), "--library", self.library,
+                 "--history-ms", str(self.history_ms)]
         if role == "writer_a1":
             entry.append("--remove-flow-on-exit")
         return self._run(self.names[role], entry)
@@ -210,6 +213,7 @@ class Plan:
             "containers": self.names,
             "flows": self.flows,
             "tone_values": {"a": VALUE_A, "b": VALUE_B, "a_plus_b": VALUE_A + VALUE_B},
+            "history_ms": self.history_ms,
             "network": "none (no ports published)",
             "bounds_seconds": {
                 "start_timeout": self.start_timeout,
@@ -668,6 +672,15 @@ def tone_writer(args) -> int:
         return 2
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
+    history_ms = int(getattr(args, "history_ms", 1000))
+    options_path = Path(args.domain) / "options.json"
+    options = {"urn:x-mxl:option:history_duration/v1.0": history_ms * 1_000_000}
+    if options_path.exists():
+        if json.loads(options_path.read_text()) != options:
+            print("tone_writer=error reason=domain history configuration mismatch", file=sys.stderr, flush=True)
+            return 2
+    else:
+        options_path.write_text(json.dumps(options, separators=(",", ":")))
     api = mxl.load_library(args.library)
     instance = api.mxlCreateInstance(args.domain.encode(), b"")
     if not instance:
@@ -762,6 +775,8 @@ def build_parser() -> argparse.ArgumentParser:
     gate.add_argument("--absent-seconds", type=float, default=6.0)
     gate.add_argument("--gap-seconds", type=float, default=3.0)
     gate.add_argument("--start-timeout", type=float, default=30.0)
+    gate.add_argument("--history-ms", type=int, default=1000,
+                      help="isolated audio-domain history; separates lifecycle from host scheduling")
     gate.add_argument("--reopen-interval-ms", type=float, default=1000.0)
     gate.add_argument("--max-wait-ms", type=float, default=500.0)
     mode = gate.add_mutually_exclusive_group()
@@ -773,6 +788,7 @@ def build_parser() -> argparse.ArgumentParser:
     writer.add_argument("--flow", required=True)
     writer.add_argument("--value", type=float, required=True)
     writer.add_argument("--library", default="libmxl.so")
+    writer.add_argument("--history-ms", type=int, default=1000)
     writer.add_argument("--remove-flow-on-exit", action="store_true")
 
     reader = sub.add_parser("probe", help="(in the mixer container) print state and the output sample")
@@ -801,7 +817,7 @@ def main(argv=None, docker: Docker | None = None, clock=time.monotonic, sleep=ti
                     reopen_interval_ms=args.reopen_interval_ms, max_wait_ms=args.max_wait_ms,
                     interval=args.interval, hold_interval=args.hold_interval, hold_seconds=args.hold_seconds,
                     absent_seconds=args.absent_seconds, gap_seconds=args.gap_seconds,
-                    start_timeout=args.start_timeout)
+                    start_timeout=args.start_timeout, history_ms=args.history_ms)
         checked = preflight(plan, docker)
     except Refused as error:
         print(json.dumps({"refused": str(error)}), file=sys.stderr)
