@@ -136,7 +136,17 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
     // using the proven bounded head-relative cursor, while surfacing the
     // fallback so the fixed A/V contract is never claimed silently.
     selected = candidate.selected_index;
-    if (previous) {
+    if (previous && target_readable &&
+        target < candidate.newest_index && target < *previous &&
+        *previous >= candidate.oldest_index &&
+        *previous <= candidate.newest_index) {
+      // A catch-up can leave the fallback cursor ahead of the deterministic
+      // target while both advance at the same rate. Hold the readable cursor
+      // so the rising target converges without rewinding content or waiting
+      // for a coincidental late source commit.
+      selected = *previous;
+      clamped = true;
+    } else if (previous) {
       if (*previous == std::numeric_limits<std::uint64_t>::max()) {
         return std::nullopt;
       }
