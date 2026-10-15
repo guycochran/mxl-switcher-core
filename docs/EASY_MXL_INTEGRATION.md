@@ -259,6 +259,27 @@ This qualifies the manual discovery-to-rebind path. An automatic apply mode
 remains out of scope until it has explicit operator approval, authentication,
 preflight state checks, and rollback semantics.
 
+### Real ZoomISO identity rotation (2026-10-15)
+
+A controlled live test confirmed why this reconciliation path is required.
+Changing one unused ZoomISO output from MXL to NDI stopped its existing MXL
+video/audio pair. Changing the same numbered output back to MXL preserved its
+stable ZoomISO source identity but created new video and audio flow UUIDs.
+
+The isolated Core remained healthy, its independent control source continued
+at 30.02 fps, and the candidate Program output continued at 29.99 fps through
+hold/fallback with zero post-baseline probe drops or stalls. Hard error and
+regression counters had zero delta. The static old binding could not see the
+replacement flow, so the run correctly did not claim recovery and was stopped
+before the audience-return gate.
+
+This result promotes real ZoomISO UUID rotation from an assumption to an
+observed lifecycle contract. The next live acceptance must use writer-specific
+discovery to plan and apply the new pair to the existing stable Core source ID,
+then verify content motion and a stable post-rebind hold. Full aggregate
+evidence is recorded in
+[Real ZoomISO output identity rotation](REAL_ZOOMISO_FLOW_ROTATION_2026-10-15.md).
+
 ### Core audio-ownership qualification (2026-10-15)
 
 Core now enforces the planner/executor single-owner rule independently at its

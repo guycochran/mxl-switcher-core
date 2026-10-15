@@ -4,6 +4,12 @@ This gate verifies that an isolated candidate Core preserves Program and
 Preview cadence when one real ZoomISO MXL output disappears and returns under
 the same flow identity. It is intentionally separate from the operator Core.
 
+Changing a ZoomISO output from MXL to another protocol and back is **not** this
+same-identity gate. Live qualification showed that this operation creates new
+video and audio flow UUIDs. Use the discovery-driven atomic rebind gate for
+that lifecycle; see
+[Real ZoomISO output identity rotation](REAL_ZOOMISO_FLOW_ROTATION_2026-10-15.md).
+
 The gate changes one live ZoomISO output for a short, declared interval. Run it
 only with an operator present and explicit approval for that interruption.
 
@@ -34,15 +40,18 @@ operator Preview bus that must remain uninterrupted.
 ## Operator sequence
 
 1. Confirm the meeting and source content are active. Record the selected
-   ZoomISO output's original participant assignment and flow identity.
+   ZoomISO output's original participant assignment and flow identity. Require
+   changing content in addition to advancing cadence before taking a baseline.
 2. Start the isolated candidate and independent Program and Preview probes.
    Put the selected output on the candidate Program bus and a different,
    untouched ZoomISO source on candidate Preview as the control. Confirm both
    assignments from the candidate `/state` response before taking a baseline.
 3. Allow startup measurements to settle, then capture a counter baseline only
    after both probes sustain approximately 30 fps with zero drops.
-4. The operator disables or unassigns the selected ZoomISO output. Do not
-   restart the ZoomISO service or alter any other output.
+4. The operator performs only a previously proven interruption that preserves
+   the selected flow identity. Do not use a protocol flip: ZoomISO rotates flow
+   UUIDs on return. Do not restart the ZoomISO service or alter any other
+   output.
 5. Hold the output absent long enough to observe hold-last behavior and identify
    which recovery signature below applies. A stopped-but-present writer may
    remain cadence-held and need not produce an unavailable transition.

@@ -55,6 +55,7 @@ Full public evidence:
 - [Objective A/V reference](AV_REFERENCE.md)
 - [Preview 1 release plan](PREVIEW_1_PLAN.md)
 - [Preview 1 Program-return runbook](PREVIEW_1_PROGRAM_RETURN_RUNBOOK.md)
+- [Real ZoomISO output identity rotation](REAL_ZOOMISO_FLOW_ROTATION_2026-10-15.md)
 
 ## What is demonstrated versus productized
 
@@ -93,9 +94,12 @@ Core's media hot path.
   skips, or regressions after adding explicit writer-epoch reset handling.
   A subsequent read-only two-source real-ZoomISO smoke held 4,262 routes over
   70 seconds with no post-baseline counter movement; Program and Preview stayed
-  near 30 fps with zero drops and one-frame final source lag. Controlled
-  real-ZoomISO interruption recovery and meeting-to-meeting audience acceptance
-  remain open.
+  near 30 fps with zero drops and one-frame final source lag. A controlled
+  protocol-change test then proved that ZoomISO rotates both video and audio
+  flow UUIDs when an output returns to MXL. The isolated Core and control path
+  remained clean at about 30 fps, but the static old binding could not follow
+  the replacement UUID. Real discovery-driven atomic rebind acceptance and
+  meeting-to-meeting audience acceptance remain open.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.
