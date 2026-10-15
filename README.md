@@ -205,6 +205,14 @@ timestamp steps and zero discontinuities or hard corrections, while Program
 video held 30.00 fps with zero drops. Audience-meeting mapping and measured
 content-level lip sync remain separate gates.
 
+The objective A/V reference has now passed both the direct-MXL baseline and an
+isolated Core gate on a CPU-only cloud VM. The 10-minute Core run delivered
+18,002 consecutive 1080p30 frames and 28,800,960 audio samples with zero skips,
+repeats, regressions, torn reads, sample gaps, or duplicates. All 600 A/V events
+held a constant measured offset with zero range and drift. See the
+[A/V reference record](docs/AV_REFERENCE.md) for the measured profile and its
+limits.
+
 The NDI pilot now has a documented loaded full-path result. The original
 30-minute run with two continuous NDI receivers exposed a fixed-index scheduling
 limitation under sustained CPU load. The adaptive common-window scheduler now

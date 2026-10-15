@@ -1,9 +1,11 @@
 # A/V reference source and analyzer
 
-Status: Gate A passed. A 10-minute direct-MXL baseline is zero-loss and
+Status: Gates A and B passed. A 10-minute direct-MXL baseline is zero-loss and
 sample-exact, with A/V offset 0.000 ms and no drift, using the direct capture
-reader. The Program-return audio stages have been diagnosed in isolation (Gate C
-below). Nothing has yet been run through Core switching or into a meeting.
+reader. A separate 10-minute isolated Core run on a CPU-only cloud VM was also
+zero-loss and sample-exact. The Program-return audio stages have been diagnosed
+in isolation (Gate C below). The meeting-return path has not yet passed an
+audience-side measurement.
 
 This replaces listening as the acceptance measurement for audio cadence,
 sample continuity, and lip sync through Core, Program Audio, and meeting
@@ -387,9 +389,9 @@ candidate's own binary in separate instances:
    source has moved on. Over the same window, the operator Core recorded
    similar repeat and skip counts on its own inputs.
 
-**Gate B status: not passed** under the strict zero-skip criterion. The
-behaviour is explained and bounded, with no hard-counter movement.
-Recommended next steps:
+**Gate B status on the shared older host: not passed** under the strict
+zero-skip criterion. The behaviour is explained and bounded, with no
+hard-counter movement. Recommended next steps:
 
 - run Core with `input_delay_frames=1` (or measure 2) for MXL-anchored
   sources; and
@@ -398,9 +400,47 @@ Recommended next steps:
 The +1-grain Program delay should be carried as a documented presentation
 offset for audio paired with Core Program.
 
+### CPU-only cloud qualification
+
+Gate B was repeated on a 32-vCPU CPU-only cloud VM. Two independent synthetic
+1080p30 sources, the isolated Core, and the direct capture each had a dedicated
+CPU set. The MXL domain and capture directory were RAM-backed. Core used
+`input_delay_frames=1`.
+
+The first disk-backed smoke exposed storage stalls and did not qualify. Moving
+only the isolated test domain and capture to RAM removed that variable. The
+corrected 60-second smoke passed, followed by this 10-minute result:
+
+| Measure | Result |
+| --- | ---: |
+| Duration | 600 s |
+| Video frames | 18,002 |
+| Video skips / repeats / regressions | 0 / 0 / 0 |
+| Torn reads / reader skips | 0 / 0 |
+| Audio samples | 28,800,960 |
+| Audio gaps / duplicates / regressions | 0 / 0 / 0 |
+| A/V event pairs | 600 / 600 |
+| A/V offset | -66.667 ms, constant |
+| Offset range / drift | 0.000 ms / 0 ppm |
+| Core hard and cadence counters | all zero |
+
+The fixed two-frame offset is the expected presentation relationship in this
+fixture. It did not move during the run. Publisher lateness stayed at zero.
+The two source processes each used 14.75-16.26% of one CPU and about 110-121
+MiB RSS. Core used 9.71-10.24% of one CPU and 75-76 MiB RSS. Capture used
+3.41-3.71% of one CPU; its RSS rose from 34 to 226 MiB while retaining the raw
+audio capture, then the process exited normally.
+
+**Gate B status: passed** for the isolated CPU-only profile. The result shows
+that the strict cadence and A/V contract does not require a GPU. It also shows
+that CPU allocation and RAM-backed MXL storage are part of the tested profile,
+not optional tuning details. This does not qualify the audience-meeting return,
+the operator stack, or eight simultaneous contribution feeds.
+
 ## Next live gate
 
-1. Repeat Gate B with `input_delay_frames=1` and dedicated CPU for Core.
-2. Feed the meeting return and analyze an audience-side recording.
-3. Record offsets, drift, cadence, and counters for 10 minutes before changing
+1. Feed the meeting return and analyze an audience-side recording.
+2. Record offsets, drift, cadence, and counters for 10 minutes before changing
    any latency or presentation-offset setting.
+3. Repeat the isolated profile with real ZoomISO sources before using the result
+   as an end-to-end contribution claim.
