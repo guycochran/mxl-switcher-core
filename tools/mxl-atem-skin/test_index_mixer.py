@@ -141,11 +141,12 @@ class FakeOutput(PlanarRing):
         return mxl.MXL_STATUS_OK
 
 
-def make(inputs, clock, max_wait_ms=500.0, output_length=48_000):
+def make(inputs, clock, max_wait_ms=500.0, output_length=48_000, output_delay_samples=0):
     readers = {str(n): mxl.SampleReader(ring, None, f"in{n}", ring.length) for n, ring in enumerate(inputs, 1)}
     out = FakeOutput(output_length)
     writer = mxl.SampleWriter(out, None, mixer.flow_definition("out", "Group", "Mix", "test"))
-    return mixer.IndexMixer(readers, writer, "out", clock=clock, max_wait_ms=max_wait_ms), out
+    return mixer.IndexMixer(readers, writer, "out", clock=clock, max_wait_ms=max_wait_ms,
+                            output_delay_samples=output_delay_samples), out
 
 
 class FakeDomain:
@@ -206,6 +207,35 @@ class PlacementTest(unittest.TestCase):
         for index in range(START, START + 5 * BLOCK):
             self.assertEqual(out.value(0, index), source.value(0, index))
             self.assertEqual(out.value(1, index), source.value(1, index))
+
+    def test_explicit_output_delay_moves_content_without_changing_output_cadence(self):
+        delay = 3_200
+        clock = Clock(START + 20 * BLOCK)
+        source = FakeInput(counter, negative)
+        source.write_through(clock.now)
+        mix, out = make([source], clock, output_delay_samples=delay)
+        mix.control({"mode": "manual", "channel": 1, "on": True})
+        mix.applied["1"] = 1.0
+        output_end = START + 10 * BLOCK
+        self.assertEqual(mix.mix_block(output_end), mxl.MXL_STATUS_OK)
+        self.assertEqual(out.written, [output_end])
+        for output_index in range(output_end - BLOCK, output_end):
+            source_index = output_index - delay
+            self.assertEqual(out.value(0, output_index), counter(source_index))
+            self.assertEqual(out.value(1, output_index), negative(source_index))
+        state = mix.state()
+        self.assertEqual(state["output_delay_samples"], delay)
+        self.assertAlmostEqual(state["output_delay_ms"], 66.6666666667)
+
+    def test_negative_output_delay_is_refused(self):
+        clock = Clock(START + BLOCK)
+        source = FakeInput(counter, negative)
+        source.write_through(clock.now)
+        readers = {"1": mxl.SampleReader(source, None, "in1", source.length)}
+        out = FakeOutput()
+        writer = mxl.SampleWriter(out, None, mixer.flow_definition("out", "Group", "Mix", "test"))
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            mixer.IndexMixer(readers, writer, "out", clock=clock, output_delay_samples=-1)
 
     def test_sum_with_gain_and_master(self):
         clock = Clock(START + 10 * BLOCK)

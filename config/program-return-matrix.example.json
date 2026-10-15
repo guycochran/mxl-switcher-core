@@ -19,12 +19,12 @@
   },
   "cases": [
     {
-      "name": "index-direct",
-      "capture": "captures/preview1-index-direct-smoke.mkv",
+      "name": "index-delay-3200",
+      "capture": "captures/preview1-index-delay-3200-smoke.mkv",
       "configuration": {
-        "name": "index-mixer-direct",
+        "name": "index-mixer-delay-3200",
         "audio_mix": "absolute MXL sample index",
-        "fixed_audio_displacement_samples": 0,
+        "fixed_audio_displacement_samples": 3200,
         "clock_recovery": "disabled"
       }
     }

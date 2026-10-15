@@ -24,12 +24,15 @@ The first required candidate is deliberately small:
 - frame-coded 1080p30 reference video;
 - synchronized 48 kHz meeting-safe reference audio;
 - index-domain audio mixing at the original MXL sample indices;
-- zero fixed audio displacement; and
+- an explicit 3,200-sample Program presentation alignment; and
 - no clock reclocker between the index mixer and the return input.
 
-The bounded-PLL reclocker is an optional comparison case, not the assumed
-winner. The legacy clock-driven mixer and its 4,800-sample displacement are
-diagnostic history, not Preview 1 candidates.
+The zero-displacement case is retained as a failed diagnostic: it measured a
+constant -66.667 ms offset before meeting transport. The 3,200-sample case
+passed the same 70-second paired MXL capture at -0.021 ms median, 0 ms range,
+and 0 ppm drift. The bounded-PLL reclocker remains an optional comparison case,
+not the assumed winner. The legacy clock-driven mixer and its 4,800-sample
+displacement are diagnostic history, not Preview 1 candidates.
 
 ## Before changing anything
 

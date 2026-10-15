@@ -34,6 +34,11 @@ The control API (``GET /state``, ``POST /control`` with ``mode``,
 ``master_gain``, ``channel``/``gain``/``on``/``mute``) and AFV polling of Core's
 ``/api/mxl/v1/state`` match ``mxl_audio_mixer.py``. Standard library only; the
 MXL SDK shared library is loaded at runtime.
+
+``--output-delay-samples`` optionally reads input content from an earlier
+absolute sample index and writes it on the current output index. The output
+clock and cadence do not change, no samples are resampled, and the declared
+delay is exposed in ``/state``. The default remains zero.
 """
 
 from __future__ import annotations
@@ -60,6 +65,13 @@ DEFAULT_REOPEN_INTERVAL_MS = 1000.0
 GAIN_LIMIT = 1.5
 TAI = getattr(time, "CLOCK_TAI", time.CLOCK_REALTIME)
 GROUPHINT_TAG = "urn:x-nmos:tag:grouphint/v1.0"
+
+
+def nonnegative_int(value: str) -> int:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return number
 
 
 def mxl_now_index() -> int:
@@ -203,10 +215,14 @@ class IndexMixer:
 
     def __init__(self, readers: dict, writer, output_flow: str = "", clock=mxl_now_index,
                  max_wait_ms: float = DEFAULT_MAX_WAIT_MS, sleep=time.sleep, inputs=None,
-                 flows: dict | None = None, reopen_interval_ms: float = DEFAULT_REOPEN_INTERVAL_MS) -> None:
+                 flows: dict | None = None, reopen_interval_ms: float = DEFAULT_REOPEN_INTERVAL_MS,
+                 output_delay_samples: int = 0) -> None:
+        if output_delay_samples < 0:
+            raise ValueError("output_delay_samples must be non-negative")
         self.readers = dict(readers)
         self.writer = writer
         self.output_flow = output_flow
+        self.output_delay_samples = output_delay_samples
         self.clock = clock
         self.sleep = sleep
         self.inputs = inputs
@@ -279,6 +295,8 @@ class IndexMixer:
             "program": self.program,
             "master_gain": self.master_gain,
             "output_flow": self.output_flow,
+            "output_delay_samples": self.output_delay_samples,
+            "output_delay_ms": self.output_delay_samples * 1000 / SAMPLE_RATE,
             "block_samples": BLOCK,
             "max_wait_ms": self.max_wait_samples * 1000 / SAMPLE_RATE,
             "reopen_interval_ms": self.reopen_interval_samples * 1000 / SAMPLE_RATE,
@@ -453,7 +471,7 @@ class IndexMixer:
             self.applied[number] = gain_to
             if gain_from == 0.0 and gain_to == 0.0:
                 continue
-            channels = self._read_input(number, end)
+            channels = self._read_input(number, end - self.output_delay_samples)
             if channels is None:
                 degraded = True
             else:
@@ -548,6 +566,8 @@ def main() -> int:
     parser.add_argument("--label", default="Program Audio Mix")
     parser.add_argument("--max-wait-ms", type=float, default=DEFAULT_MAX_WAIT_MS)
     parser.add_argument("--reopen-interval-ms", type=float, default=DEFAULT_REOPEN_INTERVAL_MS)
+    parser.add_argument("--output-delay-samples", type=nonnegative_int, default=0,
+                        help="place input samples this many samples later on the output timeline")
     parser.add_argument("--library", default="libmxl.so")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9740)
@@ -573,7 +593,8 @@ def main() -> int:
         writer.close()
         raise RuntimeError("output flow exists with a different format; expected 48 kHz stereo")
     MIXER = IndexMixer(readers, writer, args.output, max_wait_ms=args.max_wait_ms, inputs=inputs,
-                       flows=flows, reopen_interval_ms=args.reopen_interval_ms)
+                       flows=flows, reopen_interval_ms=args.reopen_interval_ms,
+                       output_delay_samples=args.output_delay_samples)
     stop = threading.Event()
     threading.Thread(target=MIXER.poll_program, args=(args.core, stop), daemon=True).start()
     mix_thread = threading.Thread(target=MIXER.run, args=(stop,), daemon=True)

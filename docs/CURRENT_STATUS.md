@@ -74,8 +74,9 @@ Core's media hot path.
 ## Deliberately not claimed yet
 
 - The Program Audio candidate and objective A/V reference have passed isolated
-  timing gates, but final content-level lip-sync and meeting-to-meeting audience
-  acceptance remain open.
+  timing gates. A paired Core Program plus index-audio smoke also passed at
+  -0.021 ms median offset with zero range and drift after explicit presentation
+  alignment. Meeting-to-meeting audience acceptance remains open.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.

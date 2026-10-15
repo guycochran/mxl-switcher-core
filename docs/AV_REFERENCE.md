@@ -372,9 +372,9 @@ Across every variant: no pipeline restarts, and no Core hard-counter movement.
 
 **Implementation status**
 
-- The fixed 4,800-sample displacement remains excluded from the proposed
-  audience-return profile so audio stays at its true MXL time. The destination
-  meeting still needs to confirm the final paired presentation offset.
+- The legacy fixed 4,800-sample displacement remains excluded. A measured
+  3,200-sample Program presentation alignment is now explicit and optional;
+  the destination meeting still needs to confirm the final paired offset.
 - **Index-domain mixing is implemented and its input lifecycle is live
   qualified**: it reads every input by
   sample index with a bounded wait, sum, and write at the same index. Missing
@@ -399,6 +399,11 @@ the destination meeting.
   clock only stops the mixer from writing ahead of real time. When the mixer is
   behind, it catches up without waiting, so a CPU stall delays output but does
   not lose it while the input rings still hold the samples.
+- **Explicit presentation alignment.** With the default zero delay, input and
+  output use the same sample index. `--output-delay-samples N` instead reads
+  the block ending at `end - N` and writes it at `end`. This moves content by
+  exactly `N` samples without changing the 48 kHz output cadence or resampling.
+  `/state` exposes both samples and milliseconds, so the setting is auditable.
 - **Bounded wait, in MXL time.** An input that has not reached `end` is waited
   for until MXL time reaches `end + max_wait`. The default is 500 ms, capped at
   half the shortest input ring so waiting cannot let another input's samples be
@@ -652,6 +657,35 @@ that the strict cadence and A/V contract does not require a GPU. It also shows
 that CPU allocation and RAM-backed MXL storage are part of the tested profile,
 not optional tuning details. This does not qualify the audience-meeting return,
 the operator stack, or eight simultaneous contribution feeds.
+
+### Paired Program alignment smoke
+
+The same reference was then run through the immutable Core candidate and the
+index-domain audio mixer on the shared CPU-only lab host. The zero-delay case
+was retained as a failed diagnostic: all 70 events measured audio exactly
+66.667 ms early, with zero offset range and zero drift. That proved the error
+was a fixed Core Program presentation relationship, not clock instability.
+
+The mixer was extended with an explicit 3,200-sample (66.667 ms) presentation
+delay and the unchanged 70-second capture was repeated. The corrected case
+passed:
+
+| Measure | Result |
+| --- | ---: |
+| Video frames decoded | 2,102 / 2,102 |
+| A/V event pairs | 70 / 70 |
+| Median A/V offset | -0.021 ms |
+| Offset range / drift | 0.000 ms / 0 ppm |
+| Audio gaps / duplicates / regressions | 0 / 0 / 0 |
+| Video regressions | 0 |
+| Longest freeze | 33.3 ms |
+| Mixer degraded/skipped blocks | 0 / 0 |
+| Candidate restarts | 0 |
+
+The operator Core and both permanent ZoomISO services stayed up with zero
+restarts, and only the exact temporary candidate containers were removed. This
+qualifies the paired path inside MXL; audience-side meeting transport remains
+the next gate.
 
 ## Next live gate
 

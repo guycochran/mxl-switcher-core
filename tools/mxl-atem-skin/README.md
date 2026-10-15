@@ -92,6 +92,10 @@ late input, and writes the mix at the same index, so late input is counted
 (`late`/`held_ms`/`skipped` per channel in `/state`) instead of becoming silent
 output. An input flow that is absent at startup or recreated later is reported
 offline and reopened (`--reopen-interval-ms`), never a crash.
+An optional `--output-delay-samples` moves content later by an exact number of
+48 kHz sample indices without resampling or changing the output cadence. The
+default is zero, and `/state` reports both the configured samples and
+milliseconds.
 `mxl_index_mixer_gate.py` proves that lifecycle in an isolated temporary MXL
 domain; see "Real-MXL mixer lifecycle gate" in `docs/AV_REFERENCE.md`. See the design note in `docs/AV_REFERENCE.md`. It needs only the MXL
 SDK shared library (`--library`), not GStreamer.

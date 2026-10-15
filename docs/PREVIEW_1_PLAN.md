@@ -113,7 +113,8 @@ needed. Paid cloud machines must be deallocated after each test window.
   CPU-only cloud gate.
 - The previous meeting return exposed two known problems: a fixed +100 ms
   audio displacement and dropout-prone clock-driven mixing. The index-domain
-  mixer addresses the latter in isolation; the audience-side paired gate is
-  still open.
+  mixer addresses the latter, and a paired Core Program smoke measured and
+  corrected its exact 66.667 ms presentation relationship without resampling.
+  The audience-side paired gate is still open.
 - Work has begun on P1 by making operator-visible video freeze an explicit A/V
   analyzer threshold rather than an informal observation.
