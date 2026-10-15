@@ -1,5 +1,6 @@
 #include "mxl_core/read_window.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -187,6 +188,23 @@ void test_recovery_remains_forward_only() {
           "recovery did not preserve the forward sequential timeline");
 }
 
+void test_fast_source_lag_stays_bounded() {
+  OutputReadTimelines timelines;
+  const std::vector<std::uint64_t> heads{100, 102, 104, 106, 108, 110};
+  std::uint64_t max_lag = 0;
+  std::uint64_t skips = 0;
+  for (const auto head : heads) {
+    const auto selected = timelines.select("pgm", "source-a", {head, 20}, 1);
+    require(selected.has_value(), "fast source selection failed");
+    max_lag = std::max(max_lag, head - selected->window.selected_index);
+    if (selected->cadence.kind == InputIndexStepKind::Skip) {
+      skips += selected->cadence.magnitude;
+    }
+  }
+  require(max_lag <= 2, "fast source escaped the bounded hysteresis band");
+  require(skips > 0, "fast source drift was hidden instead of measured");
+}
+
 void test_recovery_holds_when_floor_left_ring() {
   OutputReadTimelines timelines;
   require(timelines.select("pgm", "source-a", {100, 6}, 0).has_value(),
@@ -232,6 +250,7 @@ int main() {
       {"buffered phase wobble", test_buffered_timeline_absorbs_phase_wobble},
       {"exhausted jitter reservoir", test_exhausted_jitter_reservoir_holds},
       {"forward-only recovery", test_recovery_remains_forward_only},
+      {"fast source bounded lag", test_fast_source_lag_stays_bounded},
       {"out-of-ring recovery hold", test_recovery_holds_when_floor_left_ring},
       {"sustained unavailable one-shot",
        test_sustained_unavailable_alarm_is_one_shot},

@@ -25,6 +25,9 @@ struct MxlSourceStats {
   std::uint64_t no_common_window{0};
   std::uint64_t latest_head_index{0};
   std::uint64_t latest_oldest_index{0};
+  std::uint64_t latest_selected_index{0};
+  std::uint64_t latest_input_lag_frames{0};
+  std::uint64_t max_input_lag_frames{0};
 };
 
 struct MxlBackendStats {
@@ -51,6 +54,8 @@ struct MxlBackendStats {
   std::uint64_t last_common_oldest_index{0};
   std::uint64_t last_common_newest_index{0};
   std::uint64_t last_selected_input_index{0};
+  std::uint64_t last_selected_input_lag_frames{0};
+  std::uint64_t max_selected_input_lag_frames{0};
   std::uint64_t last_common_window_width{0};
   std::uint64_t min_common_window_width{0};
   std::uint64_t max_common_window_width{0};

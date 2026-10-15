@@ -122,6 +122,15 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
       // consuming closer to the committed head absorbs that jitter without
       // reading an uncommitted grain.
       selected = next;
+      const auto lag = candidate.newest_index - selected;
+      if (lag > safety_margin_frames &&
+          lag - safety_margin_frames > 1U) {
+        // A persistently fast or re-anchored producer must not ratchet the
+        // cursor all the way to the ring edge. Drain one excess grain per
+        // output until the timeline is back inside a one-grain hysteresis
+        // band around the configured safety margin.
+        ++selected;
+      }
       clamped = candidate.selected_index < *previous;
     } else if (*previous >= candidate.oldest_index &&
                *previous <= candidate.newest_index &&

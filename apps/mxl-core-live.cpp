@@ -72,6 +72,10 @@ std::string health_json(const MxlBackendStats& stats) {
          << stats.last_common_newest_index
          << ",\"last_selected_input_index\":"
          << stats.last_selected_input_index
+         << ",\"last_selected_input_lag_frames\":"
+         << stats.last_selected_input_lag_frames
+         << ",\"max_selected_input_lag_frames\":"
+         << stats.max_selected_input_lag_frames
          << ",\"last_common_window_width\":"
          << stats.last_common_window_width
          << ",\"min_common_window_width\":"
@@ -109,6 +113,11 @@ std::string health_json(const MxlBackendStats& stats) {
            << ",\"no_common_window\":" << source.no_common_window
            << ",\"latest_head_index\":" << source.latest_head_index
            << ",\"latest_oldest_index\":" << source.latest_oldest_index
+           << ",\"latest_selected_index\":" << source.latest_selected_index
+           << ",\"latest_input_lag_frames\":"
+           << source.latest_input_lag_frames
+           << ",\"max_input_lag_frames\":"
+           << source.max_input_lag_frames
            << '}';
   }
   output << "]}";
@@ -284,6 +293,10 @@ int main(int argc, char** argv) {
               << stats.last_common_newest_index
               << " last_selected_input_index="
               << stats.last_selected_input_index
+              << " last_selected_input_lag_frames="
+              << stats.last_selected_input_lag_frames
+              << " max_selected_input_lag_frames="
+              << stats.max_selected_input_lag_frames
               << " last_common_window_width="
               << stats.last_common_window_width
               << " min_common_window_width="
@@ -320,7 +333,13 @@ int main(int argc, char** argv) {
                 << " no_common_window=" << source_stats.no_common_window
                 << " latest_head_index=" << source_stats.latest_head_index
                 << " latest_oldest_index="
-                << source_stats.latest_oldest_index << '\n';
+                << source_stats.latest_oldest_index
+                << " latest_selected_index="
+                << source_stats.latest_selected_index
+                << " latest_input_lag_frames="
+                << source_stats.latest_input_lag_frames
+                << " max_input_lag_frames="
+                << source_stats.max_input_lag_frames << '\n';
     }
     return 0;
   } catch (const std::exception& error) {

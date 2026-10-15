@@ -268,6 +268,16 @@ class MxlBackend::Impl {
       std::lock_guard lock(stats_mutex_);
       ++stats_.independent_selections;
       stats_.last_selected_input_index = selection->window.selected_index;
+      const auto input_lag =
+          selection->window.newest_index - selection->window.selected_index;
+      stats_.last_selected_input_lag_frames = input_lag;
+      stats_.max_selected_input_lag_frames =
+          std::max(stats_.max_selected_input_lag_frames, input_lag);
+      auto& source = stats_.sources[source_flow];
+      source.latest_selected_index = selection->window.selected_index;
+      source.latest_input_lag_frames = input_lag;
+      source.max_input_lag_frames =
+          std::max(source.max_input_lag_frames, input_lag);
       if (selection->timeline_reset) {
         ++stats_.input_timeline_resets;
       }
