@@ -67,8 +67,11 @@ struct OutputReadSelection {
   bool forward_clamped{false};
 };
 
-// Owns the forward-only input cursor for each (output, source) timeline. A CUT
-// changes timeline identity, so the new source begins at its current safe
+// Owns the forward-only input cursor for each (output, source) timeline. After
+// the first delayed selection it consumes one readable source grain per output
+// instead of re-sampling newest-minus-delay every frame. The initial delay is
+// therefore a bounded jitter reservoir rather than a phase-sensitive selector.
+// A CUT changes timeline identity, so the new source begins at its current safe
 // index and is never compared with the prior source's unrelated counter.
 class OutputReadTimelines {
  public:

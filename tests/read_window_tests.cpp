@@ -150,15 +150,41 @@ void test_cut_resets_unrelated_input_timeline() {
           "a cut inherited the prior source's input floor");
 }
 
-void test_recovery_clamps_forward_within_same_timeline() {
+void test_buffered_timeline_absorbs_phase_wobble() {
+  OutputReadTimelines timelines;
+  const auto first = timelines.select("pgm", "source-a", {100, 10}, 1);
+  const auto second = timelines.select("pgm", "source-a", {100, 10}, 1);
+  const auto third = timelines.select("pgm", "source-a", {102, 10}, 1);
+  require(first && second && third, "phase-wobble timeline was rejected");
+  require(first->window.selected_index == 99 &&
+              second->window.selected_index == 100 &&
+              third->window.selected_index == 101,
+          "buffer did not preserve one-grain source cadence");
+  require(second->cadence.kind == InputIndexStepKind::Sequential &&
+              third->cadence.kind == InputIndexStepKind::Sequential,
+          "phase wobble became a repeat/skip pair");
+}
+
+void test_exhausted_jitter_reservoir_holds() {
+  OutputReadTimelines timelines;
+  const auto first = timelines.select("pgm", "source-a", {100, 10}, 1);
+  const auto second = timelines.select("pgm", "source-a", {100, 10}, 1);
+  const auto exhausted = timelines.select("pgm", "source-a", {100, 10}, 1);
+  require(first && second && exhausted, "jitter-reservoir hold was rejected");
+  require(exhausted->window.selected_index == 100 &&
+              exhausted->cadence.kind == InputIndexStepKind::Repeat,
+          "an actual source stall did not produce a cadence hold");
+}
+
+void test_recovery_remains_forward_only() {
   OutputReadTimelines timelines;
   const auto first = timelines.select("pgm", "source-a", {105, 10}, 5);
   const auto recovered = timelines.select("pgm", "source-a", {104, 10}, 5);
   require(first && recovered, "recoverable source regression was rejected");
   require(recovered->forward_clamped &&
-              recovered->window.selected_index == 100 &&
-              recovered->cadence.kind == InputIndexStepKind::Repeat,
-          "recovery was not clamped to its forward-only floor");
+              recovered->window.selected_index == 101 &&
+              recovered->cadence.kind == InputIndexStepKind::Sequential,
+          "recovery did not preserve the forward sequential timeline");
 }
 
 void test_recovery_holds_when_floor_left_ring() {
@@ -203,8 +229,9 @@ int main() {
       {"cadence hold availability",
        test_valid_cadence_hold_breaks_unavailable_run},
       {"cut timeline reset", test_cut_resets_unrelated_input_timeline},
-      {"forward-only recovery clamp",
-       test_recovery_clamps_forward_within_same_timeline},
+      {"buffered phase wobble", test_buffered_timeline_absorbs_phase_wobble},
+      {"exhausted jitter reservoir", test_exhausted_jitter_reservoir_holds},
+      {"forward-only recovery", test_recovery_remains_forward_only},
       {"out-of-ring recovery hold", test_recovery_holds_when_floor_left_ring},
       {"sustained unavailable one-shot",
        test_sustained_unavailable_alarm_is_one_shot},

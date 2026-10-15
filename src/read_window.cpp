@@ -109,16 +109,37 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
                             : std::optional(prior->second);
   auto selected = candidate.selected_index;
   bool clamped = false;
-  if (previous && selected < *previous) {
-    // Recovery may not rewind within one source timeline. If the prior index
-    // has already fallen out of this ring, holding is safer than reading stale
-    // or out-of-range data; the caller will emit its last valid picture.
-    if (*previous > candidate.newest_index ||
-        *previous < candidate.oldest_index) {
+  if (previous) {
+    if (*previous == std::numeric_limits<std::uint64_t>::max()) {
       return std::nullopt;
     }
-    selected = *previous;
-    clamped = true;
+    const auto next = *previous + 1U;
+    if (next >= candidate.oldest_index && next <= candidate.newest_index) {
+      // Once a source timeline is established, consume it at exactly one
+      // grain per output. Re-sampling newest-minus-delay on every frame turns
+      // harmless producer/consumer phase jitter into a repeat followed by a
+      // skip. The safety margin is the initial jitter reservoir; temporarily
+      // consuming closer to the committed head absorbs that jitter without
+      // reading an uncommitted grain.
+      selected = next;
+      clamped = candidate.selected_index < *previous;
+    } else if (*previous >= candidate.oldest_index &&
+               *previous <= candidate.newest_index &&
+               next > candidate.newest_index) {
+      // The jitter reservoir is exhausted and the next grain is not committed
+      // yet. Hold the last valid picture rather than reading out of range.
+      selected = *previous;
+      clamped = true;
+    } else if (next < candidate.oldest_index) {
+      // A genuine producer leap lapped the sequential target. Catch up to the
+      // delayed safe point and expose the skip through cadence telemetry.
+      selected = candidate.selected_index;
+    } else {
+      // A reset/regression moved both the previous and next indices outside
+      // the readable ring. The caller must publish unavailable rather than
+      // rewind or mislabel content.
+      return std::nullopt;
+    }
   }
   const auto cadence = classify_input_index_step(previous, selected);
   timelines[source_flow] = selected;
