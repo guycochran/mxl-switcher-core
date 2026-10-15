@@ -203,7 +203,7 @@ class IndexMixer:
         self.output_lag_samples = None
         self.output_progress_at = time.monotonic()
         self._retire_lock = threading.Lock()
-        self._retire_threads: list[threading.Thread] = []
+        self._retired_readers: list = []
         self.reader_release_errors = 0
 
     # --- control (same contract as mxl_audio_mixer.py) ---------------------
@@ -261,7 +261,7 @@ class IndexMixer:
             "blocks_degraded": self.blocks_degraded,
             "write_errors": self.write_errors,
             "last_write_status": self.last_write_status,
-            "reader_releases_pending": sum(thread.is_alive() for thread in self._retire_threads),
+            "reader_releases_pending": len(self._retired_readers),
             "reader_release_errors": self.reader_release_errors,
             "channels": {
                 number: {**channel, "active": self._enabled(number), **asdict(self.stats[number])}
@@ -296,28 +296,30 @@ class IndexMixer:
             self._retire_input(reader)
 
     def _retire_input(self, reader) -> None:
-        def release() -> None:
-            try:
-                reader.close()
-            except Exception:  # release failure is telemetry, never a media-loop failure
-                with self._retire_lock:
-                    self.reader_release_errors += 1
-
-        thread = threading.Thread(target=release, name="mxl-reader-release", daemon=True)
+        # The SDK serializes reader teardown with live reader operations even
+        # when release is called from another Python thread. Keep the invalid
+        # handle until orderly shutdown rather than letting unrelated Program
+        # inputs miss their short real-time history window.
         with self._retire_lock:
-            self._retire_threads.append(thread)
-        thread.start()
+            self._retired_readers.append(reader)
 
     def wait_for_retired(self, timeout: float | None = None) -> bool:
         """Wait for detached reader releases during tests or orderly shutdown."""
 
         deadline = None if timeout is None else time.monotonic() + timeout
         with self._retire_lock:
-            threads = list(self._retire_threads)
-        for thread in threads:
-            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
-            thread.join(remaining)
-        return all(not thread.is_alive() for thread in threads)
+            readers, self._retired_readers = self._retired_readers, []
+        for index, reader in enumerate(readers):
+            if deadline is not None and time.monotonic() > deadline:
+                with self._retire_lock:
+                    self._retired_readers.extend(readers[index:])
+                return False
+            try:
+                reader.close()
+            except Exception:
+                with self._retire_lock:
+                    self.reader_release_errors += 1
+        return True
 
     def _open_input(self, number: str, stalled: bool = False) -> bool:
         """Try to open an offline input now; on failure, wait one reopen interval.
@@ -546,7 +548,8 @@ def main() -> int:
                        flows=flows, reopen_interval_ms=args.reopen_interval_ms)
     stop = threading.Event()
     threading.Thread(target=MIXER.poll_program, args=(args.core, stop), daemon=True).start()
-    threading.Thread(target=MIXER.run, args=(stop,), daemon=True).start()
+    mix_thread = threading.Thread(target=MIXER.run, args=(stop,), daemon=True)
+    mix_thread.start()
     online = sum(reader is not None for reader in readers.values())
     print(f"index_mixer=ready inputs={len(readers)} online={online} created={writer.created} "
           f"max_wait_ms={MIXER.max_wait_samples * 1000 / SAMPLE_RATE:.1f}", file=sys.stderr, flush=True)
@@ -554,6 +557,13 @@ def main() -> int:
         ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
     finally:
         stop.set()
+        mix_thread.join(2.0)
+        for reader in MIXER.readers.values():
+            if reader is not None:
+                reader.close()
+        MIXER.wait_for_retired()
+        writer.close()
+        api.mxlDestroyInstance(instance)
     return 0
 
 

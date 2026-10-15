@@ -474,13 +474,14 @@ class InputLifecycleTest(unittest.TestCase):
         domain.flows["zoom"] = replacement
 
         mix.mix_block(START + BLOCK)
-        self.assertTrue(release_started.wait(1.0))
+        self.assertFalse(release_started.is_set())
         self.assertEqual(mix.stats["2"].on_time, 1)
         self.assertEqual(out.written, [START + BLOCK])
         self.assertEqual(mix.state()["reader_releases_pending"], 1)
 
         release_allowed.set()
         self.assertTrue(mix.wait_for_retired(1.0))
+        self.assertTrue(release_started.is_set())
         self.assertEqual(old.released, 1)
         self.assertEqual(mix.state()["reader_release_errors"], 0)
 
