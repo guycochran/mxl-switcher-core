@@ -1,9 +1,8 @@
 # A/V reference source and analyzer
 
-Status: implemented and unit-tested. Short direct-MXL runs are clean and
-deterministic (zero loss, code = MXL index, A/V offset 0.000 ms). The 10-minute
-direct-MXL gate has not passed because of host CPU contention (see Gate A
-below). Nothing has been run through Core, Program Audio, or a meeting return
+Status: Gate A passed. A 10-minute direct-MXL baseline is zero-loss and
+sample-exact, with A/V offset 0.000 ms and no drift, using the direct capture
+reader. Nothing has been run through Core, Program Audio, or a meeting return
 yet.
 
 This replaces listening as the acceptance measurement for audio cadence,
@@ -234,20 +233,33 @@ pipeline clock, by up to about 1.6 s, while still writing every grain at its
 correct index. With the diagnostic sources stopped and the probes removed, the
 operator Core's hard counters stayed flat for the full 10 minutes.
 
-**Gate A status: not yet passed.** The measurement tool is now trustworthy and
-complete. The audio path and A/V alignment are proven exact. The remaining video
-failures come from the capture reader: the generic `mxlsrc` element copies
-every 5.5 MB grain and validates only before the copy. The next step is a
-capture reader that reads only the sampled code pixels straight from the ring
-and re-validates the grain index after reading. That makes the measurement
-immune to the race and cuts its CPU cost by orders of magnitude.
+**Run F: direct reader.** `mxl_av_direct_capture.py` reads the rings through
+the MXL SDK. It samples only the code pixels in place and validates every
+read afterwards, so the race cannot mislabel a grain. It ran on the shared
+disk-backed domain under normal load (about 21-31 on 20 vCPUs), with every
+co-located source running.
+
+| Measure | Result |
+| --- | ---: |
+| Duration | 600 s |
+| Video grains captured / code = MXL index | 18,002 / 18,002 |
+| Torn reads / reader skips / missing / regressions | 0 / 0 / 0 / 0 |
+| Audio samples / gaps / duplicates / regressions | 28,802,400 / 0 / 0 / 0 |
+| A/V pairs | 600 / 600 |
+| A/V offset / range / drift | 0.000 ms / 0.000 ms / 0 ppm |
+| Operator and candidate Core hard counters | unchanged |
+| Test container CPU (publisher + capture) | 84-148% |
+
+**Gate A status: passed.** The reference publisher writes grain `g` and sample
+`g * 1600` at exactly the same MXL time, and the direct capture is complete
+and race-free. Captures through the generic `mxlsrc` element remain
+susceptible to the check-then-copy race on contended hosts, so acceptance
+captures should use the direct reader.
 
 ## Next live gate
 
-1. Repeat the direct-MXL baseline with dedicated CPU until video skips are
-   zero.
-2. Register it with the isolated Core candidate, take it to Program, and capture
+1. Register it with the isolated Core candidate, take it to Program, and capture
    Program video with its paired audio.
-3. Feed the meeting return and analyze an audience-side recording.
-4. Record offsets, drift, cadence, and counters for 10 minutes before changing
+2. Feed the meeting return and analyze an audience-side recording.
+3. Record offsets, drift, cadence, and counters for 10 minutes before changing
    any latency or presentation-offset setting.
