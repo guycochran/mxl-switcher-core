@@ -687,6 +687,21 @@ restarts, and only the exact temporary candidate containers were removed. This
 qualifies the paired path inside MXL; audience-side meeting transport remains
 the next gate.
 
+The unchanged candidate was then held for 610 seconds on the same loaded older
+host. Audio remained sample-perfect: 29,280,960 samples, zero gaps,
+duplicates, regressions, torn/late capture blocks, degraded mixer blocks, or
+skipped mixer blocks. Core hard counters and candidate restart counts also
+remained zero. Median A/V offset stayed effectively zero and drift was only
+0.072 ppm.
+
+That longer shared-host run did **not** pass the strict presentation-stability
+limit. Core Program video had 52 repeats and 52 skipped grains across 18,302
+decoded frames. The longest freeze was 66.7 ms, but individual event offsets
+ranged from -33.333 to +33.333 ms, a 66.667 ms range against the 20 ms limit.
+This is a one-frame video-cadence shift under shared CPU load, not audio clock
+drift. Keep this failed result; use the qualified CPU-capacity profile for the
+audience-return acceptance rather than loosening the sync limit.
+
 ## Next live gate
 
 1. Feed the meeting return and analyze an audience-side recording.

@@ -115,6 +115,8 @@ needed. Paid cloud machines must be deallocated after each test window.
   audio displacement and dropout-prone clock-driven mixing. The index-domain
   mixer addresses the latter, and a paired Core Program smoke measured and
   corrected its exact 66.667 ms presentation relationship without resampling.
-  The audience-side paired gate is still open.
+  A longer repeat on the loaded older lab host kept audio perfect but exposed
+  one-frame Core video-cadence shifts, so the strict audience-side paired gate
+  must use the qualified capacity profile and is still open.
 - Work has begun on P1 by making operator-visible video freeze an explicit A/V
   analyzer threshold rather than an informal observation.
