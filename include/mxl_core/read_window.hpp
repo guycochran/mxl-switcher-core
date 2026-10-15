@@ -90,6 +90,9 @@ class OutputReadTimelines {
   std::unordered_map<std::string,
                      std::unordered_map<std::string, std::uint64_t>>
       last_index_by_output_source_;
+  std::unordered_map<std::string,
+                     std::unordered_map<std::string, std::uint64_t>>
+      last_output_index_by_output_source_;
   std::unordered_map<std::string, std::unordered_map<std::string, bool>>
       presentation_fallback_by_output_source_;
 };

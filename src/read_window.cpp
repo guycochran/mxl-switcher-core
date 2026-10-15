@@ -100,6 +100,7 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
   if (timeline_reset) {
     active_source = source_flow;
     last_index_by_output_source_[output_flow].erase(source_flow);
+    last_output_index_by_output_source_[output_flow].erase(source_flow);
     presentation_fallback_by_output_source_[output_flow].erase(source_flow);
   }
 
@@ -108,8 +109,30 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
   auto previous = prior == timelines.end()
                       ? std::optional<std::uint64_t>{}
                       : std::optional(prior->second);
-  if (previous && (*previous < candidate.oldest_index ||
-                   *previous > candidate.newest_index)) {
+  auto& output_timelines = last_output_index_by_output_source_[output_flow];
+  const auto prior_output = output_timelines.find(source_flow);
+  const auto previous_output =
+      prior_output == output_timelines.end()
+          ? std::optional<std::uint64_t>{}
+          : std::optional(prior_output->second);
+  bool implausible_forward_jump = false;
+  if (previous && *previous < candidate.oldest_index) {
+    if (!previous_output || output_index < *previous_output) {
+      implausible_forward_jump = true;
+    } else {
+      const auto elapsed = output_index - *previous_output;
+      const auto allowance =
+          elapsed > std::numeric_limits<std::uint64_t>::max() -
+                        source.grain_count
+              ? std::numeric_limits<std::uint64_t>::max()
+              : elapsed + source.grain_count;
+      implausible_forward_jump =
+          candidate.newest_index - *previous > allowance;
+    }
+  }
+  const auto epoch_regressed =
+      previous && *previous > candidate.newest_index;
+  if (epoch_regressed || implausible_forward_jump) {
     // A recreated writer can briefly expose a reset ring before it re-anchors
     // to the current MXL clock. Do not compare that new epoch with the old
     // cursor: doing so turns a lifecycle event into an enormous synthetic skip
@@ -117,6 +140,7 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
     // reader-reopen telemetry.
     previous.reset();
     timelines.erase(source_flow);
+    output_timelines.erase(source_flow);
     presentation_fallback_by_output_source_[output_flow].erase(source_flow);
     timeline_reset = true;
   }
@@ -191,6 +215,7 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
   }
   const auto cadence = classify_input_index_step(previous, selected);
   timelines[source_flow] = selected;
+  output_timelines[source_flow] = output_index;
   auto window = candidate;
   window.selected_index = selected;
   return OutputReadSelection{window, cadence, timeline_reset, clamped,
@@ -200,6 +225,10 @@ std::optional<OutputReadSelection> OutputReadTimelines::select(
 
 void OutputReadTimelines::reset_source(const std::string& source_flow) {
   for (auto& [output, timelines] : last_index_by_output_source_) {
+    (void)output;
+    timelines.erase(source_flow);
+  }
+  for (auto& [output, timelines] : last_output_index_by_output_source_) {
     (void)output;
     timelines.erase(source_flow);
   }

@@ -341,6 +341,19 @@ void test_writer_reanchor_starts_fresh_timeline() {
           "re-anchored writer did not start a deterministic fresh timeline");
 }
 
+void test_same_writer_ring_lap_remains_a_skip() {
+  OutputReadTimelines timelines;
+  const auto before =
+      timelines.select("pgm", "source-a", {1002, 6}, 1, 1002);
+  const auto after_stall =
+      timelines.select("pgm", "source-a", {1010, 6}, 1, 1010);
+  require(before && after_stall, "same-writer ring lap became unavailable");
+  require(!after_stall->timeline_reset &&
+              after_stall->cadence.kind == InputIndexStepKind::Skip &&
+              after_stall->cadence.magnitude == 7,
+          "same-writer content loss was hidden as a lifecycle reset");
+}
+
 void test_sustained_unavailable_alarm_is_one_shot() {
   mxl_core::SustainedUnavailableAlarm alarm;
   require(!alarm.note_unavailable(3), "first unavailable frame is not sustained");
@@ -390,6 +403,7 @@ int main() {
       {"out-of-ring recovery reset",
        test_out_of_ring_recovery_resets_timeline},
       {"writer re-anchor reset", test_writer_reanchor_starts_fresh_timeline},
+      {"same-writer ring lap", test_same_writer_ring_lap_remains_a_skip},
       {"sustained unavailable one-shot",
        test_sustained_unavailable_alarm_is_one_shot},
   };
