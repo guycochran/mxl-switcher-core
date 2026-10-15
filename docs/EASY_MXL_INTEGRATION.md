@@ -197,9 +197,40 @@ mount the volume's domain directory as a named child such as
 EasyMXL at the volume's parent and assume `_data` will be accepted as a domain
 name; domain names must start with an alphanumeric character.
 
-This qualifies discovery and planning only. The next gate is one manually
-approved atomic PUT on a candidate Core, followed by Program/Preview continuity
-checks and rollback. An automatic apply mode remains out of scope.
+### Isolated atomic rebind qualification (2026-10-15)
+
+The next gate was run against a freshly built, isolated candidate Core. Its
+two stable source IDs intentionally started with stale flow UUIDs to reproduce
+a publisher restart. Preview was rebound first, followed by Program, using the
+planner-selected video/audio pairs. Both requests returned `changed: true` and
+advanced the Core revision exactly once.
+
+Across the recovery:
+
+- stable source names and Program/Preview assignments did not change;
+- Program and Preview output flow UUIDs did not change;
+- both source bindings changed atomically to the new video/audio pairs;
+- the output index resumed at approximately 30 fps;
+- the container remained running with zero restarts;
+- invalid, early, late, timeout, reader-reopen, sync, no-common-window,
+  regression, and active sustained-unavailable counters did not move after
+  stabilization;
+- resident memory stayed near 77 MiB. CPU was approximately one older server
+  core while producing independent 1080p30 Program and Preview outputs.
+
+The deliberately stale startup accumulated unavailable/invalid diagnostics
+before both sources were restored. Those values froze after recovery and the
+active sustained-unavailable state cleared. Cadence repeats and skips continued
+to be reported as measurements; neither output stalled or regressed.
+
+An older, already-installed candidate returned HTTP 405 for the source update
+endpoint. This is the expected compatibility boundary: discovery and planning
+can be used with older builds, but atomic live rebinding requires a Core build
+that includes `PUT /api/mxl/v1/sources/{id}`. The operator Core was not touched.
+
+This qualifies the manual discovery-to-rebind path. An automatic apply mode
+remains out of scope until it has explicit operator approval, authentication,
+preflight state checks, and rollback semantics.
 
 ## Catalog entry
 
