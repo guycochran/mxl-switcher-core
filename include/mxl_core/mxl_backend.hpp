@@ -45,6 +45,7 @@ struct MxlBackendStats {
   std::uint64_t observed_common_window_empty{0};
   std::uint64_t input_timeline_resets{0};
   std::uint64_t recovery_index_clamps{0};
+  std::uint64_t copy_overwrite_suspects{0};
   std::uint64_t sustained_unavailable_alarms{0};
   std::uint64_t sustained_unavailable_active{0};
   std::uint64_t last_common_oldest_index{0};

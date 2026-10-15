@@ -60,6 +60,8 @@ std::string health_json(const MxlBackendStats& stats) {
          << stats.input_timeline_resets
          << ",\"recovery_index_clamps\":"
          << stats.recovery_index_clamps
+         << ",\"copy_overwrite_suspects\":"
+         << stats.copy_overwrite_suspects
          << ",\"sustained_unavailable_alarms\":"
          << stats.sustained_unavailable_alarms
          << ",\"sustained_unavailable_active\":"
@@ -271,6 +273,7 @@ int main(int argc, char** argv) {
               << stats.observed_common_window_empty
               << " input_timeline_resets=" << stats.input_timeline_resets
               << " recovery_index_clamps=" << stats.recovery_index_clamps
+              << " copy_overwrite_suspects=" << stats.copy_overwrite_suspects
               << " sustained_unavailable_alarms="
               << stats.sustained_unavailable_alarms
               << " sustained_unavailable_active="

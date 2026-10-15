@@ -197,11 +197,14 @@ carrying the picture of grain `i + 6`. The ring holds six grains. This matches
 a check-then-copy race in the upstream `mxlsrc` discrete reader. It validates
 the ring slot's grain index before copying the payload, but not after. If the
 reader is preempted mid-copy long enough for the writer to lap the ring, the
-copied picture belongs to a newer grain. Core's own reader also copies from the
-ring without a post-copy check, but its read window keeps a two-grain margin
-from the oldest slot. Proposed hardening for both: after copying, re-read the
-flow head, and treat the grain as unavailable if the writer could have lapped
-the slot. Without the content-code check this failure would have been
+copied picture belongs to a newer grain. Core's reader had the same exposure: it copied from the ring with no
+post-copy check, protected only by its read window's margin from the oldest
+slot. Core now re-reads the flow head after each copy. If the writer could
+have lapped the slot, Core publishes its hold/unavailable grain instead and
+counts the event as `copy_overwrite_suspects` in health. This change is
+unit-tested and syntax-checked against the MXL SDK headers, but has not yet
+been qualified live. The same post-copy re-check is recommended upstream for
+`mxlsrc`. Without the content-code check this failure would have been
 invisible.
 
 **Run B.** The default operator Core recorded one `too_late` event on a

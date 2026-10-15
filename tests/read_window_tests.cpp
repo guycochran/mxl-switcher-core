@@ -90,6 +90,21 @@ void test_independent_selection_uses_one_ring() {
           "independent selection escaped its source ring");
 }
 
+void test_detects_possible_ring_lap_after_copy() {
+  // Six-grain ring, grain 100 selected at the oldest safe index of head 104.
+  require(!copy_may_have_been_overwritten(100, 104, 6),
+          "a copy within the safe window was rejected");
+  require(copy_may_have_been_overwritten(100, 105, 6),
+          "a copy the writer may have lapped was accepted");
+  require(copy_may_have_been_overwritten(100, 160, 6),
+          "a long preemption during copy was accepted");
+  const auto selected = select_independent_read_index({100, 6}, 0);
+  require(!copy_may_have_been_overwritten(selected.oldest_index, 100, 6),
+          "the selector's own oldest index failed the post-copy check");
+  require(!copy_may_have_been_overwritten(selected.selected_index, 103, 6),
+          "a live selection was rejected after a short copy");
+}
+
 void test_repeat_hold_requires_matching_source() {
   require(!can_hold_repeated_source(std::nullopt, "source-a"),
           "repeat hold accepted an empty payload history");
@@ -183,6 +198,7 @@ int main() {
       {"invalid input rejection", test_rejects_invalid_input},
       {"input cadence classification", test_classifies_input_cadence},
       {"independent one-ring selection", test_independent_selection_uses_one_ring},
+      {"post-copy ring lap detection", test_detects_possible_ring_lap_after_copy},
       {"repeat hold source identity", test_repeat_hold_requires_matching_source},
       {"cadence hold availability",
        test_valid_cadence_hold_breaks_unavailable_run},

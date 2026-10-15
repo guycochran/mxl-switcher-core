@@ -370,6 +370,22 @@ class MxlBackend::Impl {
         output_info.validSlices = source_info.validSlices;
       }
     }
+    // The payload was copied straight from the source ring. If the writer may
+    // have lapped that slot during the copy, the picture can belong to a newer
+    // grain; publish the hold/unavailable grain instead of a mislabeled one.
+    mxlFlowRuntimeInfo after_copy{};
+    if (mxlFlowReaderGetRuntimeInfo(reader->handle, &after_copy) ==
+            MXL_STATUS_OK &&
+        copy_may_have_been_overwritten(selection->window.selected_index,
+                                       after_copy.headIndex, grain_count)) {
+      {
+        std::lock_guard lock(stats_mutex_);
+        ++stats_.copy_overwrite_suspects;
+      }
+      commit_unavailable(writer_it->second, output_index, &output_info,
+                         output_payload);
+      return;
+    }
     write_status =
         mxlFlowWriterCommitGrain(writer_it->second.handle, &output_info);
     if (write_status != MXL_STATUS_OK) {

@@ -23,6 +23,7 @@ const measurementCounters = [
   ['observed_common_window_empty', 'Observed gaps'],
   ['input_timeline_resets', 'Timeline resets'],
   ['recovery_index_clamps', 'Recovery clamps'],
+  ['copy_overwrite_suspects', 'Copy-lap suspects'],
   ['selected_input_repeats', 'Repeated input'],
   ['selected_input_skip_events', 'Skip events'],
 ]

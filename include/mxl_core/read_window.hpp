@@ -49,6 +49,17 @@ bool can_hold_repeated_source(
 ReadWindowSelection select_independent_read_index(
     const ReadWindowSource& source, std::uint64_t safety_margin_frames);
 
+// True when the writer could have reused the selected grain's ring slot while
+// it was being copied out. The slot holding index `s` is reopened for
+// `s + grain_count` once the committed head reaches `s + grain_count - 1`; this
+// keeps the same one-grain margin as the oldest safe index
+// (`head - grain_count + 2`). Re-check with the head read *after* the copy: a
+// reader preempted mid-copy can otherwise emit a newer grain's picture under
+// the selected index.
+bool copy_may_have_been_overwritten(std::uint64_t selected_index,
+                                    std::uint64_t head_after_copy,
+                                    std::uint32_t grain_count);
+
 struct OutputReadSelection {
   ReadWindowSelection window;
   InputIndexStep cadence;
