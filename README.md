@@ -6,6 +6,29 @@ The first executable slice of a headless, skin-independent MXL production
 switcher. It keeps MXL's native operating point—progressive v210 video—and gives
 Program and Preview stable flow identities that do not disappear on a cut.
 
+## Status today — October 15, 2026
+
+This is now a working CPU-only production foundation, not just an architecture
+proposal. The current build has been exercised with eight registered 1080p30
+v210 sources, stable Program and Preview outputs, live switching, runtime source
+rebinding, EasyMXL discovery, NMOS visibility, Companion/Stream Deck control,
+and the optional reference operator Skin.
+
+| Area | Current state |
+|---|---|
+| Core video | Live and accepted: stable PGM/PVW identities, grain-boundary Preview/Cut/Take, hold-last recovery, health counters, and runtime source rebinding |
+| Deployment | Immutable versioned image, guarded replacement, retained rollback, output-collision checks, corrected port probing, and optional EasyMXL active-writer protection |
+| Platform integration | EasyMXL catalog/deployment bundle, deterministic read-only discovery planner, writer attribution, and fail-closed reconciliation/apply tooling |
+| Operator control | Versioned HTTP/SSE API plus optional ATEM-style web Skin, Companion/Stream Deck module, NMOS view, and confidence monitoring |
+| Audio | Stable 48 kHz Program Audio candidate and objective timing reference have passed isolated qualification; content-level lip-sync and audience-return acceptance remain open |
+| Destinations | Modular output contract is defined; NDI has passed loaded qualification, while packaged SRT, RTMP/RTMPS, SDI/HDMI, recording, and meeting-return adapters remain roadmap work |
+
+The latest guarded live promotion ran for 602.8 seconds, advanced 17,999 output
+frames, recorded zero Core hard-counter errors and zero restarts, and kept the
+Skin, Program Audio, NMOS, and confidence paths healthy on an older CPU host.
+See the [current project snapshot](docs/CURRENT_STATUS.md) and the
+[immutable live-promotion record](docs/IMMUTABLE_CORE_LIVE_PROMOTION_2026-10-15.md).
+
 ## Choose your path
 
 Core is shared infrastructure, not a preselected production workflow. Start
@@ -118,6 +141,25 @@ bounded control and telemetry with Core.
   monitoring, audio controls, and live tally.
 - an optional Bitfocus Companion module with Stream Deck presets and live
   Program, Preview, and ME-bank feedback.
+- an immutable deployment bundle with dry-run preflight, exact rollback
+  retention, output-collision protection, and bounded post-launch verification.
+- an optional EasyMXL active-writer guard that fails closed before a second
+  writer can claim Program or Preview.
+- deterministic, read-only EasyMXL discovery and a guarded executor for atomic
+  runtime source rebinding without changing stable source IDs.
+
+## For deployment-platform builders
+
+Core is intentionally small enough to become one media function in a larger
+platform. A deployment system such as EasyMXL can own domains, discovery,
+writer attribution, lifecycle, parameters, and logs while Core owns the
+authoritative Program/Preview state and deterministic media routing. Skins,
+audio, compositors, monitoring, and encoded destinations remain replaceable
+services around that boundary.
+
+Start with the [EasyMXL integration contract](docs/EASY_MXL_INTEGRATION.md),
+the [versioned deployment bundle](docs/DEPLOYMENT_BUNDLE.md), and the
+[output-node architecture](docs/OUTPUT_ARCHITECTURE.md).
 
 ## Build and verify
 
@@ -240,7 +282,7 @@ Preview command advanced revision 2. The 600-frame controlled run emitted all
 1,200 expected output grains; its invalid grains were attributed to the same
 intermittent guest input while the clip input remained clean.
 
-## Planned milestones
+## Next qualification milestones
 
 1. **Program Master clock recovery:** candidate stable 48 kHz Program Audio and
    AFV are live; complete content-level lip-sync, recovered-alarm analysis, and
@@ -250,14 +292,11 @@ intermittent guest input while the clip input remained clean.
 3. **Independent output nodes:** add NDI, SRT, WebRTC, recording, YouTube
    RTMPS, and scheduled DeckLink SDI/HDMI adapters without adding codecs or
    hardware dependencies to Core's hot path.
-4. **Accepted NDI/MXL profile:** complete. One real NDI ingress plus one local
-   synthetic v210 source passed eight loaded hours with two active NDI outputs.
-5. **Lifecycle resilience:** complete for Core, ingress, and egress replacement.
-   A controlled NDI-ingress interruption preserved both decoded NDI outputs,
-   reopened the recreated MXL input, and recovered without process restarts.
-6. **Two-source hardware acceptance:** repeat with two independent real sources
+4. **Lifecycle expansion:** extend the accepted Core, ingress, and egress
+   replacement behavior into documented fresh-host deployment profiles.
+5. **Two-source hardware acceptance:** repeat with two independent real sources
    into stable PGM/PVW on the Supermicro.
-7. **Deployment profiles:** package Core-only, Program-only NDI, and full
+6. **Deployment profiles:** package Core-only, Program-only NDI, and full
    Program/Preview NDI profiles for fresh Linux hosts.
 
 License: MIT.
