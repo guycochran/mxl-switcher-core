@@ -236,13 +236,37 @@ class Docker:
         return data
 
 
-def port_free(host: str, port: int) -> bool:
-    with socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM) as probe:
+def port_free(host: str, port: int, connect_timeout: float = 0.5) -> bool:
+    """Can a replacement bind ``host:port`` right now?
+
+    Answers the operational question, not "has the port ever been used":
+
+    1. Bind with ``SO_REUSEADDR``, as servers and Docker's port publisher do.
+       This succeeds while the stopped listener's old connections sit in TCP
+       ``TIME_WAIT`` (which a plain bind wrongly reports as occupied), and still
+       fails while a process is listening on the same address.
+    2. Connect to the port. If anything accepts, a listener is live. This
+       catches a listener on the wildcard address, which a reuse-bind to a
+       specific address can miss on BSD/macOS.
+
+    Maintenance replacement therefore does not wait for ``TIME_WAIT`` to expire.
+    """
+
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind((host, port))
         except OSError:
             return False
-    return True
+    target = {"0.0.0.0": "127.0.0.1", "::": "::1", "": "127.0.0.1"}.get(host, host)
+    with socket.socket(family, socket.SOCK_STREAM) as client:
+        client.settimeout(connect_timeout)
+        try:
+            client.connect((target, port))
+        except OSError:
+            return True
+    return False
 
 
 # --- commands ---------------------------------------------------------------

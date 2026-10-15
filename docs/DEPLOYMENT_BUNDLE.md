@@ -82,13 +82,29 @@ Inside the container:
   `--domain-path`);
 - no container with the requested name exists. The check uses the exact
   name, never a prefix or pattern;
-- the host port is free on the bind address, which defaults to loopback;
+- the host port can be bound now on the bind address, which defaults to
+  loopback (see "Port check");
 - in production mode, the image is immutable and its labels verify, and a
   `--rollback-container` is named;
 - **no MXL output flow would get a second writer** (see below).
 
 Production launches must supply their own output definitions. The acceptance
 definitions bundled in the image are accepted only with `--mode test`.
+
+## Port check
+
+The port preflight answers one operational question: can the replacement bind
+this address and port right now? It does two things:
+
+1. Binds with `SO_REUSEADDR`, as servers and Docker's port publisher do. That
+   bind fails while a process is listening on the address.
+2. Connects to the port. If anything accepts, a listener is still live, even
+   one bound to the wildcard address.
+
+Connections left in TCP `TIME_WAIT` by a listener that has already stopped do
+**not** count as occupied. So a maintenance replacement can launch immediately
+after the old service stops, without waiting for `TIME_WAIT` to expire. A
+live listener is still refused before any Docker mutation.
 
 ## One writer per MXL flow
 

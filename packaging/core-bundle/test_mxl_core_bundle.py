@@ -3,6 +3,7 @@ import io
 import json
 import pathlib
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -401,6 +402,95 @@ class OutputCollisionTest(unittest.TestCase):
         with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(bundle.main(argv, docker=bundle.Docker(fake), port_check=lambda *_: True), 2)
         self.assertIn("concurrent writers", err.getvalue())
+        self.assertEqual(fake.mutations, [])
+
+
+def listener(host="127.0.0.1", port=0):
+    server = socket.socket()
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((host, port))
+    server.listen()
+    return server
+
+
+def stop_after_served_connection(server):
+    """Serve one client, close the server side first, then stop listening.
+
+    The listening port is left with an accepted socket in TCP TIME_WAIT: the
+    state that made the first live cutover refuse a free port.
+    """
+
+    client = socket.create_connection(server.getsockname()[:2])
+    accepted, _ = server.accept()
+    accepted.close()
+    client.recv(1)
+    client.close()
+    server.close()
+
+
+def naive_bind_free(host, port):
+    with socket.socket() as probe:
+        try:
+            probe.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+class PortProbeTest(unittest.TestCase):
+    """Real loopback sockets: can a replacement bind the port now?"""
+
+    def test_active_listener_is_occupied(self):
+        server = listener()
+        self.addCleanup(server.close)
+        self.assertFalse(bundle.port_free("127.0.0.1", server.getsockname()[1]))
+
+    def test_port_is_free_right_after_listener_stops_despite_time_wait(self):
+        server = listener()
+        port = server.getsockname()[1]
+        stop_after_served_connection(server)
+        self.assertTrue(bundle.port_free("127.0.0.1", port))
+        if naive_bind_free("127.0.0.1", port):
+            self.skipTest("this platform let a plain bind through; the regression is shown elsewhere")
+        # The previous probe (a plain bind) reported this free port as occupied.
+
+    def test_wildcard_listener_is_seen_from_a_loopback_probe(self):
+        server = listener("0.0.0.0")
+        self.addCleanup(server.close)
+        self.assertFalse(bundle.port_free("127.0.0.1", server.getsockname()[1]))
+
+    def test_wildcard_bind_address_probes_loopback(self):
+        server = listener("127.0.0.1")
+        self.addCleanup(server.close)
+        self.assertFalse(bundle.port_free("0.0.0.0", server.getsockname()[1]))
+
+
+class PostStopLaunchTest(unittest.TestCase):
+    def setUp(self):
+        self.facility = Facility()
+        self.addCleanup(self.facility.close)
+
+    def test_launch_accepts_the_post_stop_port(self):
+        server = listener()
+        port = server.getsockname()[1]
+        stop_after_served_connection(server)
+        fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": STOPPED_OPERATOR})
+        plan = bundle.launch_plan(bundle.Docker(fake), launch_args(self.facility, host_port=port),
+                                  port_check=bundle.port_free)
+        self.assertEqual(plan["publish"], f"127.0.0.1:{port}->18085/tcp")
+        self.assertEqual(fake.mutations, [])
+
+    def test_live_listener_still_refuses_before_any_mutation(self):
+        server = listener()
+        self.addCleanup(server.close)
+        fake = FakeDocker(images=good_image(), containers={"mxl-core-operator": STOPPED_OPERATOR})
+        argv = ["launch", "--image", IMAGE, "--name", "mxl-core-candidate-1", "--config", str(self.facility.config),
+                "--definitions", str(self.facility.definitions), "--domain-volume", "example-mxl-domain",
+                "--host-port", str(server.getsockname()[1]), "--rollback-container", "mxl-core-operator", "--apply"]
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bundle.main(argv, docker=bundle.Docker(fake)), 2)
+        self.assertIn("occupied", err.getvalue())
         self.assertEqual(fake.mutations, [])
 
 
