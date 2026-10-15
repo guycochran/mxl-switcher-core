@@ -115,6 +115,9 @@ def main() -> int:
     args = parser.parse_args()
 
     os.makedirs(args.output)
+    for flow in (args.video_flow, args.audio_flow):
+        if not mxl.flow_exists(args.domain, flow):
+            raise SystemExit(f"flow {flow} is not present in {args.domain}")
     api = mxl.load_library(args.library)
     instance = api.mxlCreateInstance(args.domain.encode(), b"")
     if not instance:

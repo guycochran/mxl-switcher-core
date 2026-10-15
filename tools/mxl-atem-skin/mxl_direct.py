@@ -13,6 +13,7 @@ Standard library only; the MXL SDK shared library is loaded at runtime.
 from __future__ import annotations
 
 import ctypes
+import os
 from dataclasses import dataclass
 
 MXL_STATUS_OK = 0
@@ -136,6 +137,16 @@ def load_library(name: str = "libmxl.so"):
     ):
         function.restype = ctypes.c_int
     return lib
+
+
+def flow_exists(domain: str, flow_id: str) -> bool:
+    """True when the flow's shared data file is present in the domain.
+
+    Check this before ``mxlCreateFlowReader``: the SDK build in the lab image
+    crashes (SIGSEGV) instead of returning an error for a missing flow.
+    """
+
+    return os.path.isfile(os.path.join(domain, f"{flow_id}.mxl-flow", "data"))
 
 
 class Reader:

@@ -1,0 +1,32 @@
+# MediaMTX for MXL browser confidence monitoring (Supermicro lab profile).
+# Everything binds to loopback; operators reach it through an SSH tunnel.
+# Encoders publish RTMP locally; browsers play WebRTC (WHEP) with ICE over TCP
+# so playback works through the tunnel.
+
+logLevel: info
+
+api: yes
+apiAddress: 127.0.0.1:9997
+metrics: no
+pprof: no
+playback: no
+
+rtsp: no
+hls: no
+srt: no
+moq: no
+
+rtmp: yes
+rtmpAddress: 127.0.0.1:1935
+
+webrtc: yes
+webrtcAddress: 127.0.0.1:8889
+webrtcLocalUDPAddress: ""
+webrtcLocalTCPAddress: 127.0.0.1:8189
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: [127.0.0.1]
+
+paths:
+  mxl-program:
+  mxl-preview:
+  mxl-multiview:

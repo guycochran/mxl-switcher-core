@@ -116,6 +116,13 @@ The Program and Preview monitors embed MediaMTX WebRTC players with
 adapter subscribed to Core's corresponding stable output flow. Video remains
 on the media plane; the skin carries control and status only.
 
+For a single production node, `mxl_confidence_encoder.py` provides the
+reduced-cost adapters. It reads Program, Preview, and the multiview sources in
+place through the MXL SDK, decimates v210 exactly, and publishes H.264 to a
+loopback MediaMTX. The multiview click overlay follows the Core source
+catalog, matching the encoder's wall order. See
+[the deployment profile](../../deploy/confidence/README.md).
+
 The named 2-up through 8-up presets are starting points for the composition
 matrix; every box remains independently assignable. MIX is deliberately
 disabled: Core currently routes one selected source per output, so a real

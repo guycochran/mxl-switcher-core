@@ -168,6 +168,17 @@ class SampleReaderTest(unittest.TestCase):
         self.assertIsNone(channels)
 
 
+class FlowExistsTest(unittest.TestCase):
+    def test_requires_the_flow_data_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as domain:
+            self.assertFalse(mxl.flow_exists(domain, "flow-a"))
+            pathlib.Path(domain, "flow-a.mxl-flow").mkdir()
+            self.assertFalse(mxl.flow_exists(domain, "flow-a"))
+            pathlib.Path(domain, "flow-a.mxl-flow", "data").write_bytes(b"")
+            self.assertTrue(mxl.flow_exists(domain, "flow-a"))
+
+
 class LayoutTest(unittest.TestCase):
     def test_struct_sizes_match_the_sdk(self):
         self.assertEqual(ctypes.sizeof(mxl.GrainInfo), 4096)

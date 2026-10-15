@@ -64,8 +64,8 @@ function meterHeight(db) {
 function renderMultiview(core) {
   const wall = $('multiviewGrid')
   wall.replaceChildren()
-  for (let i = 1; i <= 8; i++) {
-    const id = `zoomiso-${i}`
+  // Tiles follow the Core catalog order, matching the multiview encoder's wall slots.
+  for (const id of sources.slice(0, 8).map((source) => source.id)) {
     const meter = state?.audio?.meters?.[id]
     const button = document.createElement('button')
     button.type = 'button'
