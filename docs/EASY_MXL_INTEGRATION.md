@@ -356,8 +356,18 @@ Build the local candidate from a host that already has the licensed MXL lab
 base image and SDK runtime:
 
 ```sh
-packaging/easy-mxl/build-local-image.sh 0.2.0-candidate
+packaging/easy-mxl/build-local-image.sh 0.2.0-candidate          # dry run
+packaging/easy-mxl/build-local-image.sh 0.2.0-candidate --apply  # build
 ```
+
+The script now delegates to the immutable deployment bundle. It tags the image
+`<semver>.g<12-hex revision>` from a clean commit only, verifies its OCI
+labels, and writes a release manifest and a pinned catalog entry. See
+[Immutable Core deployment bundle](DEPLOYMENT_BUNDLE.md) for preflight,
+launch, exact cleanup, and rollback. The earlier qualified image
+`0.2.0-candidate.a89fe17` predates this naming. The alias
+`mxl-switcher-core:0.2.0-candidate` is a mutable tag, and production launches
+refuse it.
 
 The multi-stage `Dockerfile.runtime` compiles the current checkout, labels the
 result with its Git revision, installs the acceptance definitions and guarded
