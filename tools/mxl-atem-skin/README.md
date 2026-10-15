@@ -90,7 +90,8 @@ H.264 + Opus session stays intact across video cuts.
 It reads each input by absolute MXL sample index, waits a bounded time for
 late input, and writes the mix at the same index, so late input is counted
 (`late`/`held_ms`/`skipped` per channel in `/state`) instead of becoming silent
-output. See the design note in `docs/AV_REFERENCE.md`. It needs only the MXL
+output. An input flow that is absent at startup or recreated later is reported
+offline and reopened (`--reopen-interval-ms`), never a crash. See the design note in `docs/AV_REFERENCE.md`. It needs only the MXL
 SDK shared library (`--library`), not GStreamer.
 
 For a ZoomISO return-feed instance, the stable Program video and Program Audio

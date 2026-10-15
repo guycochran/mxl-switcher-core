@@ -332,9 +332,9 @@ next step.
 - **Gaps are counted, never silently mixed as silence.** Per input, each block
   is `on_time`, `late` (it arrived during the wait, and `held_ms` records how
   long the output was held), or `skipped`, with a reason: `missing` after the
-  full budget, `overrun` when the ring has moved past the index, `torn`, or
-  `error`. A skipped input contributes nothing to that block, and the block is
-  counted in `blocks_degraded`. An input that ran out of budget is marked
+  full budget, `overrun` when the ring has moved past the index, `torn`,
+  `invalid`, `offline`, or `error`. A skipped input contributes nothing to
+  that block, and the block is counted in `blocks_degraded`. An input that ran out of budget is marked
   `stalled` and polled without waiting until it catches up, so a dead source
   cannot hold Program Audio back. Silence is written only when no input is on
   air.
@@ -343,10 +343,27 @@ next step.
   from Core's `/api/mxl/v1/state`. Gain changes ramp linearly across one block.
   The output is a stable 48 kHz Float32 stereo flow with the `--group-hint`
   prefix. Inputs must already be 48 kHz, because index mixing cannot resample.
+- **Inputs come and go.** ZoomISO recreates its flows on restart, and the lab
+  SDK crashes (SIGSEGV) on `mxlCreateFlowReader` for a flow that is not in the
+  domain. The mixer therefore opens an input only after
+  `mxl_direct.flow_exists`. An input that is absent, or not 48 kHz, is
+  **offline** (`online: false`, `last_open_error`), never fatal; while it is on
+  air its blocks are skipped as `offline`. Once per `--reopen-interval-ms`
+  (default 1000 ms of MXL time), offline inputs are probed whether or not they
+  are on air, so they are ready before a cut. A read that returns
+  `MXL_ERR_FLOW_INVALID` (skipped as `invalid`) closes the reader and reopens
+  it at once. A stalled input is also reopened once per interval, because a
+  flow recreated under the same ID can leave the old reader on a mapping that
+  never advances. Its stall is kept, so the reopen does not hold the output
+  again. `opens` and `closes` count reader changes. One window remains: a flow
+  removed between the existence check and the SDK open can still crash the
+  process.
 - **Unit coverage.** `test_index_mixer.py` uses fake SDK rings to cover exact
   placement, gain and sum, ramps, late, missing and stalled inputs with
-  recovery, overrun, torn copies, the wait cap, run-loop pacing, and the
-  control contract. The writer binding follows the public SDK header
+  recovery, overrun, torn copies, the wait cap, run-loop pacing, the control
+  contract, and the input lifecycle: absent at startup, wrong format, probed
+  off air, recreated, removed, stalled and reopened, and a domain check that
+  never calls the SDK for a missing flow. The writer binding follows the public SDK header
   (`mxlCreateFlowWriter`, `mxlFlowWriterOpenSamples`, `Commit`/`Cancel`).
 
 ## Gate B: through the isolated candidate Core (2026-10-15)

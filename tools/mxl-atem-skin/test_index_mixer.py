@@ -1,7 +1,9 @@
 import ctypes
 import json
 import pathlib
+import os
 import sys
+import tempfile
 import threading
 import unittest
 from array import array
@@ -69,6 +71,8 @@ class FakeInput(PlanarRing):
         self.on_wait = on_wait
         self.lap_during_copy = 0
         self.waits = 0
+        self.invalid = False  # the writer recreated the flow
+        self.released = 0
 
     def write_through(self, end):
         for index in range(max(self.head, end - self.length), end):
@@ -80,7 +84,13 @@ class FakeInput(PlanarRing):
         handle._obj.value = 1
         return mxl.MXL_STATUS_OK
 
+    def mxlReleaseFlowReader(self, instance, handle):
+        self.released += 1
+        return mxl.MXL_STATUS_OK
+
     def mxlFlowReaderGetSamples(self, handle, end, count, timeout, slices):
+        if self.invalid:
+            return mxl.MXL_ERR_FLOW_INVALID
         if end > self.head and timeout and self.on_wait:
             self.waits += 1
             self.on_wait(self, end, timeout)
@@ -136,6 +146,42 @@ def make(inputs, clock, max_wait_ms=500.0, output_length=48_000):
     out = FakeOutput(output_length)
     writer = mxl.SampleWriter(out, None, mixer.flow_definition("out", "Group", "Mix", "test"))
     return mixer.IndexMixer(readers, writer, "out", clock=clock, max_wait_ms=max_wait_ms), out
+
+
+class FakeDomain:
+    """``DomainInputs`` stand-in: ``flows`` maps flow ID to a ring, or to an error message."""
+
+    def __init__(self, **flows):
+        self.flows = flows
+        self.opened = []
+
+    def exists(self, flow_id):
+        return flow_id in self.flows
+
+    def open(self, flow_id):
+        if flow_id not in self.flows:
+            raise mixer.InputUnavailable(f"flow {flow_id} is not in the domain")
+        ring = self.flows[flow_id]
+        if isinstance(ring, str):
+            raise mixer.InputUnavailable(ring)
+        self.opened.append(flow_id)
+        return mxl.SampleReader(ring, None, flow_id, ring.length)
+
+
+def make_live(domain, flows, clock, max_wait_ms=500.0, reopen_interval_ms=1000.0):
+    """A mixer that opens its inputs through ``domain``, as ``main`` does."""
+
+    readers = {}
+    for number, flow in flows.items():
+        try:
+            readers[number] = domain.open(flow)
+        except mixer.InputUnavailable:
+            readers[number] = None
+    out = FakeOutput()
+    writer = mxl.SampleWriter(out, None, mixer.flow_definition("out", "Group", "Mix", "test"))
+    mix = mixer.IndexMixer(readers, writer, "out", clock=clock, max_wait_ms=max_wait_ms, inputs=domain,
+                           flows=flows, reopen_interval_ms=reopen_interval_ms)
+    return mix, out
 
 
 def counter(index):
@@ -273,6 +319,204 @@ class GapAccountingTest(unittest.TestCase):
         mix, _ = make([FakeInput(counter, negative, length=9_600)], self.clock, max_wait_ms=1000.0)
         self.assertEqual(mix.max_wait_samples, 4_800)
         self.assertEqual(mix.state()["max_wait_ms"], 100.0)
+
+
+class InputLifecycleTest(unittest.TestCase):
+    """Inputs that are absent at startup, recreated, or removed never crash or wedge the mixer."""
+
+    def setUp(self):
+        self.clock = Clock(START + BLOCK)
+        self.live = FakeInput(lambda s: 0.25, lambda s: 0.25)
+        self.live.write_through(START + 10 * BLOCK)
+
+    def on_air_both(self, mix):
+        mix.control({"mode": "manual"})
+        mix.control({"channel": 1, "on": True})
+        mix.control({"channel": 2, "on": True})
+        mix.applied.update({"1": 1.0, "2": 1.0})
+
+    def test_absent_input_at_startup_is_offline_then_joins_after_one_interval(self):
+        domain = FakeDomain(live=self.live)
+        mix, out = make_live(domain, {"1": "late-flow", "2": "live"}, self.clock)
+        self.on_air_both(mix)
+        mix.mix_block(START + BLOCK)
+        stats = mix.stats["1"]
+        self.assertEqual((stats.online, stats.skipped_reasons["offline"], stats.opens), (False, 1, 0))
+        self.assertIn("late-flow", stats.last_open_error)
+        self.assertEqual(mix.blocks_degraded, 1)
+        self.assertEqual(out.value(0, START + 3), 0.25)  # the live input still airs
+        self.assertEqual(mix.state()["channels"]["1"]["flow_id"], "late-flow")
+
+        arrived = FakeInput(counter, negative)
+        arrived.write_through(START + 10 * BLOCK)
+        domain.flows["late-flow"] = arrived
+        self.clock.now += 48_000 - BLOCK  # just short of the one-second interval
+        mix.mix_block(START + 2 * BLOCK)
+        self.assertEqual((stats.online, stats.skipped_reasons["offline"]), (False, 2))
+        self.clock.now += BLOCK
+        mix.mix_block(START + 3 * BLOCK)
+        self.assertEqual((stats.online, stats.opens, stats.on_time), (True, 1, 1))
+        index = START + 2 * BLOCK + 9
+        self.assertEqual(out.value(0, index), f32(counter(index) + 0.25))
+
+    def test_wrong_format_input_is_offline_not_fatal(self):
+        domain = FakeDomain(live=self.live, video="input video is not a 48 kHz audio flow")
+        mix, _ = make_live(domain, {"1": "video", "2": "live"}, self.clock)
+        self.on_air_both(mix)
+        self.assertEqual(mix.mix_block(START + BLOCK), mxl.MXL_STATUS_OK)
+        self.assertEqual(mix.stats["1"].last_open_error, "input video is not a 48 kHz audio flow")
+        self.assertEqual(mix.stats["2"].on_time, 1)
+
+    def test_offline_inputs_are_probed_even_when_not_on_air(self):
+        domain = FakeDomain(live=self.live)
+        mix, _ = make_live(domain, {"1": "late-flow", "2": "live"}, self.clock)
+        mix.set_program("zoomiso-2")
+        domain.flows["late-flow"] = FakeInput(counter, negative)
+        mix.mix_block(START + BLOCK)
+        self.assertTrue(mix.stats["1"].online)  # ready before it is cut to
+        self.assertEqual(mix.stats["1"].skipped, 0)
+
+    def test_recreated_flow_is_reopened_immediately(self):
+        old = FakeInput(counter, negative)
+        old.write_through(START + 10 * BLOCK)
+        domain = FakeDomain(zoom=old, live=self.live)
+        mix, out = make_live(domain, {"1": "zoom", "2": "live"}, self.clock)
+        self.on_air_both(mix)
+        mix.mix_block(START + BLOCK)
+        old.invalid = True
+        new = FakeInput(lambda s: 0.5, lambda s: 0.5)
+        new.write_through(START + 10 * BLOCK)
+        domain.flows["zoom"] = new
+        mix.mix_block(START + 2 * BLOCK)
+        stats = mix.stats["1"]
+        self.assertEqual((stats.skipped_reasons["invalid"], stats.closes, stats.opens, old.released),
+                         (1, 1, 1, 1))
+        self.assertTrue(stats.online)
+        mix.mix_block(START + 3 * BLOCK)
+        self.assertEqual(out.value(0, START + 2 * BLOCK + 1), 0.75)
+
+    def test_invalid_flow_that_is_gone_goes_offline_and_returns_later(self):
+        old = FakeInput(counter, negative)
+        old.write_through(START + 10 * BLOCK)
+        domain = FakeDomain(zoom=old, live=self.live)
+        mix, _ = make_live(domain, {"1": "zoom", "2": "live"}, self.clock)
+        self.on_air_both(mix)
+        old.invalid = True
+        del domain.flows["zoom"]
+        mix.mix_block(START + BLOCK)
+        stats = mix.stats["1"]
+        self.assertEqual((stats.online, stats.skipped_reasons["invalid"]), (False, 1))
+        mix.mix_block(START + 2 * BLOCK)
+        self.assertEqual(stats.skipped_reasons["offline"], 1)
+        back = FakeInput(counter, negative)
+        back.write_through(START + 10 * BLOCK)
+        domain.flows["zoom"] = back
+        self.clock.now += 48_000
+        mix.mix_block(START + 3 * BLOCK)
+        self.assertEqual((stats.online, stats.on_time), (True, 1))
+
+    def test_stalled_input_is_reopened_without_holding_output_again(self):
+        def never(ring, end, timeout):
+            self.clock.now += timeout * 48_000 // 1_000_000_000
+
+        stuck = FakeInput(counter, negative, on_wait=never)
+        stuck.write_through(START)
+        domain = FakeDomain(zoom=stuck, live=self.live)
+        mix, _ = make_live(domain, {"1": "zoom", "2": "live"}, self.clock, max_wait_ms=200.0)
+        self.on_air_both(mix)
+        mix.mix_block(START + BLOCK)  # waits once, then stalls; the stall triggers a reopen next block
+        stats = mix.stats["1"]
+        self.assertTrue(stats.stalled)
+        replacement = FakeInput(counter, negative, on_wait=never)  # recreated under the same ID, still silent
+        domain.flows["zoom"] = replacement
+        mix.mix_block(START + 2 * BLOCK)
+        self.assertEqual((stats.opens, stats.closes, stats.stalled, stuck.released), (1, 1, True, 1))
+        self.assertEqual(replacement.waits, 0)  # the stall survives the reopen: no second hold
+        mix.mix_block(START + 3 * BLOCK)
+        self.assertEqual(stats.opens, 1)  # not again until the interval passes
+        replacement.write_through(START + 10 * BLOCK)
+        mix.mix_block(START + 4 * BLOCK)
+        self.assertEqual((stats.stalled, stats.recoveries, stats.on_time), (False, 1, 1))
+
+    def test_stalled_input_whose_flow_left_the_domain_goes_offline(self):
+        stuck = FakeInput(counter, negative)
+        stuck.write_through(START)
+        domain = FakeDomain(zoom=stuck, live=self.live)
+        mix, _ = make_live(domain, {"1": "zoom", "2": "live"}, self.clock, max_wait_ms=0.0)
+        self.on_air_both(mix)
+        mix.mix_block(START + BLOCK)
+        del domain.flows["zoom"]
+        mix.mix_block(START + 2 * BLOCK)
+        stats = mix.stats["1"]
+        self.assertEqual((stats.online, stuck.released, stats.skipped_reasons["offline"]), (False, 1, 1))
+
+    def test_wait_cap_follows_the_open_rings(self):
+        domain = FakeDomain(long=FakeInput(counter, negative, length=48_000))
+        mix, _ = make_live(domain, {"1": "long", "2": "short"}, self.clock, max_wait_ms=1000.0)
+        self.assertEqual(mix.max_wait_samples, 24_000)
+        domain.flows["short"] = FakeInput(counter, negative, length=9_600)
+        mix.maintain_inputs()
+        self.assertEqual(mix.max_wait_samples, 4_800)
+
+    def test_without_an_input_source_readers_are_used_as_given(self):
+        source = FakeInput(counter, negative)
+        source.write_through(START + 10 * BLOCK)
+        mix, _ = make([source], self.clock)
+        mix.set_program("zoomiso-1")
+        source.invalid = True
+        mix.mix_block(START + BLOCK)
+        self.assertEqual((mix.stats["1"].skipped_reasons["invalid"], source.released), (1, 0))
+
+
+class DomainInputsTest(unittest.TestCase):
+    """The SDK must never be asked to open a flow that is not in the domain."""
+
+    class Api:
+        def __init__(self, rate=48_000):
+            self.rate = rate
+            self.created = []
+
+        def mxlCreateFlowReader(self, instance, flow, options, handle):
+            self.created.append(flow.decode())
+            handle._obj.value = 1
+            return mxl.MXL_STATUS_OK
+
+        def mxlFlowReaderGetConfigInfo(self, handle, info):
+            info._obj.common.grainRate.numerator = self.rate
+            info._obj.common.grainRate.denominator = 1
+            info._obj.continuous.channelCount = 2
+            info._obj.continuous.bufferLength = 19_456
+            return mxl.MXL_STATUS_OK
+
+        def mxlReleaseFlowReader(self, instance, handle):
+            return mxl.MXL_STATUS_OK
+
+    def setUp(self):
+        self.domain = tempfile.TemporaryDirectory()
+        self.addCleanup(self.domain.cleanup)
+
+    def add_flow(self, flow_id):
+        os.makedirs(os.path.join(self.domain.name, f"{flow_id}.mxl-flow"))
+        open(os.path.join(self.domain.name, f"{flow_id}.mxl-flow", "data"), "wb").close()
+
+    def test_missing_flow_is_refused_before_the_sdk_sees_it(self):
+        api = self.Api()
+        inputs = mixer.DomainInputs(api, None, self.domain.name)
+        with self.assertRaises(mixer.InputUnavailable):
+            inputs.open("00000000-0000-4000-8000-000000000001")
+        self.assertEqual(api.created, [])
+
+    def test_present_flow_opens_with_its_ring_length(self):
+        api = self.Api()
+        self.add_flow("00000000-0000-4000-8000-000000000002")
+        reader = mixer.DomainInputs(api, None, self.domain.name).open("00000000-0000-4000-8000-000000000002")
+        self.assertEqual(reader.ring_length, 19_456)
+
+    def test_wrong_rate_is_unavailable_not_a_crash(self):
+        self.add_flow("00000000-0000-4000-8000-000000000003")
+        with self.assertRaises(mixer.InputUnavailable):
+            mixer.DomainInputs(self.Api(rate=44_100), None, self.domain.name).open(
+                "00000000-0000-4000-8000-000000000003")
 
 
 class RunLoopTest(unittest.TestCase):
