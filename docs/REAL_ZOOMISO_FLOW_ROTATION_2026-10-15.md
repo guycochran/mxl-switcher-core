@@ -64,3 +64,55 @@ present: ZoomISO can continue publishing cadence while an output is unassigned
 or a meeting is between scheduled restarts. Future gates must require a
 content-motion preflight (or an equivalent explicit live-content assertion)
 before taking the baseline.
+
+## Flow-rotation rebind gate (harness)
+
+`tools/mxl-atem-skin/mxl_rotation_gate.py` connects the existing pieces to
+this sequence. It does not add new decision logic:
+
+- **Candidate, probes, and safety:** the isolated candidate, probes, on-air
+  refusals, invariants, evidence, and exact cleanup come from
+  `mxl_recovery_observer.py`.
+- **Matching:** identity matching uses `mxl_discovery_planner.py`, with writer
+  attribution plus NMOS group and video/audio roles, never labels.
+- **Writes:** every write goes through `mxl_rebind_apply.py`, with its revision
+  gate, ownership checks, verification, and reverse-order rollback.
+
+**The operator changes the declared output's protocol and changes it back.**
+The harness never calls ZoomISO or changes a meeting, a mapping, or a
+permanent service. It runs no daemon: one invocation observes one rotation.
+
+```sh
+python3 tools/mxl-atem-skin/mxl_rotation_gate.py plan \
+  <the same isolated-candidate options as mxl_recovery_observer.py> \
+  --easy-mxl-url http://127.0.0.1:<port> --easy-mxl-domain <domain> \
+  --writer-container <ZoomISO container> --group <output NMOS group> \
+  --video-role <role> --audio-role <role>
+# no flag: plan only (read-only)
+# --apply: run the gate as a rehearsal; it stops at the rebind plan and writes nothing
+# --apply --confirm APPLY_REBINDS: the executor may write bindings
+```
+
+| Phase | What must hold | Bound |
+| --- | --- | --- |
+| Old pair | Exactly one active video/audio pair matches the mapping. It is `--selected-flow`, and one writer container owns both halves. With confirmation, the audio half is bound through the executor. | preflight |
+| Content motion | The selected and control sources show changing pictures (`--min-change-fps`). This rejects cadence with a static picture, such as a meeting reset or an unassigned output. | `--motion-seconds` |
+| Baseline | As in the recovery gate. The Core revision, the Program/Preview selection, and the output identities are recorded. | `--baseline-seconds` |
+| Old pair inactive | EasyMXL reports both the old video and the old audio as no longer active. | `--interruption-timeout` |
+| Replacement | The planner reports `rebind` (a rotated pair) or `noop` (the same pair continued). Both halves must be owned by the recorded writer container. These refuse immediately: `ambiguous`, `incompatible`, `create_required`, an ownership collision, a missing or undeterminable writer, or video and audio owned by different writers. | `--restoration-timeout` |
+| Rebind | Refused if the Core revision or Program/Preview changed since baseline. Otherwise the executor applies the plan at the baseline revision. A failure rolls back and is recorded. Without confirmation the gate stops here, saving the plan and the dry-run preflight. | — |
+| Verification | The stable source is bound to the discovered pair. Program/Preview and the output identities are unchanged. The lag is ≤ `input_delay_frames + 1`, fallbacks have stopped, and the alarm is clear. The candidate Program output shows changing content. | `--recovery-timeout` |
+| Stable hold | No fallback movement and bounded lag. | `--stable-seconds` |
+
+The must-not-move counters, probe drops and stalls, and the restart and
+routing invariants fail the gate at any time.
+
+Evidence includes:
+
+- the old-pair, replacement, and executor plans and receipts;
+- the samples;
+- a redacted `public-summary.json`, with no flow IDs, writers, groups, source
+  names, URLs, or paths.
+
+Exit codes: 0 is PASS, 1 is FAIL or a rehearsal stop, 2 is refused with
+nothing changed.
