@@ -748,13 +748,22 @@ one CPU and about 76 MiB RSS; the index mixer used 0.91-1.56% and about 17 MiB.
 All exact temporary containers were removed and the paid VM was verified
 deallocated after evidence collection.
 
-An independent code review identified one additional soak boundary: a true
-source stall, faster source, or writer re-anchor could accumulate cursor lag
-until the ring edge. The branch now drains excess lag one grain at a time once
-it exceeds the configured delay plus one grain, and exposes current and maximum
-input lag globally and per source. Offline fast-source coverage and the full
-test suite pass. That hardening still requires real-ZoomISO qualification before
-the 30-minute or eight-hour audience-return gates.
+Independent code review identified two additional soak boundaries. First, a
+true source stall, faster source, or writer re-anchor could accumulate cursor
+lag until the ring edge. Bounded head-relative recovery closes that ratchet.
+Second, a purely sequential cursor could settle at either of two adjacent
+presentation delays after a CUT or hold. The follow-up prefers the deterministic
+target `output_index - (input_delay_frames + 1)` whenever it is readable. A
+delayed or differently phased adapter falls back to the bounded head-relative
+cursor rather than going black; every fallback is counted globally and per
+source so deterministic A/V alignment is never claimed silently.
+
+A read-only sample of the active ZoomISO/Core lab path found both selected
+source heads zero to two frames behind the output index across the observation
+window, inside the deterministic target's readable range. This is encouraging
+but is not a recovery qualification. The hybrid selection still requires an
+isolated live gate with source disappearance/recreation before the 30-minute or
+eight-hour audience-return gates.
 
 A larger 8,000-sample presentation delay also exposed an integration boundary:
 reading old samples directly from the source ring can exceed a producer's
@@ -768,8 +777,9 @@ larger-delay profile remains an implementation proof, not a promoted profile.
 
 ## Next live gate
 
-1. Qualify bounded cadence-lock recovery with real ZoomISO source stalls and
-   re-anchors while watching the new input-lag telemetry.
+1. Qualify hybrid cadence-lock recovery with isolated source stalls and writer
+   re-anchors while watching input lag and `presentation_fallbacks`, then repeat
+   against real ZoomISO without altering the operator mappings.
 2. Feed that unchanged candidate to the meeting return and analyze an
    audience-side recording before attempting the 30-minute and eight-hour
    holds.

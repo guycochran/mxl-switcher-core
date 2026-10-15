@@ -84,9 +84,12 @@ Core's media hot path.
   was reproduced offline and corrected with a sequential input timeline. A
   strict 610-second cloud repeat then passed 18,302 sequential frames, zero
   video faults, sample-perfect audio, and 610/610 A/V events at exactly 0 ms.
-  Bounded recovery for genuinely fast/re-anchored sources and input-lag
-  telemetry are implemented; real-ZoomISO recovery and meeting-to-meeting
-  audience acceptance remain open.
+  Bounded recovery for genuinely fast/re-anchored sources is implemented. A
+  deterministic output-relative target is preferred for clock-anchored inputs,
+  with an explicit counted fallback to the bounded adaptive cursor for delayed
+  or differently phased adapters. Read-only lab sampling placed active ZoomISO
+  heads within the deterministic window, but isolated writer recreation,
+  real-ZoomISO recovery, and meeting-to-meeting audience acceptance remain open.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.

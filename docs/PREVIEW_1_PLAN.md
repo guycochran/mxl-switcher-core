@@ -121,9 +121,13 @@ needed. Paid cloud machines must be deallocated after each test window.
   three isolated video repeats/skips. The head-sampling race was reproduced
   offline and corrected with a sequential input-timeline cursor. Its strict
   610-second cloud repeat passed 18,302 frames with zero repeats/skips,
-  sample-perfect audio, and all 610 A/V events at exactly 0 ms. Bounded
-  fast-source relock and input-lag telemetry are implemented and awaiting
-  real-ZoomISO recovery qualification. A mixer-owned sample history also makes
+  sample-perfect audio, and all 610 A/V events at exactly 0 ms. The follow-up
+  prefers one fixed output-relative source target for deterministic A/V delay,
+  while preserving a counted bounded-adaptive fallback for delayed or
+  differently phased adapters. Read-only lab sampling found the active ZoomISO
+  sources inside the fixed target window; isolated writer recreation and
+  real-ZoomISO recovery qualification remain open. A mixer-owned sample history
+  also makes
   long presentation delays independent of an upstream writer's ring depth;
   that boundary has unit and real-MXL audio proof but is not yet a promoted
   cloud profile.
