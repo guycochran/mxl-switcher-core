@@ -61,6 +61,7 @@ test: $(BUILD)/core-tests $(BUILD)/control-api-tests $(BUILD)/http-server-tests 
 	./$(BUILD)/live-config-tests
 	./$(BUILD)/read-window-tests
 	python3 -m unittest tools/test_mxl_core_nmos.py
+	python3 -m unittest tools/test_mxl_discovery_planner.py
 
 demo: $(BUILD)/mxl-core-demo
 	./$(BUILD)/mxl-core-demo

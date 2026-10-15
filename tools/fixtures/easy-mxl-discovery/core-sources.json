@@ -1,0 +1,87 @@
+[
+  {
+    "audio_flow_id": "00000000-0000-4000-8000-000000000102",
+    "capabilities": [
+      "video"
+    ],
+    "flow_id": "00000000-0000-4000-8000-000000000101",
+    "format": {
+      "encoding": "video/v210",
+      "height": 1080,
+      "rate_denominator": 1,
+      "rate_numerator": 30,
+      "width": 1920
+    },
+    "id": "cam-1",
+    "kind": "camera",
+    "label": "cam-1"
+  },
+  {
+    "audio_flow_id": "00000000-0000-4000-8000-000000000122",
+    "capabilities": [
+      "video"
+    ],
+    "flow_id": "00000000-0000-4000-8000-000000000121",
+    "format": {
+      "encoding": "video/v210",
+      "height": 1080,
+      "rate_denominator": 1,
+      "rate_numerator": 30,
+      "width": 1920
+    },
+    "id": "cam-2",
+    "kind": "camera",
+    "label": "cam-2"
+  },
+  {
+    "audio_flow_id": "00000000-0000-4000-8000-000000000132",
+    "capabilities": [
+      "video"
+    ],
+    "flow_id": "00000000-0000-4000-8000-000000000131",
+    "format": {
+      "encoding": "video/v210",
+      "height": 1080,
+      "rate_denominator": 1,
+      "rate_numerator": 30,
+      "width": 1920
+    },
+    "id": "cam-3",
+    "kind": "camera",
+    "label": "cam-3"
+  },
+  {
+    "audio_flow_id": "00000000-0000-4000-8000-000000000142",
+    "capabilities": [
+      "video"
+    ],
+    "flow_id": "00000000-0000-4000-8000-000000000141",
+    "format": {
+      "encoding": "video/v210",
+      "height": 1080,
+      "rate_denominator": 1,
+      "rate_numerator": 30,
+      "width": 1920
+    },
+    "id": "cam-4",
+    "kind": "camera",
+    "label": "cam-4"
+  },
+  {
+    "audio_flow_id": null,
+    "capabilities": [
+      "video"
+    ],
+    "flow_id": "00000000-0000-4000-8000-000000000151",
+    "format": {
+      "encoding": "video/v210",
+      "height": 1080,
+      "rate_denominator": 1,
+      "rate_numerator": 30,
+      "width": 1920
+    },
+    "id": "playout",
+    "kind": "camera",
+    "label": "playout"
+  }
+]

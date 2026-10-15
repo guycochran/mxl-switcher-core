@@ -1,0 +1,234 @@
+[
+  {
+    "active": false,
+    "def": {
+      "frame_height": 1080,
+      "frame_width": 1920,
+      "grain_rate": {
+        "denominator": 1,
+        "numerator": 30
+      },
+      "media_type": "video/v210"
+    },
+    "format": "video",
+    "group": "Camera Output 1",
+    "groupHint": "Camera Output 1:Video 1",
+    "id": "00000000-0000-4000-8000-000000000101",
+    "label": "Camera Output 1 Video",
+    "mediaType": "video/v210",
+    "role": "Video 1",
+    "status": "stale",
+    "writerContainer": {
+      "id": "0000000000000000000000000000000000000000000000000000000000000065",
+      "name": "contrib-a"
+    }
+  },
+  {
+    "active": false,
+    "def": {
+      "channel_count": 2,
+      "media_type": "audio/float32",
+      "sample_rate": {
+        "numerator": 48000
+      }
+    },
+    "format": "audio",
+    "group": "Camera Output 1",
+    "groupHint": "Camera Output 1:Audio 1",
+    "id": "00000000-0000-4000-8000-000000000102",
+    "label": "Camera Output 1 Audio",
+    "mediaType": "audio/float32",
+    "role": "Audio 1",
+    "status": "stale",
+    "writerContainer": {
+      "id": "0000000000000000000000000000000000000000000000000000000000000066",
+      "name": "contrib-a"
+    }
+  },
+  {
+    "active": true,
+    "def": {
+      "frame_height": 1080,
+      "frame_width": 1920,
+      "grain_rate": {
+        "denominator": 1,
+        "numerator": 30
+      },
+      "media_type": "video/v210"
+    },
+    "format": "video",
+    "group": "Camera Output 1",
+    "groupHint": "Camera Output 1:Video 1",
+    "id": "00000000-0000-4000-8000-000000000111",
+    "label": "Camera Output 1 Video",
+    "mediaType": "video/v210",
+    "role": "Video 1",
+    "status": "active",
+    "writerContainer": {
+      "id": "000000000000000000000000000000000000000000000000000000000000006f",
+      "name": "contrib-a"
+    }
+  },
+  {
+    "active": true,
+    "def": {
+      "channel_count": 2,
+      "media_type": "audio/float32",
+      "sample_rate": {
+        "numerator": 48000
+      }
+    },
+    "format": "audio",
+    "group": "Camera Output 1",
+    "groupHint": "Camera Output 1:Audio 1",
+    "id": "00000000-0000-4000-8000-000000000112",
+    "label": "Camera Output 1 Audio",
+    "mediaType": "audio/float32",
+    "role": "Audio 1",
+    "status": "active",
+    "writerContainer": {
+      "id": "0000000000000000000000000000000000000000000000000000000000000070",
+      "name": "contrib-a"
+    }
+  },
+  {
+    "active": true,
+    "def": {
+      "frame_height": 1080,
+      "frame_width": 1920,
+      "grain_rate": {
+        "denominator": 1,
+        "numerator": 30
+      },
+      "media_type": "video/v210"
+    },
+    "format": "video",
+    "group": "Camera Output 2",
+    "groupHint": "Camera Output 2:Video 1",
+    "id": "00000000-0000-4000-8000-000000000121",
+    "label": "Camera Output 2 Video",
+    "mediaType": "video/v210",
+    "role": "Video 1",
+    "status": "active",
+    "writerContainer": {
+      "id": "0000000000000000000000000000000000000000000000000000000000000079",
+      "name": "contrib-a"
+    }
+  },
+  {
+    "active": true,
+    "def": {
+      "channel_count": 2,
+      "media_type": "audio/float32",
+      "sample_rate": {
+        "numerator": 48000
+      }
+    },
+    "format": "audio",
+    "group": "Camera Output 2",
+    "groupHint": "Camera Output 2:Audio 1",
+    "id": "00000000-0000-4000-8000-000000000122",
+    "label": "Camera Output 2 Audio",
+    "mediaType": "audio/float32",
+    "role": "Audio 1",
+    "status": "active",
+    "writerContainer": {
+      "id": "000000000000000000000000000000000000000000000000000000000000007a",
+      "name": "contrib-a"
+    }
+  },
+  {
+    "active": true,
+    "def": {
+      "frame_height": 1080,
+      "frame_width": 1920,
+      "grain_rate": {
+        "denominator": 1,
+        "numerator": 30
+      },
+      "media_type": "video/v210"
+    },
+    "format": "video",
+    "group": "Camera Output 1",
+    "groupHint": "Camera Output 1:Video 1",
+    "id": "00000000-0000-4000-8000-000000000131",
+    "label": "Camera Output 1 Video",
+    "mediaType": "video/v210",
+    "role": "Video 1",
+    "status": "active",
+    "writerContainer": {
+      "id": "0000000000000000000000000000000000000000000000000000000000000083",
+      "name": "contrib-b"
+    }
+  },
+  {
+    "active": true,
+    "def": {
+      "channel_count": 2,
+      "media_type": "audio/float32",
+      "sample_rate": {
+        "numerator": 48000
+      }
+    },
+    "format": "audio",
+    "group": "Camera Output 1",
+    "groupHint": "Camera Output 1:Audio 1",
+    "id": "00000000-0000-4000-8000-000000000132",
+    "label": "Camera Output 1 Audio",
+    "mediaType": "audio/float32",
+    "role": "Audio 1",
+    "status": "active",
+    "writerContainer": {
+      "id": "0000000000000000000000000000000000000000000000000000000000000084",
+      "name": "contrib-b"
+    }
+  },
+  {
+    "active": false,
+    "def": {
+      "frame_height": 1080,
+      "frame_width": 1920,
+      "grain_rate": {
+        "denominator": 1,
+        "numerator": 30
+      },
+      "media_type": "video/v210"
+    },
+    "format": "video",
+    "group": "Camera Output 2",
+    "groupHint": "Camera Output 2:Video 1",
+    "id": "00000000-0000-4000-8000-000000000141",
+    "label": "Camera Output 2 Video",
+    "mediaType": "video/v210",
+    "role": "Video 1",
+    "status": "inactive",
+    "writerContainer": {
+      "id": "000000000000000000000000000000000000000000000000000000000000008d",
+      "name": "contrib-b"
+    }
+  },
+  {
+    "active": true,
+    "def": {
+      "frame_height": 1080,
+      "frame_width": 1920,
+      "grain_rate": {
+        "denominator": 1,
+        "numerator": 30
+      },
+      "media_type": "video/v210"
+    },
+    "format": "video",
+    "group": "Playout",
+    "groupHint": "Playout:Video 1",
+    "id": "00000000-0000-4000-8000-000000000151",
+    "label": "Playout Video",
+    "mediaType": "video/v210",
+    "role": "Video 1",
+    "status": "active",
+    "writerContainer": {
+      "id": "0000000000000000000000000000000000000000000000000000000000000097",
+      "name": "playout-a"
+    }
+  }
+]
