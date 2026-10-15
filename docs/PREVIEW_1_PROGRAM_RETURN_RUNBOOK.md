@@ -1,0 +1,111 @@
+# Preview 1 Program-return runbook
+
+This runbook closes the highest-risk Preview 1 gap: a synthetic Program travels
+through a destination meeting and is measured at the audience side. It uses no
+participant picture, voice, name, or meeting detail as evidence.
+
+## Roles
+
+- **Contribution ZoomISO** joins the source meeting and publishes MXL.
+- **Core plus Program Audio** produces the paired Program.
+- **Return ZoomISO** joins the destination meeting and selects the paired
+  Program input.
+- **Audience observer** joins the destination meeting as a separate participant
+  and records the returned participant locally. This is the measurement point;
+  recording on the sending instance is not audience-side proof.
+
+Avoid an audio feedback loop: the audience observer does not send microphone
+audio, and the return participant is not mixed back into its own Program bus.
+
+## Candidate under test
+
+The first required candidate is deliberately small:
+
+- frame-coded 1080p30 reference video;
+- synchronized 48 kHz meeting-safe reference audio;
+- index-domain audio mixing at the original MXL sample indices;
+- zero fixed audio displacement; and
+- no clock reclocker between the index mixer and the return input.
+
+The bounded-PLL reclocker is an optional comparison case, not the assumed
+winner. The legacy clock-driven mixer and its 4,800-sample displacement are
+diagnostic history, not Preview 1 candidates.
+
+## Before changing anything
+
+Record, read-only:
+
+- exact Core, Skin, Program Audio, ZoomISO, and reference-source revisions;
+- container state and restart counts;
+- Core hard counters and current Program/Preview routing;
+- current return-input selection; and
+- the exact temporary container names, flow identities, ports, and cleanup
+  commands planned for this run.
+
+Use isolated flow identities and an unused loopback control port. Refuse the
+run if any candidate output already has a writer. Do not replace the operator
+Core or the existing Program Audio service during the smoke.
+
+## Smoke sequence
+
+1. Join both ZoomISO instances to their intended meetings and join the audience
+   observer to the destination meeting.
+2. Start the paired reference as a temporary source and register it with Core.
+3. Start the index-domain audio candidate on a new output flow. Confirm its
+   state advances with zero skipped blocks and zero reader-release errors.
+4. Preview the reference, CUT it to Program, and select the candidate paired
+   Program input on the return instance.
+5. Confirm picture and audio at the audience observer. Then record at least 70
+   seconds; the smoke stage needs 60 seconds of decoded reference time, not
+   merely a 60-second file.
+6. Stop the recording without changing the candidate and retain the original
+   media file unchanged.
+7. Run the matrix plan, inspect it, then apply it to a new result directory.
+8. Save final Core/audio state, resource ranges, restart counts, and cleanup
+   results beside the private operational evidence.
+9. Remove only the exact temporary source and candidate containers and
+   unregister only the temporary reference source. Restore the recorded
+   Program/Preview and return-input selections.
+
+The public-safe manifest starts at
+[`config/program-return-matrix.example.json`](../config/program-return-matrix.example.json).
+Copy it beside a `captures/` directory and adjust only the capture filenames
+and declared configuration.
+
+```sh
+python3 tools/mxl-atem-skin/mxl_av_matrix.py matrix.json
+python3 tools/mxl-atem-skin/mxl_av_matrix.py matrix.json \
+  --apply --result-dir results/preview1-smoke-1
+```
+
+## Smoke pass criteria
+
+- required matrix case: PASS;
+- at least 60 seconds of decoded reference coverage;
+- median content A/V offset from -40 to +60 ms;
+- offset range no more than 20 ms and absolute drift no more than 100 ppm;
+- no moving-reference freeze longer than 250 ms;
+- no video regression;
+- no unexpected process restart or Core hard-counter movement;
+- no audio discontinuity or mixer skipped block after stabilization; and
+- bounded CPU and RSS.
+
+Reduced meeting frame rate may produce skipped reference grains, so total
+skips are measured rather than rejected. Freezes, regression, unstable offset,
+and audio-event loss remain failures.
+
+## Promotion ladder
+
+Do not tune several variables at once after a failure. Classify it first as
+source, Core video cadence, index mixer, return sender, meeting transport, or
+audience capture.
+
+1. Passing smoke: repeat the same immutable configuration for slightly more
+   than 10 minutes.
+2. Passing 10-minute gate: repeat for slightly more than 30 minutes.
+3. Passing 30-minute gate: run the unchanged configuration for eight hours.
+4. Only then name the paired path the Preview 1 Program Master profile.
+
+If the direct index candidate fails solely because the destination requires
+clock recovery, test the bounded-PLL case as a separate capture. Never hide a
+failed direct result by overwriting its media or report.

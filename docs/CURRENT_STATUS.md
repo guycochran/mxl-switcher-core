@@ -54,6 +54,7 @@ Full public evidence:
 - [NDI full-path findings](NDI_FULL_PATH_FINDINGS.md)
 - [Objective A/V reference](AV_REFERENCE.md)
 - [Preview 1 release plan](PREVIEW_1_PLAN.md)
+- [Preview 1 Program-return runbook](PREVIEW_1_PROGRAM_RETURN_RUNBOOK.md)
 
 ## What is demonstrated versus productized
 

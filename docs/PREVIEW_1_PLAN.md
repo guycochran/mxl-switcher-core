@@ -47,6 +47,9 @@ replace the captured A/V verdict.
 5. Run a short parameter matrix. Promote only one named configuration after a
    clean 10-minute result, then repeat it for 30 minutes and eight hours.
 
+The first live sequence is defined in the
+[Program-return runbook](PREVIEW_1_PROGRAM_RETURN_RUNBOOK.md).
+
 The result must record configuration, immutable revisions, duration, A/V
 statistics, CPU/RSS, restart counts, and hard-counter deltas.
 

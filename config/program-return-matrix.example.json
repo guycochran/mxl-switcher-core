@@ -1,0 +1,32 @@
+{
+  "schema": "mxl-av-matrix/1",
+  "matrix": "preview1-program-return",
+  "stage": "smoke",
+  "defaults": {
+    "limits": {
+      "audio_lead_ms": 40,
+      "audio_lag_ms": 60,
+      "max_offset_range_ms": 20,
+      "max_drift_ppm": 100,
+      "max_undecodable_fraction": 0.01,
+      "max_freeze_ms": 250,
+      "max_skipped_grains": -1,
+      "max_repeats": -1,
+      "max_unmatched_events": 2,
+      "min_pairs": 30
+    },
+    "event_channel": "left"
+  },
+  "cases": [
+    {
+      "name": "index-direct",
+      "capture": "captures/preview1-index-direct-smoke.mkv",
+      "configuration": {
+        "name": "index-mixer-direct",
+        "audio_mix": "absolute MXL sample index",
+        "fixed_audio_displacement_samples": 0,
+        "clock_recovery": "disabled"
+      }
+    }
+  ]
+}
