@@ -259,6 +259,40 @@ This qualifies the manual discovery-to-rebind path. An automatic apply mode
 remains out of scope until it has explicit operator approval, authentication,
 preflight state checks, and rollback semantics.
 
+### Core audio-ownership qualification (2026-10-15)
+
+Core now enforces the planner/executor single-owner rule independently at its
+registration and rebind APIs. The exact committed candidate was built in an
+isolated worktree and exercised against six active 1080p30 sources without
+replacing the installed operator Core.
+
+The live gate established one audio owner, then attempted to assign that audio
+flow to a second source. Core returned HTTP 400 and preserved the second
+source's null audio binding and the current revision. A separate runtime source
+registration attempting the same collision also returned HTTP 400 without
+changing state. Null audio remained valid for independent video-only sources.
+
+After the negative tests, six distinct writer-specific video/audio pairs were
+applied in Preview, off-air, then Program order. Every source was routed through
+Program and the stable Program/Preview identities were preserved. During the
+following observation:
+
+- the candidate stayed healthy with zero restarts;
+- 612 Program/Preview routes completed in a 10-second sample;
+- invalid, early, late, timeout, reader-reopen, synchronization,
+  no-common-window, regression, and sustained-unavailable counters had zero
+  delta;
+- current common-window width was five frames and current source skew was zero;
+- sampled CPU was 63-67% of one older server core and working memory was about
+  12 MiB.
+
+The shared domain contained stale same-label definitions from another writer.
+The gate therefore used writer-specific discovery results rather than labels
+alone. The temporary candidate, image, outputs, worktree, and private config
+were removed afterward. The operator Core state and source catalog were
+byte-identical before and after the gate, and every permanent service remained
+running with zero restarts.
+
 ### Guarded operator executor
 
 `tools/mxl_rebind_apply.py` provides the next deliberately narrow step. It is
