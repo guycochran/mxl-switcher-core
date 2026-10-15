@@ -40,11 +40,19 @@ python3 tools/mxl-atem-skin/mxl_av_reference_source.py \
 ```
 
 One GStreamer pipeline writes both flows from one frame counter, with group
-hints `<group>:Video` and `<group>:Audio`. The greyscale picture is packed to
+hints `<group>:Video` and `<group>:Audio`. Buffer timestamps are anchored to
+MXL time, using the pipeline base time and the gst-mxl-rs clock offset
+`D = mxl_now - pipeline_clock_now`, taken from the tightest of 50 bracketed
+clock reads. As a result the sink writes grain `g` at MXL index `g` and sample
+`g * 1600` at index `g * 1600`: **the frame code equals the MXL index**.
+Without the anchor, the sink quantizes an arbitrary per-run video phase to a
+grain, which produced constant but run-dependent offsets of -1.25 ms and
+-10.83 ms in early live runs. The greyscale picture is packed to
 v210 in numpy, and only the bar, timecode, flash, and code regions are repacked
 each frame. There is no scaler, colour converter, or leaky queue that could drop
-grains silently. The publisher logs `stats` lines with frames, late frames,
-and per-frame work time. With `--core-url`, it registers a
+grains silently. The publisher logs `stats` lines with frames, render time, and true lateness:
+buffers handed to the sink after their running time, which are written late,
+never dropped. With `--core-url`, it registers a
 runtime source of kind `reference` and sets `audio_flow_id` to the paired
 audio. Run it in its own container with its own flow identities, and remove
 it by exact name. The publisher needs the same Python/GStreamer/OpenCV/MXL
@@ -60,8 +68,10 @@ The analyzer needs the video and audio on one capture timeline:
   pipeline. It reads video as v210 with no conversion and decodes each grain's
   code from about 400 sampled pixels, writing `video.codes` and `audio.f32`.
   `meta.json` separates index steps (from timestamps: reader-side loss) from
-  content steps (from codes: publisher-side loss), and lists the exact analyzer
-  arguments. Two separately started pipelines do not share a timeline.
+  content steps (from codes: publisher-side loss). It also reconstructs each
+  buffer's MXL index to check that the code equals the grain index and the
+  lossless counter equals the sample index. Finally it lists the exact
+  analyzer arguments. Two separately started pipelines do not share a timeline.
 - **Raw**: 8-bit luma frames (`--video-raw`, `--width`, `--height`), one capture
   time per frame (`--video-pts`, or `--fps`), and interleaved Float32 48 kHz
   audio (`--audio-raw`, `--audio-start-s` for its first sample's capture time).

@@ -74,6 +74,23 @@ class TimelineTest(unittest.TestCase):
             self.assertEqual(ref.is_event_grain(code), ref.is_event_grain(grain))
             self.assertEqual(ref.event_code(code), ref.event_code(grain))
 
+    def test_index_timestamp_mapping_matches_mxl_and_pairs_audio(self):
+        # mxlIndexToTimestamp rounds half up; the inverse must round-trip.
+        self.assertEqual(ref.index_to_ns(1, 30000, 1001), (1001 * 1_000_000_000 + 15000) // 30000)
+        for grain in (0, 1, BASE_GRAIN, BASE_GRAIN + 29):
+            stamp = ref.index_to_ns(grain, 30)
+            self.assertEqual(ref.ns_to_index(stamp, 30), grain)
+            # Video grain g and audio sample g * 1600 share one MXL timestamp.
+            self.assertEqual(ref.index_to_ns(ref.grain_to_sample(grain), 48_000), stamp)
+            self.assertEqual(ref.ns_to_index(stamp, 48_000), ref.grain_to_sample(grain))
+
+    def test_tightest_clock_offset_ignores_preempted_samples(self):
+        # Pipeline clock = mxl - 1000; a preemption lands in reads 2-3.
+        pipeline = iter([0, 2, 10, 9000, 9005, 9006])
+        mxl = iter([1001, 1500 + 9000 - 4000])
+        offset = ref.tightest_clock_offset(lambda: next(pipeline), lambda: next(mxl), samples=2)
+        self.assertEqual(offset, 1000)
+
     def test_timecode(self):
         self.assertEqual(ref.timecode(30 * 3661 + 7), "01:01:01:07")
 

@@ -8,6 +8,12 @@ time and code per grain), ``audio.f32`` (interleaved Float32 48 kHz stereo),
 and ``meta.json``. The metadata separates index steps (from timestamps, so
 reader-side loss) from content steps (from codes, so publisher-side loss)
 and lists the exact analyzer arguments.
+
+It also reconstructs each buffer's MXL index from its timestamp, the pipeline
+base time, and the sampled MXL clock offset (as gst-mxl-rs maps it). For a
+reference published with MXL-anchored timestamps, the video code must equal
+the grain index and a lossless counter must equal the sample index. Any
+other difference is reported.
 """
 
 from __future__ import annotations
@@ -15,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import struct
 import threading
 import time
 
@@ -63,6 +70,8 @@ class Recorder:
             "video_undecodable": 0,
             "video_content_index_mismatches": 0,
             "video_max_decode_ms": 0.0,
+            "video_index_minus_code": {},
+            "audio_index_minus_counter": {},
             "audio_buffers": 0,
             "audio_samples": 0,
             "audio_first_pts_s": None,
@@ -72,6 +81,7 @@ class Recorder:
         }
         self.last_video_pts = None
         self.last_code = None
+        self.anchor = None  # base_time + MXL clock offset, set once PLAYING
         self.next_audio_pts = None
 
     def on_video(self, sink):
@@ -98,6 +108,9 @@ class Recorder:
                 if code is None:
                     meta["video_undecodable"] += 1
                 else:
+                    if self.anchor is not None:
+                        index = ref.ns_to_index(pts + self.anchor, ref.VIDEO_RATE)
+                        bump(meta["video_index_minus_code"], ref.wrap_delta(index % ref.CODE_MODULUS, code))
                     if self.last_code is not None:
                         content_step = ref.wrap_delta(code, self.last_code)
                         bump(meta["video_content_steps"], content_step)
@@ -130,6 +143,14 @@ class Recorder:
                         self.meta["audio_pts_gaps"] += 1
                         self.meta["audio_pts_gap_max_ns"] = max(self.meta["audio_pts_gap_max_ns"], gap)
                 self.next_audio_pts = pts + frames * 1_000_000_000 // 48_000
+                if self.anchor is not None and frames:
+                    counter = struct.unpack_from("<f", info.data, 4)[0]
+                    value = round(counter / ref.COUNTER_SCALE) + ref.COUNTER_MODULUS // 2
+                    index = ref.ns_to_index(pts + self.anchor, ref.SAMPLE_RATE)
+                    delta = (index - value) % ref.COUNTER_MODULUS
+                    if delta >= ref.COUNTER_MODULUS // 2:
+                        delta -= ref.COUNTER_MODULUS
+                    bump(self.meta["audio_index_minus_counter"], delta)
                 self.audio.write(info.data[: frames * BYTES_PER_FRAME])
                 self.meta["audio_buffers"] += 1
                 self.meta["audio_samples"] += frames
@@ -163,6 +184,11 @@ def main() -> int:
     pipeline.get_by_name("audio").connect("new-sample", recorder.on_audio)
     if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
         raise RuntimeError("capture pipeline failed to start")
+    pipeline.get_state(5 * Gst.SECOND)
+    tai_clock = getattr(time, "CLOCK_TAI", time.CLOCK_REALTIME)
+    offset = ref.tightest_clock_offset(pipeline.get_clock().get_time, lambda: time.clock_gettime_ns(tai_clock))
+    with recorder.lock:
+        recorder.anchor = pipeline.get_base_time() + offset
     bus = pipeline.get_bus()
     deadline = time.monotonic() + args.seconds
     error = None

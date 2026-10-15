@@ -6,9 +6,13 @@ a machine-readable frame code. Audio: 48 kHz stereo Float32 with a 20 ms
 tone burst starting on the first sample of every flash frame. See
 ``av_reference.py`` for the timeline and the two audio modes.
 
-Both flows are written by one GStreamer pipeline from one frame counter, so
-their buffers share running time. The frame counter starts at the current
-grain of the host's TAI clock, so the frame code also identifies wall time.
+Both flows are written by one GStreamer pipeline from one frame counter.
+Buffer timestamps are anchored to MXL (TAI) time, so the sink writes video
+grain ``g`` at MXL index ``g`` and audio sample ``g * 1600`` at index
+``g * 1600``. The frame code therefore equals the MXL index, and the pair's
+alignment is deterministic. Without the anchor, the sink quantizes each run's
+arbitrary video phase to a grain, giving a constant but run-dependent offset
+of up to half a grain.
 
 The picture is greyscale and packed to v210 here, updating only the regions
 that change, so the pipeline has no scaler, colour converter, or leaky queue
@@ -59,13 +63,24 @@ def stop(_signum: int, _frame: object) -> None:
     RUNNING = False
 
 
-def current_grain() -> int:
-    clock = getattr(time, "CLOCK_TAI", time.CLOCK_REALTIME)
-    return time.clock_gettime_ns(clock) * ref.VIDEO_RATE // 1_000_000_000
+TAI = getattr(time, "CLOCK_TAI", time.CLOCK_REALTIME)
+START_LEAD_NS = 300_000_000
 
 
-def frame_pts(frame_offset: int) -> int:
-    return frame_offset * 1_000_000_000 // ref.VIDEO_RATE
+def mxl_clock_offset(pipeline, samples: int = 50) -> int:
+    """Estimate ``D = mxl_now - pipeline_clock_now`` as gst-mxl-rs samples it.
+
+    Uses the tightest of several bracketed reads so a preemption between the
+    two clock reads on a loaded host cannot skew the estimate.
+    """
+
+    return ref.tightest_clock_offset(pipeline.get_clock().get_time, lambda: time.clock_gettime_ns(TAI), samples)
+
+
+def grain_pts(grain: int, base_time: int, offset: int) -> int:
+    """Buffer PTS that the sink maps to MXL index ``grain`` (and sample ``grain * 1600``)."""
+
+    return ref.index_to_ns(grain, ref.VIDEO_RATE) - base_time - offset
 
 
 def pack_v210(luma: np.ndarray) -> np.ndarray:
@@ -188,19 +203,39 @@ def register_source(core_url: str, source_id: str, video_flow: str, audio_flow: 
 
 
 class Stats:
+    """Render cost and true lateness.
+
+    ``late`` counts buffers handed to the sink after their running time had
+    already passed on the pipeline clock; the sink then writes them late (it
+    never drops them). Time spent blocked in ``push`` is the sink pacing to
+    the clock and is reported separately, not as work.
+    """
+
     def __init__(self) -> None:
         self.frames = 0
         self.late = 0
-        self.max_late_s = 0.0
-        self.work_s = 0.0
-        self.max_work_s = 0.0
+        self.max_late_ns = 0
+        self.min_headroom_ns = None
+        self.render_s = 0.0
+        self.max_render_s = 0.0
+
+    def observe(self, render_s: float, headroom_ns: int) -> None:
+        self.frames += 1
+        self.render_s += render_s
+        self.max_render_s = max(self.max_render_s, render_s)
+        if headroom_ns < 0:
+            self.late += 1
+            self.max_late_ns = max(self.max_late_ns, -headroom_ns)
+        if self.min_headroom_ns is None or headroom_ns < self.min_headroom_ns:
+            self.min_headroom_ns = headroom_ns
 
     def line(self, grain: int) -> str:
-        average = self.work_s / self.frames if self.frames else 0.0
+        average = self.render_s / self.frames if self.frames else 0.0
+        headroom = (self.min_headroom_ns or 0) / 1e6
         return (
             f"stats frames={self.frames} last_grain={grain} late={self.late} "
-            f"max_late_ms={self.max_late_s * 1000:.1f} "
-            f"avg_work_ms={average * 1000:.2f} max_work_ms={self.max_work_s * 1000:.2f}"
+            f"max_late_ms={self.max_late_ns / 1e6:.1f} min_headroom_ms={headroom:.1f} "
+            f"avg_render_ms={average * 1000:.2f} max_render_ms={self.max_render_s * 1000:.2f}"
         )
 
 
@@ -227,53 +262,46 @@ def main() -> int:
     audio = pipeline.get_by_name("audio")
     if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
         raise RuntimeError("A/V reference pipeline failed to start")
+    pipeline.get_state(5 * Gst.SECOND)
+    base_time = pipeline.get_base_time()
+    clock_offset = mxl_clock_offset(pipeline)
     if args.core_url:
         register_source(args.core_url, args.source_id, args.video_flow, args.audio_flow, args.label)
 
     picture = Picture()
     synth = AudioSynth(args.audio_mode)
     stats = Stats()
-    first_grain = current_grain()
+    first_grain = ref.ns_to_index(time.clock_gettime_ns(TAI) + START_LEAD_NS, ref.VIDEO_RATE) + 1
+    clock = pipeline.get_clock()
     offset = 0
-    deadline = time.monotonic()
-    next_stats = deadline + args.stats_every_s
+    next_stats = time.monotonic() + args.stats_every_s
     print(
         f"av_reference=ready mode={args.audio_mode} first_grain={first_grain} "
-        f"rate={ref.VIDEO_RATE}/1 sample_rate={ref.SAMPLE_RATE}",
+        f"rate={ref.VIDEO_RATE}/1 sample_rate={ref.SAMPLE_RATE} "
+        f"base_time={base_time} clock_offset={clock_offset}",
         flush=True,
     )
     grain = first_grain
     try:
         while RUNNING:
+            # The sinks pace the loop: push() blocks until each buffer is due.
             started = time.monotonic()
             grain = first_grain + offset
-            pts = frame_pts(offset)
-            duration = frame_pts(offset + 1) - pts
+            pts = grain_pts(grain, base_time, clock_offset)
+            duration = grain_pts(grain + 1, base_time, clock_offset) - pts
             picture.draw(grain)
-            push(video, picture.payload(), pts, duration)
-            push(
-                audio,
-                synth.block(ref.grain_to_sample(grain), ref.SAMPLES_PER_FRAME),
-                pts,
-                duration,
-            )
-            work = time.monotonic() - started
-            stats.frames += 1
-            stats.work_s += work
-            stats.max_work_s = max(stats.max_work_s, work)
+            payload = picture.payload()
+            samples = synth.block(ref.grain_to_sample(grain), ref.SAMPLES_PER_FRAME)
+            render = time.monotonic() - started
+            headroom = base_time + pts - clock.get_time()
+            push(video, payload, pts, duration)
+            push(audio, samples, pts, duration)
+            stats.observe(render, headroom)
+            if headroom < -500_000_000:
+                # Content stays continuous; the sink writes late rather than skipping.
+                print(f"late_ms={-headroom / 1e6:.1f} grain={grain}", flush=True)
             offset += 1
-            deadline += 1 / ref.VIDEO_RATE
             now = time.monotonic()
-            delay = deadline - now
-            if delay > 0:
-                time.sleep(delay)
-            else:
-                stats.late += 1
-                stats.max_late_s = max(stats.max_late_s, -delay)
-                if delay < -0.5:
-                    # Keep the content timeline continuous; report instead of jumping.
-                    print(f"late_s={-delay:.3f} frame_offset={offset}", flush=True)
-                    deadline = time.monotonic()
             if now >= next_stats:
                 print(stats.line(grain), flush=True)
                 next_stats = now + args.stats_every_s

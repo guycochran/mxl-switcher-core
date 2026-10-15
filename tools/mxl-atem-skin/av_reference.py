@@ -66,6 +66,33 @@ def grain_to_sample(grain: int) -> int:
     return grain * SAMPLES_PER_FRAME
 
 
+def index_to_ns(index: int, rate_numerator: int, rate_denominator: int = 1) -> int:
+    """MXL's index -> TAI nanoseconds mapping (round half up, as mxlIndexToTimestamp)."""
+
+    return (index * rate_denominator * 1_000_000_000 + rate_numerator // 2) // rate_numerator
+
+
+def ns_to_index(timestamp_ns: int, rate_numerator: int, rate_denominator: int = 1) -> int:
+    """Nearest index for a TAI timestamp; inverts :func:`index_to_ns` exactly."""
+
+    period = rate_denominator * 1_000_000_000
+    return (timestamp_ns * rate_numerator + period // 2) // period
+
+
+def tightest_clock_offset(pipeline_now, mxl_now, samples: int = 50) -> int:
+    """``mxl_now - pipeline_now`` from the narrowest of ``samples`` bracketed reads."""
+
+    best = None
+    for _ in range(samples):
+        before = pipeline_now()
+        middle = mxl_now()
+        after = pipeline_now()
+        window = after - before
+        if best is None or window < best[0]:
+            best = (window, middle - (before + after) // 2)
+    return best[1]
+
+
 def is_event_grain(grain: int) -> bool:
     return grain % EVENT_PERIOD_FRAMES == 0
 
