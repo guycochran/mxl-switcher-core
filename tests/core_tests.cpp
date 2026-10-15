@@ -203,6 +203,40 @@ void test_runtime_source_registration() {
           "removing an absent source was not idempotent");
 }
 
+void test_atomic_source_rebinding() {
+  Fixture f;
+  f.backend.add_source("flow-a-restarted", kV210, 0xd4);
+  f.core.process(1);
+  require((*f.backend.writes(kProgramFlow).back().grain.payload)[0] == 0xA1,
+          "initial program binding was not routed");
+
+  const auto rebound = f.core.rebind_source(
+      "src_a", "flow-a-restarted", std::string{"audio-a-restarted"});
+  require(rebound.changed && rebound.revision == 1 &&
+              rebound.previous_flow_id == kSourceAFlow &&
+              rebound.flow_id == "flow-a-restarted",
+          "source rebind did not report the atomic binding change");
+  require(f.core.state().program == "src_a",
+          "source rebind changed the stable Program identity");
+  f.core.process(2);
+  require((*f.backend.writes(kProgramFlow).back().grain.payload)[0] == 0xd4,
+          "Program did not use the rebound source on the next frame");
+
+  const auto duplicate = f.core.rebind_source(
+      "src_a", "flow-a-restarted", std::string{"audio-a-restarted"});
+  require(!duplicate.changed && duplicate.revision == 1,
+          "identical source rebind was not idempotent");
+
+  bool duplicate_flow_rejected = false;
+  try {
+    f.core.rebind_source("src_a", kSourceBFlow, std::nullopt);
+  } catch (const std::invalid_argument&) {
+    duplicate_flow_rejected = true;
+  }
+  require(duplicate_flow_rejected,
+          "source rebind accepted another source's video flow");
+}
+
 void test_fast_soak(std::uint64_t frames) {
   Fixture f;
   for (std::uint64_t i = 1; i <= frames; ++i) {
@@ -241,6 +275,7 @@ int main(int argc, char** argv) {
        test_far_apart_source_timelines_cut_cleanly},
       {"invalid input rejection", test_bad_control_and_clock_inputs_are_rejected},
       {"runtime source registration", test_runtime_source_registration},
+      {"atomic source rebinding", test_atomic_source_rebinding},
       {"fast soak", [=] { test_fast_soak(soak_frames); }},
   };
 

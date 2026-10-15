@@ -21,6 +21,7 @@ The implemented request surface is:
 - `GET /api/mxl/v1/state`
 - `GET /api/mxl/v1/sources`
 - `POST /api/mxl/v1/sources`
+- `PUT /api/mxl/v1/sources/{id}`
 - `DELETE /api/mxl/v1/sources/{id}`
 - `GET /api/mxl/v1/health`
 - `POST /api/mxl/v1/preview`
@@ -68,6 +69,27 @@ An extension can remove an off-air source with
 `DELETE /api/mxl/v1/sources/{id}`. Core rejects removal while that source is on
 Program, Preview, or referenced by an accepted command. Catalog mutations
 advance the state revision so SSE clients can refresh their source lists.
+
+When a writer restarts and creates new flow UUIDs, replace the ephemeral media
+binding without changing the stable source identity:
+
+```http
+PUT /api/mxl/v1/sources/camera-1
+Content-Type: application/json
+
+{
+  "flow_id": "00000000-0000-4000-8000-000000000101",
+  "audio_flow_id": "00000000-0000-4000-8000-000000000102"
+}
+```
+
+`audio_flow_id` is required and may be `null`. The operation validates the new
+video flow is not already assigned to another source, updates video and audio
+under one Core lock, preserves Program/Preview selection, advances the catalog
+revision exactly once, and is idempotent when both bindings are unchanged. Its
+response includes the previous and resulting bindings for audit logging. A
+frame already being routed keeps the descriptor it copied at frame start; the
+next frame uses the new binding.
 
 The control listener remains loopback-only by default. A deployment that makes
 registration remotely reachable must place authentication and TLS in front of

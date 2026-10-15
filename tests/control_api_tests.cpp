@@ -164,6 +164,46 @@ void test_runtime_source_api() {
           "source API accepted an incomplete registration");
 }
 
+void test_source_rebind_api() {
+  Fixture fixture;
+  fixture.backend.add_source("flow-a-restarted", kV210, 0xd4);
+  const auto rebound = fixture.api.handle(
+      "PUT", "/api/mxl/v1/sources/src_a",
+      "{\"flow_id\":\"flow-a-restarted\","
+      "\"audio_flow_id\":\"audio-a-restarted\"}");
+  require(rebound.status == 200 &&
+              rebound.body.find("\"changed\":true") != std::string::npos &&
+              rebound.body.find("\"previous_flow_id\":\"flow-a\"") !=
+                  std::string::npos &&
+              rebound.body.find("\"flow_id\":\"flow-a-restarted\"") !=
+                  std::string::npos,
+          "source rebind API did not return the binding audit result");
+  require(fixture.core.state().program == "src_a",
+          "source rebind API changed the Program source identity");
+  fixture.core.process(1);
+  require((*fixture.backend.writes(kProgramFlow).back().grain.payload)[0] ==
+              0xd4,
+          "source rebind API did not affect the next Program frame");
+
+  const auto duplicate = fixture.api.handle(
+      "PUT", "/api/mxl/v1/sources/src_a",
+      "{\"flow_id\":\"flow-a-restarted\","
+      "\"audio_flow_id\":\"audio-a-restarted\"}");
+  require(duplicate.status == 200 &&
+              duplicate.body.find("\"changed\":false") != std::string::npos,
+          "source rebind API was not idempotent");
+  require(fixture.api
+              .handle("PUT", "/api/mxl/v1/sources/src_a",
+                      "{\"flow_id\":\"flow-new\"}")
+              .status == 400,
+          "source rebind API accepted an unspecified audio binding");
+  require(fixture.api
+              .handle("PUT", "/api/mxl/v1/sources/src_a",
+                      "{\"flow_id\":\"flow-new\",\"audio_flow_id\":null}")
+              .status == 200,
+          "source rebind API could not clear an audio binding");
+}
+
 }  // namespace
 
 int main() {
@@ -173,6 +213,7 @@ int main() {
     test_errors();
     test_events_and_health();
     test_runtime_source_api();
+    test_source_rebind_api();
     std::cout << "All control API tests passed.\n";
     return 0;
   } catch (const std::exception& error) {

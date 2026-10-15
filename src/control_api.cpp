@@ -101,6 +101,32 @@ std::optional<std::string> source_from_json(std::string_view input) {
   return string_from_json(input, "source");
 }
 
+struct NullableStringField {
+  bool present{false};
+  bool valid{false};
+  std::optional<std::string> value;
+};
+
+NullableStringField nullable_string_from_json(std::string_view input,
+                                               std::string_view field) {
+  const auto quoted_field = "\"" + std::string(field) + "\"";
+  const auto key = input.find(quoted_field);
+  if (key == std::string_view::npos) {
+    return {};
+  }
+  auto position = key + quoted_field.size();
+  skip_space(input, position);
+  if (position >= input.size() || input[position++] != ':') {
+    return {true, false, std::nullopt};
+  }
+  skip_space(input, position);
+  if (input.substr(position, 4) == "null") {
+    return {true, true, std::nullopt};
+  }
+  const auto value = string_from_json(input, field);
+  return {true, value.has_value(), value};
+}
+
 std::optional<std::vector<std::string>> string_array_from_json(
     std::string_view input, std::string_view field) {
   const auto quoted_field = "\"" + std::string(field) + "\"";
@@ -244,6 +270,29 @@ ApiResponse registration_response(const SourceRegistrationReceipt& receipt,
                            std::to_string(receipt.revision) + "}");
 }
 
+ApiResponse binding_response(const SourceBindingReceipt& receipt) {
+  std::ostringstream output;
+  output << "{\"changed\":" << (receipt.changed ? "true" : "false")
+         << ",\"revision\":" << receipt.revision
+         << ",\"previous_flow_id\":"
+         << json_string(receipt.previous_flow_id)
+         << ",\"previous_audio_flow_id\":";
+  if (receipt.previous_audio_flow_id) {
+    output << json_string(*receipt.previous_audio_flow_id);
+  } else {
+    output << "null";
+  }
+  output << ",\"flow_id\":" << json_string(receipt.flow_id)
+         << ",\"audio_flow_id\":";
+  if (receipt.audio_flow_id) {
+    output << json_string(*receipt.audio_flow_id);
+  } else {
+    output << "null";
+  }
+  output << '}';
+  return json_response(200, output.str());
+}
+
 }  // namespace
 
 ControlApi::ControlApi(SwitcherCore& core, HealthProvider health_provider)
@@ -282,6 +331,21 @@ ApiResponse ControlApi::handle(std::string_view method, std::string_view path,
                                    201);
     }
     constexpr std::string_view source_path = "/api/mxl/v1/sources/";
+    if (method == "PUT" && path.starts_with(source_path)) {
+      const auto id = path.substr(source_path.size());
+      if (id.empty() || id.find('/') != std::string_view::npos) {
+        return error_response(400, "source id is missing or invalid");
+      }
+      const auto flow_id = string_from_json(body, "flow_id");
+      const auto audio_flow_id = nullable_string_from_json(body, "audio_flow_id");
+      if (!flow_id || !audio_flow_id.present || !audio_flow_id.valid) {
+        return error_response(
+            400,
+            "body must contain non-empty flow_id and audio_flow_id as a string or null");
+      }
+      return binding_response(core_.rebind_source(
+          std::string(id), *flow_id, audio_flow_id.value));
+    }
     if (method == "DELETE" && path.starts_with(source_path)) {
       const auto id = path.substr(source_path.size());
       if (id.empty() || id.find('/') != std::string_view::npos) {

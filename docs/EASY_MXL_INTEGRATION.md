@@ -43,12 +43,11 @@ The controller then maps those ephemeral flow UUIDs to stable Core source IDs.
 It must reject ambiguous matches. It must never guess which identically named
 writer is on air.
 
-## Required Core change
+## Atomic Core binding
 
-Runtime source registration currently rejects an existing source ID whose
-descriptor changes. That is safe, but it is insufficient for automatic writer
-recovery. Before a discovery controller is allowed to mutate a running system,
-Core needs an atomic source-binding operation with these properties:
+Runtime source registration rejects an existing source ID whose descriptor
+changes. The candidate Core therefore adds
+`PUT /api/mxl/v1/sources/{id}` for atomic media rebinding with these properties:
 
 1. validate the new video and optional audio descriptors first;
 2. replace one stable source ID in one committed state transition;
@@ -58,8 +57,9 @@ Core needs an atomic source-binding operation with these properties:
 6. remain idempotent when the binding is unchanged;
 7. reject format or operating-point mismatches without changing state.
 
-Until that operation is implemented and accepted, discovery integration must
-remain read-only and produce a reconciliation plan for an operator.
+The operation is unit- and control-contract tested, but discovery integration
+must remain read-only until the candidate passes live restart/rebinding
+acceptance with Program and Preview active.
 
 ## Catalog entry
 
@@ -94,4 +94,3 @@ production-ready. Promotion also requires:
 6. Qualify atomic rebinding on a candidate Core.
 7. Add the Skin, confidence encoders, and output adapters as separate catalog
    entries rather than combining the entire production stack into one image.
-

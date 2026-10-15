@@ -88,6 +88,15 @@ struct SourceRegistrationReceipt {
   std::uint64_t revision;
 };
 
+struct SourceBindingReceipt {
+  bool changed;
+  std::uint64_t revision;
+  FlowId previous_flow_id;
+  std::optional<FlowId> previous_audio_flow_id;
+  FlowId flow_id;
+  std::optional<FlowId> audio_flow_id;
+};
+
 class MediaBackend {
  public:
   virtual ~MediaBackend() = default;
@@ -119,6 +128,11 @@ class SwitcherCore {
   // Bolt-on media functions register stable source identities at runtime.
   // Registration is idempotent when the complete descriptor is unchanged.
   SourceRegistrationReceipt register_source(Source source);
+  // Atomically replace the ephemeral media binding behind one stable source
+  // identity. Program/Preview selection remains on the same source id.
+  SourceBindingReceipt rebind_source(
+      const SourceId& source, FlowId flow_id,
+      std::optional<FlowId> audio_flow_id);
   SourceRegistrationReceipt remove_source(const SourceId& source);
   VideoFormat operating_format() const;
 

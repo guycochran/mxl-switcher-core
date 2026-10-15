@@ -149,6 +149,45 @@ SourceRegistrationReceipt SwitcherCore::register_source(Source source) {
   return {true, revision};
 }
 
+SourceBindingReceipt SwitcherCore::rebind_source(
+    const SourceId& source, FlowId flow_id,
+    std::optional<FlowId> audio_flow_id) {
+  if (flow_id.empty()) {
+    throw std::invalid_argument("source flow id must be non-empty");
+  }
+
+  SourceBindingReceipt receipt{false, 0, {}, std::nullopt,
+                               std::move(flow_id),
+                               std::move(audio_flow_id)};
+  {
+    std::lock_guard lock(mutex_);
+    const auto existing = source_index_.find(source);
+    if (existing == source_index_.end()) {
+      throw std::invalid_argument("unknown source: " + source);
+    }
+    auto& current = sources_[existing->second];
+    receipt.previous_flow_id = current.flow_id;
+    receipt.previous_audio_flow_id = current.audio_flow_id;
+    if (current.flow_id == receipt.flow_id &&
+        current.audio_flow_id == receipt.audio_flow_id) {
+      receipt.revision = state_.revision;
+      return receipt;
+    }
+    if (std::any_of(sources_.begin(), sources_.end(), [&](const Source& item) {
+          return item.id != source && item.flow_id == receipt.flow_id;
+        })) {
+      throw std::invalid_argument("source flow is already registered: " +
+                                  receipt.flow_id);
+    }
+    current.flow_id = receipt.flow_id;
+    current.audio_flow_id = receipt.audio_flow_id;
+    receipt.changed = true;
+    receipt.revision = ++state_.revision;
+  }
+  state_changed_.notify_all();
+  return receipt;
+}
+
 SourceRegistrationReceipt SwitcherCore::remove_source(
     const SourceId& source) {
   std::uint64_t revision = 0;
