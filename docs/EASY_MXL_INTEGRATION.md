@@ -321,6 +321,37 @@ both `mxl-switcher-core:0.2.0-candidate.a89fe17` and the catalog alias
 `mxl-switcher-core:0.2.0-candidate`. It has not been pushed to a registry and
 has not replaced the operator Core.
 
+### Six-source guarded recovery qualification (2026-10-15)
+
+The versioned candidate, read-only planner, guarded executor, and EIC Source
+Recovery panel were exercised together against a live six-source bank. The
+candidate ran in parallel with the operator Core and used separate loopback
+control and output identities. The operator Core and its Skin were not changed.
+
+The unarmed EIC panel discovered six deterministic video/audio pairs, reported
+six reconnectable stable sources with no missing, ambiguous, incompatible, or
+registration-required results, and produced a Preview/off-air-first, Program-last
+preflight. Reconnect remained unavailable on the unarmed panel. A second panel
+bound only to the isolated candidate was explicitly armed for the gate; it
+regenerated the plan, verified the plan hash and starting revision, and applied
+all six bindings in the preflight order. The candidate revision advanced exactly
+once per source. A subsequent scan reported all six sources `noop`/current and
+disabled the reconnect action because no work remained.
+
+All six sources were then routed through Program. Program and Preview output
+identities remained stable, output motion continued, the container stayed healthy
+with zero restarts, and invalid, early, late, timeout, reader-reopen,
+synchronization, no-common-window, regression, and sustained-alarm counters had
+zero deltas. A short post-recovery observation also retained zero deltas in those
+hard counters. Sampled candidate CPU ranged from roughly 41% to 113% of one older
+server core; sampled container working memory remained bounded between roughly
+12 and 23 MiB.
+
+This is a functional qualification of the guarded six-source recovery workflow,
+not permission to replace the operator Core. Promotion still requires a planned
+maintenance window, operator-stack integration checks, rollback rehearsal, and a
+longer duration gate.
+
 The catalog entry becoming valid JSON does **not** make the deployment
 production-ready. Promotion also requires:
 
