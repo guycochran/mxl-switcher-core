@@ -88,8 +88,10 @@ Core's media hot path.
   deterministic output-relative target is preferred for clock-anchored inputs,
   with an explicit counted fallback to the bounded adaptive cursor for delayed
   or differently phased adapters. Read-only lab sampling placed active ZoomISO
-  heads within the deterministic window, but isolated writer recreation,
-  real-ZoomISO recovery, and meeting-to-meeting audience acceptance remain open.
+  heads within the deterministic window. An isolated two-flow writer
+  stop/recreate gate passed at 30 fps with zero output-probe drops, selected
+  skips, or regressions after adding explicit writer-epoch reset handling.
+  Real-ZoomISO recovery and meeting-to-meeting audience acceptance remain open.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.

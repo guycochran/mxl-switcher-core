@@ -761,9 +761,23 @@ source so deterministic A/V alignment is never claimed silently.
 A read-only sample of the active ZoomISO/Core lab path found both selected
 source heads zero to two frames behind the output index across the observation
 window, inside the deterministic target's readable range. This is encouraging
-but is not a recovery qualification. The hybrid selection still requires an
-isolated live gate with source disappearance/recreation before the 30-minute or
-eight-hour audience-return gates.
+but is not itself a recovery qualification.
+
+An isolated writer-lifecycle gate then stopped and recreated a two-flow MXL
+publisher under the same flow identities. The first run exposed a real epoch
+boundary: the MXL ring can briefly reset before the new writer re-anchors to
+the global index. Core now treats a previous cursor outside the newly reported
+ring as a fresh timeline rather than reporting a synthetic multi-billion-grain
+skip. The corrected repeat passed with both output probes near 30 fps and zero
+drops, zero selected skips, zero regressions, two reader reopens, four fresh
+timeline resets across Program and Preview, and zero active or latched
+unavailable alarms. Fallback activity stopped after recovery and both sources
+returned to one-frame head lag. Exact temporary containers and the isolated
+domain were removed; permanent services retained zero restarts.
+
+This qualifies the synthetic writer-disappearance/recreation behavior. A
+controlled real-ZoomISO recovery and the paired audience-return gate remain
+required before the 30-minute or eight-hour audience-return holds.
 
 A larger 8,000-sample presentation delay also exposed an integration boundary:
 reading old samples directly from the source ring can exceed a producer's
@@ -777,9 +791,9 @@ larger-delay profile remains an implementation proof, not a promoted profile.
 
 ## Next live gate
 
-1. Qualify hybrid cadence-lock recovery with isolated source stalls and writer
-   re-anchors while watching input lag and `presentation_fallbacks`, then repeat
-   against real ZoomISO without altering the operator mappings.
+1. Repeat the qualified isolated writer-reanchor behavior against real ZoomISO
+   without altering the operator mappings, while watching input lag,
+   timeline resets, reader reopens, and `presentation_fallbacks`.
 2. Feed that unchanged candidate to the meeting return and analyze an
    audience-side recording before attempting the 30-minute and eight-hour
    holds.

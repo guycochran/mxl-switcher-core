@@ -125,9 +125,11 @@ needed. Paid cloud machines must be deallocated after each test window.
   prefers one fixed output-relative source target for deterministic A/V delay,
   while preserving a counted bounded-adaptive fallback for delayed or
   differently phased adapters. Read-only lab sampling found the active ZoomISO
-  sources inside the fixed target window; isolated writer recreation and
-  real-ZoomISO recovery qualification remain open. A mixer-owned sample history
-  also makes
+  sources inside the fixed target window. An isolated two-flow writer
+  stop/recreate gate then passed with both outputs near 30 fps, zero probe
+  drops, zero selected skips/regressions, clean epoch resets, and deterministic
+  recovery. Real-ZoomISO recovery qualification remains open. A mixer-owned
+  sample history also makes
   long presentation delays independent of an upstream writer's ring depth;
   that boundary has unit and real-MXL audio proof but is not yet a promoted
   cloud profile.
