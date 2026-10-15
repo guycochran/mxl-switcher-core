@@ -232,6 +232,38 @@ This qualifies the manual discovery-to-rebind path. An automatic apply mode
 remains out of scope until it has explicit operator approval, authentication,
 preflight state checks, and rollback semantics.
 
+### Guarded operator executor
+
+`tools/mxl_rebind_apply.py` provides the next deliberately narrow step. It is
+not a daemon and does not discover or decide anything. It consumes a saved,
+unblocked planner document and runs as a dry preflight unless the operator
+supplies all three write gates: `--apply`, the exact live Core revision, and
+the literal confirmation `APPLY_REBINDS`.
+
+The executor accepts only a loopback Core URL, rejects a stale source snapshot,
+verifies every request against the plan, applies Preview and other off-air
+sources before Program when there are no ownership dependencies, and verifies
+the live binding after every receipt. If a request or verification fails, it
+rolls completed requests back in reverse order. A dependent plan that would
+require releasing Program before another source is rejected for manual
+handling.
+
+```sh
+# Safe default: preflight only. It prints the required revision and order.
+python3 tools/mxl_rebind_apply.py \
+  --plan plan.json --core-url http://127.0.0.1:18085
+
+# Explicit operator action using the revision printed by preflight.
+python3 tools/mxl_rebind_apply.py \
+  --plan plan.json --core-url http://127.0.0.1:18085 \
+  --apply --expect-revision 42 --confirm APPLY_REBINDS \
+  --output rebind-receipt.json
+```
+
+Keep the Core control listener on loopback or behind an authenticated control
+proxy. A future UI may wrap this executor, but must preserve the preflight,
+confirmation, ordering, verification, and rollback gates.
+
 ## Catalog entry
 
 [`packaging/easy-mxl/mxl-switcher-core.catalog.json`](../packaging/easy-mxl/mxl-switcher-core.catalog.json)
