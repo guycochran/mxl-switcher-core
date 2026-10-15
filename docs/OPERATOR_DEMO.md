@@ -244,6 +244,10 @@ choice.
 inspection and optional registry registration with `--registry`. Its IS-05
 v1.1 Receiver API exposes the Program and Preview buses as destinations;
 immediate routes map to Core's grain-boundary `cut` and `preview` commands.
+The default `--instance-id facility` preserves the original stable NMOS IDs.
+When running more than one bridge, assign every additional instance a unique
+`--instance-id`; this namespaces its Node and all dependent resources so a
+Registry or controller cannot mistake one Core for another.
 
 Scheduled IS-05 activation, receiver disconnect, and IS-07 tally are not yet
 claimed. Companion remains the richer physical control/tally bridge, while an

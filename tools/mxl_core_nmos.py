@@ -33,17 +33,42 @@ def version() -> str:
 
 
 class Model:
-    def __init__(self, facility: str, href: str, port: int, domain_id: str):
+    def __init__(
+        self,
+        facility: str,
+        href: str,
+        port: int,
+        domain_id: str,
+        instance_id: str = "facility",
+    ):
         self.facility = facility.rstrip("/")
         self.href = href
         self.port = port
         self.domain_id = domain_id
-        self.node_id = stable("node", "facility")
-        self.device_id = stable("device", "switcher")
+        self.instance_id = instance_id
+        self.node_id = self.stable("node", "facility")
+        self.device_id = self.stable("device", "switcher")
         self.sources_data: list[dict] = []
         self.core: dict = {}
         self.revision = version()
         self.lock = threading.Lock()
+
+    def stable(self, kind: str, name: str) -> str:
+        """Return a stable ID scoped to this bridge instance.
+
+        The historical ``facility`` instance deliberately keeps the original
+        IDs so existing NMOS installations do not see an identity migration.
+        Additional bridge instances must provide a unique ``instance_id`` so
+        their Node and all dependent resources remain disjoint.
+        """
+        if self.instance_id == "facility":
+            return stable(kind, name)
+        return str(
+            uuid.uuid5(
+                NAMESPACE,
+                f"mxl-core:{self.instance_id}:{kind}:{name}",
+            )
+        )
 
     def get_json(self, path: str):
         request = urllib.request.Request(
@@ -91,7 +116,7 @@ class Model:
 
     def base(self, kind: str, name: str, label: str):
         return {
-            "id": stable(kind, name),
+            "id": self.stable(kind, name),
             "version": self.revision,
             "label": label,
             "description": "MXL Core Azure demo",
@@ -138,8 +163,11 @@ class Model:
                         "href": self.href.rstrip("/") + "/x-nmos/connection/v1.1/",
                     }
                 ],
-                "senders": [stable("sender", name) for name in names],
-                "receivers": [stable("receiver", "program"), stable("receiver", "preview")],
+                "senders": [self.stable("sender", name) for name in names],
+                "receivers": [
+                    self.stable("receiver", "program"),
+                    self.stable("receiver", "preview"),
+                ],
             }
         )
         return value
@@ -184,7 +212,7 @@ class Model:
             value.update(
                 {
                     "format": "urn:x-nmos:format:video",
-                    "source_id": stable("source", row["id"]),
+                    "source_id": self.stable("source", row["id"]),
                     "device_id": self.device_id,
                     "parents": [],
                     "media_type": fmt["encoding"],
@@ -220,7 +248,7 @@ class Model:
             value.update(
                 {
                     "tags": tags,
-                    "flow_id": stable("flow", row["id"]),
+                    "flow_id": self.stable("flow", row["id"]),
                     "device_id": self.device_id,
                     "transport": "urn:x-nmos:transport:mxl",
                     "manifest_href": None,
@@ -259,7 +287,7 @@ class Model:
                     "transport": "urn:x-nmos:transport:mxl",
                     "interface_bindings": [],
                     "subscription": {
-                        "sender_id": stable("sender", attached) if attached else None,
+                        "sender_id": self.stable("sender", attached) if attached else None,
                         "active": bool(attached),
                     },
                 }
@@ -271,7 +299,11 @@ class Model:
         with self.lock:
             rows = json.loads(json.dumps(self.sources_data))
         return next(
-            (row["id"] for row in rows if stable("sender", row["id"]) == sender_id),
+            (
+                row["id"]
+                for row in rows
+                if self.stable("sender", row["id"]) == sender_id
+            ),
             None,
         )
 
@@ -293,14 +325,14 @@ class Model:
     def attached_sender(self, receiver_name: str) -> str | None:
         with self.lock:
             attached = self.core.get(receiver_name)
-        return stable("sender", attached) if attached else None
+        return self.stable("sender", attached) if attached else None
 
     def receiver_name(self, receiver_id: str) -> str | None:
         return next(
             (
                 name
                 for name in ("program", "preview")
-                if stable("receiver", name) == receiver_id
+                if self.stable("receiver", name) == receiver_id
             ),
             None,
         )
@@ -346,7 +378,7 @@ class Model:
             if source_name is not None and source_name != flow_source:
                 raise ValueError("sender_id and mxl_flow_id identify different sources")
             source_name = flow_source
-            sender_id = stable("sender", source_name)
+            sender_id = self.stable("sender", source_name)
         if sender_id is None:
             raise ValueError(
                 "sender_id or transport_params.mxl_flow_id is required; "
@@ -652,15 +684,41 @@ def main():
     parser.add_argument("--href")
     parser.add_argument("--facility", default="http://127.0.0.1:9710")
     parser.add_argument("--domain-id", default=stable("domain", "facility"))
+    parser.add_argument(
+        "--instance-id",
+        default="facility",
+        help=(
+            "Stable identity namespace for this NMOS bridge. Keep the default "
+            "for an existing installation; use a unique value for every "
+            "additional bridge instance."
+        ),
+    )
     parser.add_argument("--registry", help="Optional NMOS registry base URL")
     args = parser.parse_args()
     href = args.href or f"http://{args.host}:{args.port}/"
-    MODEL = Model(args.facility, href, args.port, args.domain_id)
+    MODEL = Model(
+        args.facility,
+        href,
+        args.port,
+        args.domain_id,
+        instance_id=args.instance_id,
+    )
     MODEL.refresh()
     threading.Thread(target=MODEL.poll, daemon=True).start()
     if args.registry:
         threading.Thread(target=register_loop, args=(MODEL, args.registry), daemon=True).start()
-    print(json.dumps({"event": "nmos_ready", "href": href, "facility": args.facility}), flush=True)
+    print(
+        json.dumps(
+            {
+                "event": "nmos_ready",
+                "href": href,
+                "facility": args.facility,
+                "instance_id": args.instance_id,
+                "node_id": MODEL.node_id,
+            }
+        ),
+        flush=True,
+    )
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 

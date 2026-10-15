@@ -74,6 +74,50 @@ class ModelTests(unittest.TestCase):
             ],
         )
 
+    def test_default_instance_preserves_legacy_resource_ids(self):
+        self.assertEqual(self.model.node_id, NMOS.stable("node", "facility"))
+        self.assertEqual(self.model.device_id, NMOS.stable("device", "switcher"))
+        self.assertEqual(
+            self.model.senders()[0]["id"], NMOS.stable("sender", "camera-1")
+        )
+
+    def test_parallel_instances_have_disjoint_resource_ids(self):
+        first = FakeModel()
+        second = NMOS.Model(
+            "http://core",
+            "http://node:8022/",
+            8022,
+            "domain-1",
+            instance_id="qualification-gate",
+        )
+        second.sources_data = first.sources_data
+        second.core = first.core
+
+        first_ids = {
+            first.node_id,
+            first.device_id,
+            *(value["id"] for value in first.sources()),
+            *(value["id"] for value in first.flows()),
+            *(value["id"] for value in first.senders()),
+            *(value["id"] for value in first.receivers()),
+        }
+        second_ids = {
+            second.node_id,
+            second.device_id,
+            *(value["id"] for value in second.sources()),
+            *(value["id"] for value in second.flows()),
+            *(value["id"] for value in second.senders()),
+            *(value["id"] for value in second.receivers()),
+        }
+        self.assertTrue(first_ids.isdisjoint(second_ids))
+        self.assertNotEqual(
+            first.attached_sender("program"), second.attached_sender("program")
+        )
+        self.assertEqual(
+            second.source_name_for_sender(second.attached_sender("program")),
+            "camera-1",
+        )
+
     def test_program_receiver_activation_maps_to_cut(self):
         sender = NMOS.stable("sender", "camera-2")
         result = self.model.activate_receiver(
