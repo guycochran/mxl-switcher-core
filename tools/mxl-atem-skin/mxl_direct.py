@@ -1,4 +1,4 @@
-"""Minimal ctypes binding to the MXL reader API for measurement tools.
+"""Minimal ctypes binding to the MXL reader and sample-writer API.
 
 Reads grains and samples in place from the flow rings and validates them
 *after* reading, so a reader preempted while the writer laps the ring reports a
@@ -117,10 +117,22 @@ def load_library(name: str = "libmxl.so"):
         ctypes.c_void_p, ctypes.c_uint64, ctypes.c_size_t, ctypes.c_uint64,
         ctypes.POINTER(WrappedMultiBufferSlice),
     ]
+    lib.mxlCreateFlowWriter.argtypes = [
+        ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(FlowConfigInfo), ctypes.POINTER(ctypes.c_bool),
+    ]
+    lib.mxlReleaseFlowWriter.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    lib.mxlFlowWriterOpenSamples.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint64, ctypes.c_size_t, ctypes.POINTER(WrappedMultiBufferSlice),
+    ]
+    lib.mxlFlowWriterCommitSamples.argtypes = [ctypes.c_void_p]
+    lib.mxlFlowWriterCancelSamples.argtypes = [ctypes.c_void_p]
     for function in (
         lib.mxlDestroyInstance, lib.mxlCreateFlowReader, lib.mxlReleaseFlowReader,
         lib.mxlFlowReaderGetRuntimeInfo, lib.mxlFlowReaderGetConfigInfo, lib.mxlFlowReaderGetGrain,
         lib.mxlFlowReaderGetGrainNonBlocking, lib.mxlFlowReaderGetSamples,
+        lib.mxlCreateFlowWriter, lib.mxlReleaseFlowWriter, lib.mxlFlowWriterOpenSamples,
+        lib.mxlFlowWriterCommitSamples, lib.mxlFlowWriterCancelSamples,
     ):
         function.restype = ctypes.c_int
     return lib
@@ -226,6 +238,54 @@ class SampleReader(Reader):
         head = self.head()
         torn = head is None or head - (end_index - count) >= self.ring_length
         return status, (None if torn else data), torn
+
+
+class SampleWriter:
+    """One continuous flow writer.
+
+    ``write(end_index, channels)`` mirrors ``SampleReader.read``: both pass the
+    same head index and count to the SDK (``mxlFlowWriterOpenSamples`` and
+    ``mxlFlowReaderGetSamples`` both take "count samples up to head index"), so
+    samples read at ``end`` and written at ``end`` land on identical indices.
+    The mutable slice has the same layout as the read-only one.
+    """
+
+    def __init__(self, api, instance, flow_definition: str) -> None:
+        self.api = api
+        self.instance = instance
+        self.handle = ctypes.c_void_p()
+        self.info = FlowConfigInfo()
+        created = ctypes.c_bool(False)
+        status = api.mxlCreateFlowWriter(
+            instance, flow_definition.encode(), b"", ctypes.byref(self.handle),
+            ctypes.byref(self.info), ctypes.byref(created))
+        if status != MXL_STATUS_OK:
+            raise RuntimeError(f"mxlCreateFlowWriter failed with status {status}")
+        self.created = bool(created.value)
+
+    def close(self) -> None:
+        if self.handle:
+            self.api.mxlReleaseFlowWriter(self.instance, self.handle)
+            self.handle = ctypes.c_void_p()
+
+    def write(self, end_index: int, channels: list[bytes]) -> int:
+        """Write planar Float32 ``channels`` (equal lengths) as samples ending at ``end_index``."""
+
+        count = len(channels[0]) // 4
+        slices = WrappedMultiBufferSlice()
+        status = self.api.mxlFlowWriterOpenSamples(self.handle, end_index, count, ctypes.byref(slices))
+        if status != MXL_STATUS_OK:
+            return status
+        if slices.count < len(channels) or sum(f.size for f in slices.fragments) != 4 * count:
+            self.api.mxlFlowWriterCancelSamples(self.handle)
+            return MXL_ERR_FLOW_INVALID
+        for channel, payload in enumerate(channels):
+            offset = 0
+            for fragment in slices.fragments:
+                if fragment.size:
+                    ctypes.memmove(fragment.pointer + channel * slices.stride, payload[offset:offset + fragment.size], fragment.size)
+                    offset += fragment.size
+        return self.api.mxlFlowWriterCommitSamples(self.handle)
 
 
 def v210_code_sampler(decode):

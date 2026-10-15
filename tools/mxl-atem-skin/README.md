@@ -65,6 +65,13 @@ Program cuts, while Manual builds a multi-participant mix for ME/SuperSource
 layouts. The Program WebRTC publisher subscribes to this stable output so its
 H.264 + Opus session stays intact across video cuts.
 
+`mxl_index_mixer.py` is an index-domain alternative with the same control API.
+It reads each input by absolute MXL sample index, waits a bounded time for
+late input, and writes the mix at the same index, so late input is counted
+(`late`/`held_ms`/`skipped` per channel in `/state`) instead of becoming silent
+output. See the design note in `docs/AV_REFERENCE.md`. It needs only the MXL
+SDK shared library (`--library`), not GStreamer.
+
 For a ZoomISO return-feed instance, the stable Program video and Program Audio
 flows must share the same NMOS group-hint prefix. Set that prefix with
 `--group-hint`; the default produces `ZoomISOMXLProgram:Audio` to match the

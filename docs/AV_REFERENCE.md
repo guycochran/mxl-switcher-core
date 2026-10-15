@@ -307,6 +307,46 @@ Across every variant: no pipeline restarts, and no Core hard-counter movement.
   silent silence, and placement stays exact.
 - Reduce co-located CPU contention, which drives the arrival stalls.
 
+## Index-domain Program Audio mixer (design, 2026-10-15)
+
+`tools/mxl-atem-skin/mxl_index_mixer.py` implements the index-domain
+recommendation above as a drop-in alternative to `mxl_audio_mixer.py`. It has
+not been qualified live; the Gate C rerun against the lossless reference is the
+next step.
+
+- **No media clock.** For each 480-sample block ending at index `end`, it reads
+  every active input at `end` through the MXL SDK (`mxl_direct.SampleReader`,
+  with its post-copy overwrite check), sums with per-input gain, and writes at
+  the same `end` with `mxl_direct.SampleWriter`. Reader and writer pass the
+  same head index and count, so output sample `s` is the gain-weighted sum of
+  input samples `s`. A single input at unity is copied bit-exactly. The MXL
+  clock only stops the mixer from writing ahead of real time. When the mixer is
+  behind, it catches up without waiting, so a CPU stall delays output but does
+  not lose it while the input rings still hold the samples.
+- **Bounded wait, in MXL time.** An input that has not reached `end` is waited
+  for until MXL time reaches `end + max_wait`. The default is 500 ms, capped at
+  half the shortest input ring so waiting cannot let another input's samples be
+  overwritten.
+- **Gaps are counted, never silently mixed as silence.** Per input, each block
+  is `on_time`, `late` (it arrived during the wait, and `held_ms` records how
+  long the output was held), or `skipped`, with a reason: `missing` after the
+  full budget, `overrun` when the ring has moved past the index, `torn`, or
+  `error`. A skipped input contributes nothing to that block, and the block is
+  counted in `blocks_degraded`. An input that ran out of budget is marked
+  `stalled` and polled without waiting until it catches up, so a dead source
+  cannot hold Program Audio back. Silence is written only when no input is on
+  air.
+- **Same control surface.** `/state` and `/control` follow
+  `mxl_audio_mixer.py`: `mode` afv/manual, `channels`, `master_gain`, and AFV
+  from Core's `/api/mxl/v1/state`. Gain changes ramp linearly across one block.
+  The output is a stable 48 kHz Float32 stereo flow with the `--group-hint`
+  prefix. Inputs must already be 48 kHz, because index mixing cannot resample.
+- **Unit coverage.** `test_index_mixer.py` uses fake SDK rings to cover exact
+  placement, gain and sum, ramps, late, missing and stalled inputs with
+  recovery, overrun, torn copies, the wait cap, run-loop pacing, and the
+  control contract. The writer binding follows the public SDK header
+  (`mxlCreateFlowWriter`, `mxlFlowWriterOpenSamples`, `Commit`/`Cancel`).
+
 ## Next live gate
 
 1. Register it with the isolated Core candidate, take it to Program, and capture
