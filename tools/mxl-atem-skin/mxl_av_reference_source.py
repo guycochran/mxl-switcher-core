@@ -9,6 +9,11 @@ tone burst starting on the first sample of every flash frame. See
 Both flows are written by one GStreamer pipeline from one frame counter, so
 their buffers share running time. The frame counter starts at the current
 grain of the host's TAI clock, so the frame code also identifies wall time.
+
+The picture is greyscale and packed to v210 here, updating only the regions
+that change, so the pipeline has no scaler, colour converter, or leaky queue
+that could silently drop grains. Every pushed frame is counted, and any frame
+that misses its deadline is logged.
 """
 
 from __future__ import annotations
@@ -18,22 +23,34 @@ import json
 import signal
 import time
 import urllib.request
-from array import array
 
 import av_reference as ref
-import mxl_demo_sources as draw
+import cv2
+import gi
 import numpy as np
-from mxl_demo_sources import CANVAS_HEIGHT, CANVAS_WIDTH, OUTPUT_HEIGHT, OUTPUT_WIDTH
 
-from gi.repository import Gst
+gi.require_version("Gst", "1.0")
+from gi.repository import Gst  # noqa: E402
 
+WIDTH = ref.REFERENCE_WIDTH
+HEIGHT = ref.REFERENCE_HEIGHT
+GROUPS = WIDTH // 6
 AUDIO_CAPS = (
     "audio/x-raw,format=F32LE,layout=interleaved,rate=48000,"
     "channels=2,channel-mask=(bitmask)0x3"
 )
 AUDIO_CYCLE_SAMPLES = ref.EVENT_PERIOD_SAMPLES * len(ref.BURST_FREQUENCIES_HZ)
-WHITE = (235, 235, 235)
-BLACK = (16, 16, 16)
+BACKGROUND = 40
+WHITE = 235
+BLACK = 16
+PANEL = 24
+TEXT = 235
+# Regions redrawn every frame: (y0, y1, x0, x1); x is a multiple of 6.
+BAR_REGION = (330, 400, 0, WIDTH)
+TIMECODE_REGION = (720, 900, 300, 1620)
+CODE_REGION = (920, 1060, 60, 1860)
+FLASH_REGION = (ref.FLASH_RECT[1], ref.FLASH_RECT[3], ref.FLASH_RECT[0], ref.FLASH_RECT[2])
+DYNAMIC_REGIONS = (BAR_REGION, TIMECODE_REGION, CODE_REGION, FLASH_REGION)
 RUNNING = True
 
 
@@ -51,34 +68,54 @@ def frame_pts(frame_offset: int) -> int:
     return frame_offset * 1_000_000_000 // ref.VIDEO_RATE
 
 
-def draw_reference(template: np.ndarray, grain: int) -> np.ndarray:
-    frame = template.copy()
-    phase = (grain * 8) % (OUTPUT_WIDTH + 200) - 100
-    draw.rectangle(frame, (phase - 40, 330), (phase + 40, 700), (40, 200, 255), -1)
-    draw.rectangle(frame, (90, 72), (1560, 290), (12, 14, 24), -1)
-    draw.put_text(frame, "MXL A/V REFERENCE", (140, 170), 1.9, (255, 255, 255), 5)
-    draw.put_text(
-        frame,
-        f"48 kHz burst on every flash  |  event {ref.event_code(grain)}",
-        (145, 250),
-        0.8,
-        (80, 220, 255),
-        2,
-    )
-    x0, y0, x1, y1 = ref.FLASH_RECT
-    draw.rectangle(frame, (x0, y0), (x1, y1), WHITE if ref.flash_on(grain) else BLACK, -1)
-    draw.rectangle(frame, (300, 720), (1620, 900), (8, 10, 17), -1)
-    draw.put_text(frame, ref.timecode(grain), (360, 865), 3.0, (90, 255, 125), 6)
-    draw.rectangle(frame, (60, 920), (1860, 1060), BLACK, -1)
-    for (bx0, by0, bx1, by1), bit in ref.code_blocks(grain):
-        draw.rectangle(frame, (bx0, by0), (bx1 - 1, by1 - 1), WHITE if bit else BLACK, -1)
-    return frame
+def pack_v210(luma: np.ndarray) -> np.ndarray:
+    """Pack an (H, W) uint8 luma array (W % 6 == 0) into (H, W // 6 * 4) words."""
+
+    y = luma.astype(np.uint32).reshape(luma.shape[0], -1, 6) << 2
+    words = np.empty((luma.shape[0], y.shape[1], 4), dtype=np.uint32)
+    words[:, :, 0] = 512 | (y[:, :, 0] << 10) | (512 << 20)
+    words[:, :, 1] = y[:, :, 1] | (512 << 10) | (y[:, :, 2] << 20)
+    words[:, :, 2] = 512 | (y[:, :, 3] << 10) | (512 << 20)
+    words[:, :, 3] = y[:, :, 4] | (512 << 10) | (y[:, :, 5] << 20)
+    return words.reshape(luma.shape[0], -1)
 
 
-def base_frame() -> np.ndarray:
-    frame = np.empty((CANVAS_HEIGHT, CANVAS_WIDTH, 3), dtype=np.uint8)
-    frame[:] = (48, 44, 40)
-    return frame
+class Picture:
+    """A luma canvas and its v210 image, repacked only where it changes."""
+
+    def __init__(self) -> None:
+        if ref.v210_stride(WIDTH) != GROUPS * 16:
+            raise ValueError("v210 stride must equal the packed row size")
+        self.luma = np.full((HEIGHT, WIDTH), BACKGROUND, dtype=np.uint8)
+        cv2.rectangle(self.luma, (90, 72), (1560, 290), PANEL, -1)
+        text(self.luma, "MXL A/V REFERENCE", (140, 175), 1.9, 5)
+        text(self.luma, "48 kHz burst on every flash frame", (145, 255), 0.8, 2)
+        self.v210 = pack_v210(self.luma)
+
+    def draw(self, grain: int) -> None:
+        luma = self.luma
+        y0, y1, x0, x1 = BAR_REGION
+        luma[y0:y1, x0:x1] = BACKGROUND
+        phase = (grain * 8) % (WIDTH + 200) - 100
+        cv2.rectangle(luma, (phase - 40, y0), (phase + 40, y1 - 1), 200, -1)
+        y0, y1, x0, x1 = TIMECODE_REGION
+        luma[y0:y1, x0:x1] = PANEL
+        text(luma, ref.timecode(grain), (360, 865), 3.0, 6)
+        y0, y1, x0, x1 = CODE_REGION
+        luma[y0:y1, x0:x1] = BLACK
+        for (bx0, by0, bx1, by1), bit in ref.code_blocks(grain):
+            luma[by0:by1, bx0:bx1] = WHITE if bit else BLACK
+        y0, y1, x0, x1 = FLASH_REGION
+        luma[y0:y1, x0:x1] = WHITE if ref.flash_on(grain) else BLACK
+        for y0, y1, x0, x1 in DYNAMIC_REGIONS:
+            self.v210[y0:y1, x0 // 6 * 4:x1 // 6 * 4] = pack_v210(luma[y0:y1, x0:x1])
+
+    def payload(self) -> bytes:
+        return self.v210.tobytes()
+
+
+def text(luma: np.ndarray, value: str, origin: tuple[int, int], scale: float, thickness: int) -> None:
+    cv2.putText(luma, value, origin, cv2.FONT_HERSHEY_DUPLEX, scale, TEXT, thickness, cv2.LINE_AA)
 
 
 class AudioSynth:
@@ -86,17 +123,18 @@ class AudioSynth:
 
     def __init__(self, mode: str) -> None:
         self.mode = mode
-        self.cycle = ref.audio_samples(0, AUDIO_CYCLE_SAMPLES, "meeting")
+        cycle = ref.audio_samples(0, AUDIO_CYCLE_SAMPLES, "meeting")
+        self.cycle = np.frombuffer(cycle.tobytes(), dtype=np.float32)[0::2].copy()
 
     def block(self, start_sample: int, count: int) -> bytes:
-        out = array("f", bytes(8 * count))
-        for index in range(count):
-            sample = start_sample + index
-            burst = self.cycle[2 * (sample % AUDIO_CYCLE_SAMPLES)]
-            out[2 * index] = burst
-            out[2 * index + 1] = (
-                ref.counter_value(sample) if self.mode == "lossless" else burst
-            )
+        samples = np.arange(count, dtype=np.int64) + start_sample
+        out = np.empty((count, 2), dtype=np.float32)
+        out[:, 0] = self.cycle[samples % AUDIO_CYCLE_SAMPLES]
+        if self.mode == "lossless":
+            counter = (samples % ref.COUNTER_MODULUS) - ref.COUNTER_MODULUS // 2
+            out[:, 1] = counter.astype(np.float32) * np.float32(ref.COUNTER_SCALE)
+        else:
+            out[:, 1] = out[:, 0]
         return out.tobytes()
 
 
@@ -105,26 +143,20 @@ def pipeline_description(
 ) -> str:
     return (
         "appsrc name=video is-live=true block=true format=time "
-        f"caps=video/x-raw,format=BGR,width={CANVAS_WIDTH},height={CANVAS_HEIGHT},"
-        f"framerate={ref.VIDEO_RATE}/1 "
-        "! queue max-size-buffers=2 leaky=downstream "
-        "! videoscale n-threads=4 ! videoconvert n-threads=4 "
-        f"! video/x-raw,format=v210,width={OUTPUT_WIDTH},height={OUTPUT_HEIGHT},"
+        f"caps=video/x-raw,format=v210,width={WIDTH},height={HEIGHT},"
         f"framerate={ref.VIDEO_RATE}/1 "
         f'! mxlsink domain={domain} flow-id={video_flow} label="{label} Video" '
         f'description="{label} frame-coded video" group-hint="{group}:Video" '
         "sync=true async=false max-lateness=-1 "
         f"appsrc name=audio is-live=true block=true format=time caps={AUDIO_CAPS} "
-        "! queue max-size-time=200000000 max-size-buffers=0 max-size-bytes=0 "
         f'! mxlsink domain={domain} flow-id={audio_flow} label="{label} Audio" '
         f'description="{label} 48 kHz event audio" group-hint="{group}:Audio" '
-        "sync=true async=false"
+        "sync=true async=false max-lateness=-1"
     )
 
 
 def push(source, payload: bytes, pts: int, duration: int) -> None:
-    buffer = Gst.Buffer.new_allocate(None, len(payload), None)
-    buffer.fill(0, payload)
+    buffer = Gst.Buffer.new_wrapped(payload)
     buffer.pts = pts
     buffer.dts = pts
     buffer.duration = duration
@@ -155,6 +187,23 @@ def register_source(core_url: str, source_id: str, video_flow: str, audio_flow: 
             raise RuntimeError(f"Core rejected source registration with HTTP {response.status}")
 
 
+class Stats:
+    def __init__(self) -> None:
+        self.frames = 0
+        self.late = 0
+        self.max_late_s = 0.0
+        self.work_s = 0.0
+        self.max_work_s = 0.0
+
+    def line(self, grain: int) -> str:
+        average = self.work_s / self.frames if self.frames else 0.0
+        return (
+            f"stats frames={self.frames} last_grain={grain} late={self.late} "
+            f"max_late_ms={self.max_late_s * 1000:.1f} "
+            f"avg_work_ms={average * 1000:.2f} max_work_ms={self.max_work_s * 1000:.2f}"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--domain", default="/mxl-domain")
@@ -165,6 +214,7 @@ def main() -> int:
     parser.add_argument("--audio-mode", choices=("meeting", "lossless"), default="meeting")
     parser.add_argument("--core-url", help="optionally register with Core at runtime")
     parser.add_argument("--source-id", default="av-reference")
+    parser.add_argument("--stats-every-s", type=float, default=10.0)
     args = parser.parse_args()
 
     Gst.init(None)
@@ -180,41 +230,58 @@ def main() -> int:
     if args.core_url:
         register_source(args.core_url, args.source_id, args.video_flow, args.audio_flow, args.label)
 
-    template = base_frame()
+    picture = Picture()
     synth = AudioSynth(args.audio_mode)
+    stats = Stats()
     first_grain = current_grain()
     offset = 0
     deadline = time.monotonic()
+    next_stats = deadline + args.stats_every_s
     print(
         f"av_reference=ready mode={args.audio_mode} first_grain={first_grain} "
         f"rate={ref.VIDEO_RATE}/1 sample_rate={ref.SAMPLE_RATE}",
         flush=True,
     )
+    grain = first_grain
     try:
         while RUNNING:
+            started = time.monotonic()
             grain = first_grain + offset
             pts = frame_pts(offset)
             duration = frame_pts(offset + 1) - pts
-            push(video, draw_reference(template, grain).tobytes(), pts, duration)
+            picture.draw(grain)
+            push(video, picture.payload(), pts, duration)
             push(
                 audio,
                 synth.block(ref.grain_to_sample(grain), ref.SAMPLES_PER_FRAME),
                 pts,
                 duration,
             )
+            work = time.monotonic() - started
+            stats.frames += 1
+            stats.work_s += work
+            stats.max_work_s = max(stats.max_work_s, work)
             offset += 1
             deadline += 1 / ref.VIDEO_RATE
-            delay = deadline - time.monotonic()
+            now = time.monotonic()
+            delay = deadline - now
             if delay > 0:
                 time.sleep(delay)
-            elif delay < -0.5:
-                # Keep the content timeline continuous; report instead of jumping.
-                print(f"late_s={-delay:.3f} frame_offset={offset}", flush=True)
-                deadline = time.monotonic()
+            else:
+                stats.late += 1
+                stats.max_late_s = max(stats.max_late_s, -delay)
+                if delay < -0.5:
+                    # Keep the content timeline continuous; report instead of jumping.
+                    print(f"late_s={-delay:.3f} frame_offset={offset}", flush=True)
+                    deadline = time.monotonic()
+            if now >= next_stats:
+                print(stats.line(grain), flush=True)
+                next_stats = now + args.stats_every_s
     finally:
         video.emit("end-of-stream")
         audio.emit("end-of-stream")
         pipeline.set_state(Gst.State.NULL)
+    print(stats.line(grain), flush=True)
     print(f"frames={offset} last_grain={first_grain + offset - 1}", flush=True)
     return 0
 

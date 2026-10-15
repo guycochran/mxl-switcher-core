@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Capture a paired MXL video/audio flow into ``mxl_av_analyze.py`` raw inputs.
+"""Capture a paired MXL video/audio flow into ``mxl_av_analyze.py`` inputs.
 
 Both ``mxlsrc`` branches run in one pipeline, so their buffer timestamps share
-one timeline. Writes ``video.y8`` (8-bit luma), ``video.pts`` (seconds per
-frame), ``audio.f32`` (interleaved Float32 48 kHz stereo), and ``meta.json``
-with the first audio timestamp, buffer counts, timestamp gaps, and arrival
-times. The analyzer arguments are printed at the end.
+one timeline. Video is read as v210 with no conversion; each grain's frame
+code is decoded from ~400 sampled pixels. Writes ``video.codes`` (capture
+time and code per grain), ``audio.f32`` (interleaved Float32 48 kHz stereo),
+and ``meta.json``. The metadata separates index steps (from timestamps, so
+reader-side loss) from content steps (from codes, so publisher-side loss)
+and lists the exact analyzer arguments.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import os
 import threading
 import time
 
+import av_reference as ref
 import gi
 
 gi.require_version("Gst", "1.0")
@@ -28,12 +31,11 @@ AUDIO_CAPS = (
 BYTES_PER_FRAME = 8
 
 
-def pipeline_description(domain: str, video_flow: str, audio_flow: str, width: int, height: int) -> str:
+def pipeline_description(domain: str, video_flow: str, audio_flow: str) -> str:
     return (
         f"mxlsrc domain={domain} video-flow-id={video_flow} automatic-eos=false "
+        "! video/x-raw,format=v210 "
         "! queue max-size-time=2000000000 max-size-buffers=0 max-size-bytes=0 "
-        "! videoconvert n-threads=2 ! videoscale n-threads=2 "
-        f"! video/x-raw,format=GRAY8,width={width},height={height} "
         "! appsink name=video sync=false emit-signals=true max-buffers=0 "
         f"mxlsrc domain={domain} audio-flow-id={audio_flow} automatic-eos=false "
         f"! {AUDIO_CAPS} "
@@ -42,20 +44,25 @@ def pipeline_description(domain: str, video_flow: str, audio_flow: str, width: i
     )
 
 
+def bump(histogram: dict, key: int) -> None:
+    histogram[str(key)] = histogram.get(str(key), 0) + 1
+
+
 class Recorder:
-    def __init__(self, directory: str, width: int, height: int) -> None:
-        self.width = width
-        self.height = height
+    def __init__(self, directory: str) -> None:
         self.lock = threading.Lock()
-        self.video = open(os.path.join(directory, "video.y8"), "wb")
-        self.video_pts = open(os.path.join(directory, "video.pts"), "w")
+        self.video = open(os.path.join(directory, "video.codes"), "w")
         self.audio = open(os.path.join(directory, "audio.f32"), "wb")
         self.started = time.monotonic()
         self.meta = {
             "video_frames": 0,
             "video_first_pts_s": None,
             "video_first_arrival_s": None,
-            "video_pts_steps_ns": {},
+            "video_index_steps": {},
+            "video_content_steps": {},
+            "video_undecodable": 0,
+            "video_content_index_mismatches": 0,
+            "video_max_decode_ms": 0.0,
             "audio_buffers": 0,
             "audio_samples": 0,
             "audio_first_pts_s": None,
@@ -64,6 +71,7 @@ class Recorder:
             "audio_pts_gap_max_ns": 0,
         }
         self.last_video_pts = None
+        self.last_code = None
         self.next_audio_pts = None
 
     def on_video(self, sink):
@@ -73,20 +81,32 @@ class Recorder:
         if not ok:
             return Gst.FlowReturn.ERROR
         try:
-            data = info.data[: self.width * self.height]
+            decode_started = time.monotonic()
+            code = ref.decode_v210_frame_code(info.data)
+            decode_ms = (time.monotonic() - decode_started) * 1000
             with self.lock:
+                meta = self.meta
                 pts = buffer.pts
-                if self.meta["video_first_pts_s"] is None:
-                    self.meta["video_first_pts_s"] = pts / 1e9
-                    self.meta["video_first_arrival_s"] = time.monotonic() - self.started
+                meta["video_max_decode_ms"] = max(meta["video_max_decode_ms"], round(decode_ms, 3))
+                if meta["video_first_pts_s"] is None:
+                    meta["video_first_pts_s"] = pts / 1e9
+                    meta["video_first_arrival_s"] = time.monotonic() - self.started
+                index_step = None
                 if self.last_video_pts is not None:
-                    step = str(pts - self.last_video_pts)
-                    steps = self.meta["video_pts_steps_ns"]
-                    steps[step] = steps.get(step, 0) + 1
+                    index_step = round((pts - self.last_video_pts) * ref.VIDEO_RATE / 1e9)
+                    bump(meta["video_index_steps"], index_step)
+                if code is None:
+                    meta["video_undecodable"] += 1
+                else:
+                    if self.last_code is not None:
+                        content_step = ref.wrap_delta(code, self.last_code)
+                        bump(meta["video_content_steps"], content_step)
+                        if index_step is not None and content_step != index_step:
+                            meta["video_content_index_mismatches"] += 1
+                    self.last_code = code
                 self.last_video_pts = pts
-                self.video.write(data)
-                self.video_pts.write(f"{pts / 1e9:.9f}\n")
-                self.meta["video_frames"] += 1
+                self.video.write(f"{pts / 1e9:.9f} {'-' if code is None else code}\n")
+                meta["video_frames"] += 1
         finally:
             buffer.unmap(info)
         return Gst.FlowReturn.OK
@@ -119,7 +139,7 @@ class Recorder:
 
     def close(self) -> dict:
         with self.lock:
-            for handle in (self.video, self.video_pts, self.audio):
+            for handle in (self.video, self.audio):
                 handle.close()
             return dict(self.meta)
 
@@ -130,17 +150,15 @@ def main() -> int:
     parser.add_argument("--video-flow", required=True)
     parser.add_argument("--audio-flow", required=True)
     parser.add_argument("--seconds", type=float, default=60.0)
-    parser.add_argument("--width", type=int, default=480)
-    parser.add_argument("--height", type=int, default=270)
     parser.add_argument("--output", required=True, help="new directory for the capture")
     args = parser.parse_args()
 
     os.makedirs(args.output)
     Gst.init(None)
     pipeline = Gst.parse_launch(
-        pipeline_description(args.domain, args.video_flow, args.audio_flow, args.width, args.height)
+        pipeline_description(args.domain, args.video_flow, args.audio_flow)
     )
-    recorder = Recorder(args.output, args.width, args.height)
+    recorder = Recorder(args.output)
     pipeline.get_by_name("video").connect("new-sample", recorder.on_video)
     pipeline.get_by_name("audio").connect("new-sample", recorder.on_audio)
     if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
@@ -155,12 +173,10 @@ def main() -> int:
             break
     pipeline.set_state(Gst.State.NULL)
     meta = recorder.close()
-    meta.update({"seconds": args.seconds, "width": args.width, "height": args.height, "error": error})
+    meta.update({"seconds": args.seconds, "error": error})
     audio_start = meta["audio_first_pts_s"] or 0.0
     meta["analyze_args"] = [
-        "--video-raw", os.path.join(args.output, "video.y8"),
-        "--video-pts", os.path.join(args.output, "video.pts"),
-        "--width", str(args.width), "--height", str(args.height),
+        "--video-codes", os.path.join(args.output, "video.codes"),
         "--audio-raw", os.path.join(args.output, "audio.f32"),
         "--audio-start-s", f"{audio_start:.9f}",
     ]

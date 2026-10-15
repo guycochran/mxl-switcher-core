@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Measure an A/V reference capture: cadence, sample continuity, and lip sync.
 
-Inputs are either a media file (decoded with ffmpeg/ffprobe) or raw files:
-8-bit luma frames plus interleaved Float32 48 kHz audio. Output is a JSON
+Inputs are a media file (decoded with ffmpeg/ffprobe), pre-decoded frame
+codes from ``mxl_av_capture.py``, or raw 8-bit luma frames, each with
+interleaved Float32 48 kHz audio. Output is a JSON
 report; the exit status is 0 when every threshold passes, 1 when any fails,
 and 2 for input errors.
 
@@ -33,6 +34,16 @@ def read_frames(stream: BinaryIO, width: int, height: int) -> Iterator[bytes]:
         if len(frame) < size:
             return
         yield frame
+
+
+def read_codes(path: str) -> list[tuple[float, int | None]]:
+    frames = []
+    with open(path) as handle:
+        for line in handle:
+            fields = line.split()
+            if len(fields) >= 2:
+                frames.append((float(fields[0]), None if fields[1] == "-" else int(fields[1])))
+    return frames
 
 
 def read_audio(path_or_stream, channels: int) -> list[array]:
@@ -69,8 +80,12 @@ def analyze(
     event_channel: str,
     counter_channel: str | None,
     thresholds: ref.Thresholds,
+    pre_decoded: bool = False,
 ) -> dict:
-    decoded = [(t, ref.decode_frame_code(frame, width, height)) for t, frame in frames]
+    decoded = (
+        list(frames) if pre_decoded
+        else [(t, ref.decode_frame_code(frame, width, height)) for t, frame in frames]
+    )
     video, video_events = ref.analyze_video(decoded)
     report: dict = {"video": video.as_dict(), "video_events": len(video_events)}
     if audio_channels:
@@ -151,6 +166,8 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--media", help="any capture ffmpeg can decode")
     source.add_argument("--no-audio", action="store_true", help="ignore audio in --media")
     source.add_argument("--video-raw", help="concatenated 8-bit luma frames")
+    source.add_argument("--video-codes",
+                        help="pre-decoded frames: one 'capture_time_s code' line per frame, '-' if undecodable")
     source.add_argument("--video-pts", help="one capture time in seconds per frame")
     source.add_argument("--fps", type=float, default=30.0, help="frame rate when --video-pts is absent")
     source.add_argument("--width", type=int, default=DEFAULT_ANALYSIS_WIDTH)
@@ -170,6 +187,11 @@ def main(argv: list[str] | None = None) -> int:
     limits.add_argument("--max-drift-ppm", type=float, default=defaults.max_drift_ppm)
     limits.add_argument("--max-undecodable-fraction", type=float, default=defaults.max_undecodable_fraction)
     limits.add_argument("--min-pairs", type=int, default=defaults.min_pairs)
+    limits.add_argument("--max-skipped-grains", type=int, default=defaults.max_skipped_grains,
+                        help="video grains allowed to be missing; -1 disables (reduced-rate paths)")
+    limits.add_argument("--max-repeats", type=int, default=-1,
+                        help="repeated video grains allowed; -1 (default) disables")
+    limits.add_argument("--max-unmatched-events", type=int, default=defaults.max_unmatched_events)
     parser.add_argument("--series", action="store_true", help="include per-event offsets")
     args = parser.parse_args(argv)
 
@@ -180,10 +202,17 @@ def main(argv: list[str] | None = None) -> int:
         max_drift_ppm=args.max_drift_ppm,
         max_undecodable_fraction=args.max_undecodable_fraction,
         min_pairs=args.min_pairs,
+        max_skipped_grains=None if args.max_skipped_grains < 0 else args.max_skipped_grains,
+        max_repeats=None if args.max_repeats < 0 else args.max_repeats,
+        max_unmatched_events=args.max_unmatched_events,
     )
     resources = contextlib.ExitStack()
     if args.media:
         frames, audio, audio_start = media_inputs(args.media, args.width, args.height, not args.no_audio)
+    elif args.video_codes:
+        frames = read_codes(args.video_codes)
+        audio = read_audio(args.audio_raw, args.audio_channels) if args.audio_raw else None
+        audio_start = args.audio_start_s
     elif args.video_raw:
         if args.video_pts:
             with open(args.video_pts) as handle:
@@ -199,13 +228,14 @@ def main(argv: list[str] | None = None) -> int:
         audio = read_audio(args.audio_raw, args.audio_channels) if args.audio_raw else None
         audio_start = args.audio_start_s
     else:
-        parser.error("provide --media or --video-raw")
+        parser.error("provide --media, --video-codes, or --video-raw")
         return 2
 
     with resources:
         report = analyze(
             frames, args.width, args.height, audio, audio_start,
             args.event_channel, args.counter_channel, thresholds,
+            pre_decoded=bool(args.video_codes),
         )
     if not args.series:
         report.pop("sync_series", None)

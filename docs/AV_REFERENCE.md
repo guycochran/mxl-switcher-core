@@ -40,7 +40,11 @@ python3 tools/mxl-atem-skin/mxl_av_reference_source.py \
 ```
 
 One GStreamer pipeline writes both flows from one frame counter, with group
-hints `<group>:Video` and `<group>:Audio`. With `--core-url`, it registers a
+hints `<group>:Video` and `<group>:Audio`. The greyscale picture is packed to
+v210 in numpy, and only the bar, timecode, flash, and code regions are repacked
+each frame. There is no scaler, colour converter, or leaky queue that could drop
+grains silently. The publisher logs `stats` lines with frames, late frames,
+and per-frame work time. With `--core-url`, it registers a
 runtime source of kind `reference` and sets `audio_flow_id` to the paired
 audio. Run it in its own container with its own flow identities, and remove
 it by exact name. The publisher needs the same Python/GStreamer/OpenCV/MXL
@@ -53,9 +57,11 @@ The analyzer needs the video and audio on one capture timeline:
 - **Audience side**: a local recording of the destination meeting, or any
   capture ffmpeg can decode. Analyze it with `--media`.
 - **Inside MXL**: `mxl_av_capture.py` runs both `mxlsrc` branches in one
-  pipeline and writes the raw inputs below, plus `meta.json` with timestamp
-  gaps, arrival times, and the exact analyzer arguments. Two separately
-  started pipelines do not share a timeline.
+  pipeline. It reads video as v210 with no conversion and decodes each grain's
+  code from about 400 sampled pixels, writing `video.codes` and `audio.f32`.
+  `meta.json` separates index steps (from timestamps: reader-side loss) from
+  content steps (from codes: publisher-side loss), and lists the exact analyzer
+  arguments. Two separately started pipelines do not share a timeline.
 - **Raw**: 8-bit luma frames (`--video-raw`, `--width`, `--height`), one capture
   time per frame (`--video-pts`, or `--fps`), and interleaved Float32 48 kHz
   audio (`--audio-raw`, `--audio-start-s` for its first sample's capture time).
@@ -79,9 +85,20 @@ The JSON report contains:
   samples, gap events and samples, and regressions.
 
 The exit status is 0 when every threshold passes and 1 when any fails, with
-reasons listed. Default limits: audio lead <= 40 ms, audio lag <= 60 ms, offset
-range <= 20 ms, drift <= 100 ppm, undecodable frames <= 1%, at least three
-pairs, and no counter discontinuities. Every limit is a CLI flag; record the
+reasons listed. Default limits:
+
+- audio lead <= 40 ms and audio lag <= 60 ms;
+- offset range <= 20 ms and drift <= 100 ppm;
+- undecodable frames <= 1%;
+- **zero missing video grains**;
+- at most two unmatched audio events (capture edges);
+- at least three pairs; and
+- no counter discontinuities.
+
+Capture completeness is part of the verdict. A path that legitimately reduces
+frame rate, such as a meeting, must opt in with `--max-skipped-grains -1` (and
+may bound repeats with `--max-repeats`). Frames that were captured but could not
+be decoded count against the undecodable limit, not as missing grains. Every limit is a CLI flag; record the
 limits used with each result.
 
 Repeats and skips are expected when the capture rate differs from 30 fps or a

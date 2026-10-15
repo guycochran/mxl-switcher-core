@@ -103,6 +103,25 @@ class FrameCodeTest(unittest.TestCase):
         self.assertIsNone(ref.decode_frame_code(bytes([128]) * (480 * 270), 480, 270))
 
 
+class V210Test(unittest.TestCase):
+    def test_luma_round_trip_through_v210_packing(self):
+        width, height = 30, 2
+        luma = bytes((16 + 7 * index) % 236 for index in range(width * height))
+        packed = ref.v210_from_luma(luma, width, height)
+        self.assertEqual(len(packed), ref.v210_stride(width) * height)
+        stride = ref.v210_stride(width)
+        for y in range(height):
+            for x in range(width):
+                self.assertEqual(ref.v210_luma(packed, stride, x, y), luma[y * width + x])
+
+    def test_decodes_frame_code_from_v210(self):
+        width, height = 480, 270
+        grain = BASE_GRAIN + 11
+        packed = ref.v210_from_luma(render_frame(grain, width, height), width, height)
+        self.assertEqual(ref.decode_v210_frame_code(packed, width, height), grain % ref.CODE_MODULUS)
+        self.assertEqual(ref.v210_stride(1920), 5120)
+
+
 class AudioTest(unittest.TestCase):
     def test_burst_starts_on_event_frame_first_sample(self):
         start = ref.grain_to_sample(BASE_GRAIN) - 100
@@ -235,6 +254,32 @@ def run_cli(args):
     return status, json.loads(output.getvalue())
 
 
+class CompletenessVerdictTest(unittest.TestCase):
+    def report(self, skipped=0, repeats=0, unmatched=0):
+        return {
+            "video": {"frames": 100, "undecodable": 0, "regressions": 0,
+                      "skipped_grains": skipped, "repeats": repeats},
+            "audio": {"unmatched_events": unmatched},
+            "sync": {"pairs": 5, "offset_ms_min": 0.0, "offset_ms_max": 0.0,
+                     "offset_ms_range": 0.0, "drift_ppm": 0.0},
+        }
+
+    def test_missing_grains_fail_by_default(self):
+        self.assertEqual(ref.verdict(self.report(), ref.Thresholds()), [])
+        self.assertIn("video grains missing from capture",
+                      ref.verdict(self.report(skipped=1), ref.Thresholds()))
+
+    def test_reduced_rate_paths_must_opt_in(self):
+        allowance = ref.Thresholds(max_skipped_grains=None, max_repeats=2)
+        self.assertEqual(ref.verdict(self.report(skipped=500), allowance), [])
+        self.assertIn("video repeats above limit", ref.verdict(self.report(repeats=3), allowance))
+
+    def test_unmatched_events_limited_to_edges(self):
+        self.assertEqual(ref.verdict(self.report(unmatched=2), ref.Thresholds()), [])
+        self.assertIn("unmatched audio events above limit",
+                      ref.verdict(self.report(unmatched=3), ref.Thresholds()))
+
+
 class EndToEndTest(unittest.TestCase):
     def test_aligned_capture_passes(self):
         start = BASE_GRAIN - 7
@@ -260,6 +305,23 @@ class EndToEndTest(unittest.TestCase):
         self.assertEqual(report["video"]["longest_freeze_frames"], 16)
         self.assertEqual(report["video"]["skipped_grains"], 15)
         self.assertTrue(report["sync_series"])
+
+    def test_pre_decoded_codes_input(self):
+        start = BASE_GRAIN - 7
+        with tempfile.TemporaryDirectory() as directory:
+            codes = pathlib.Path(directory, "video.codes")
+            lines = [f"{index / 30:.9f} {(start + index) % ref.CODE_MODULUS}" for index in range(150)]
+            lines[40] = f"{40 / 30:.9f} -"
+            codes.write_text("\n".join(lines) + "\n")
+            audio = pathlib.Path(directory, "audio.f32")
+            audio.write_bytes(ref.audio_samples(ref.grain_to_sample(start), 5 * ref.SAMPLE_RATE).tobytes())
+            status, report = run_cli([
+                "--video-codes", str(codes), "--audio-raw", str(audio), "--audio-start-s", "0",
+            ])
+        self.assertEqual(status, 0, report)
+        self.assertEqual(report["video"]["undecodable"], 1)
+        self.assertEqual(report["video"]["skipped_grains"], 0)  # present, just undecodable
+        self.assertEqual(report["sync"]["pairs"], 5)
 
     def test_lossless_counter_reported(self):
         start = BASE_GRAIN - 7

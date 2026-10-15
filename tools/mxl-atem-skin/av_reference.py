@@ -136,12 +136,7 @@ def flash_on(grain: int) -> bool:
     return is_event_grain(grain)
 
 
-def _sample_block(
-    frame: bytes | bytearray | memoryview,
-    width: int,
-    height: int,
-    rect: tuple[int, int, int, int],
-) -> float:
+def _sample_block(pixel, width: int, height: int, rect: tuple[int, int, int, int]) -> float:
     """Mean luma of a 3x3 grid inside the central half of a reference rect."""
 
     scale_x = width / REFERENCE_WIDTH
@@ -150,11 +145,33 @@ def _sample_block(
     total = 0
     for fy in (0.3, 0.5, 0.7):
         y = min(height - 1, int((y0 + (y1 - y0) * fy) * scale_y))
-        row = y * width
         for fx in (0.3, 0.5, 0.7):
             x = min(width - 1, int((x0 + (x1 - x0) * fx) * scale_x))
-            total += frame[row + x]
+            total += pixel(x, y)
     return total / 9
+
+
+def _decode_with(pixel, width: int, height: int) -> int | None:
+    layout = code_blocks(0)
+    per_row = 2 + CODE_BITS_PER_ROW
+    bits = []
+    for row in range(2):
+        row_blocks = layout[row * per_row:(row + 1) * per_row]
+        first = _sample_block(pixel, width, height, row_blocks[0][0])
+        second = _sample_block(pixel, width, height, row_blocks[1][0])
+        white, black = (first, second) if row == 0 else (second, first)
+        if white - black < MIN_CODE_CONTRAST:
+            return None
+        threshold = (white + black) / 2
+        for rect, _ in row_blocks[2:]:
+            bits.append(1 if _sample_block(pixel, width, height, rect) >= threshold else 0)
+    word = 0
+    for bit in bits:
+        word = (word << 1) | bit
+    value = word >> CRC_BITS
+    if crc8(value) != word & 0xFF or value >= CODE_MODULUS:
+        return None
+    return value
 
 
 def decode_frame_code(
@@ -164,26 +181,53 @@ def decode_frame_code(
 
     if len(frame) < width * height:
         raise ValueError("frame is smaller than width*height")
-    layout = code_blocks(0)
-    per_row = 2 + CODE_BITS_PER_ROW
-    bits = []
-    for row in range(2):
-        row_blocks = layout[row * per_row:(row + 1) * per_row]
-        first = _sample_block(frame, width, height, row_blocks[0][0])
-        second = _sample_block(frame, width, height, row_blocks[1][0])
-        white, black = (first, second) if row == 0 else (second, first)
-        if white - black < MIN_CODE_CONTRAST:
-            return None
-        threshold = (white + black) / 2
-        for rect, _ in row_blocks[2:]:
-            bits.append(1 if _sample_block(frame, width, height, rect) >= threshold else 0)
-    word = 0
-    for bit in bits:
-        word = (word << 1) | bit
-    value = word >> CRC_BITS
-    if crc8(value) != word & 0xFF or value >= CODE_MODULUS:
-        return None
-    return value
+    return _decode_with(lambda x, y: frame[y * width + x], width, height)
+
+
+# v210 packs six 4:2:2 pixels into four little-endian 32-bit words. For each
+# pixel position within a group: (word, bit shift) of its 10-bit luma.
+_V210_LUMA = ((0, 10), (1, 0), (1, 20), (2, 10), (3, 0), (3, 20))
+
+
+def v210_stride(width: int) -> int:
+    return (width + 47) // 48 * 128
+
+
+def v210_luma(frame, stride: int, x: int, y: int) -> int:
+    """Return the 8-bit luma of pixel ``(x, y)`` from a v210 frame."""
+
+    word, shift = _V210_LUMA[x % 6]
+    offset = y * stride + (x // 6) * 16 + word * 4
+    value = int.from_bytes(frame[offset:offset + 4], "little")
+    return ((value >> shift) & 0x3FF) >> 2
+
+
+def decode_v210_frame_code(frame, width: int = REFERENCE_WIDTH, height: int = REFERENCE_HEIGHT) -> int | None:
+    """Decode the frame code straight from a v210 grain, reading ~400 pixels."""
+
+    stride = v210_stride(width)
+    if len(frame) < stride * height:
+        raise ValueError("frame is smaller than the v210 stride*height")
+    return _decode_with(lambda x, y: v210_luma(frame, stride, x, y), width, height)
+
+
+def v210_from_luma(luma, width: int, height: int) -> bytearray:
+    """Pack 8-bit luma (neutral chroma) into v210. For tests and small frames."""
+
+    stride = v210_stride(width)
+    out = bytearray(stride * height)
+    for y in range(height):
+        for group in range(0, width, 6):
+            words = [512, 512 << 10, 512, 512 << 10]
+            for position in range(6):
+                x = group + position
+                value = (luma[y * width + x] if x < width else 16) << 2
+                word, shift = _V210_LUMA[position]
+                words[word] |= value << shift
+            offset = y * stride + (group // 6) * 16
+            for index, word in enumerate(words):
+                out[offset + 4 * index:offset + 4 * index + 4] = word.to_bytes(4, "little")
+    return out
 
 
 # --- audio ----------------------------------------------------------------
@@ -432,9 +476,11 @@ def analyze_video(decoded: list[tuple[float, int | None]]) -> tuple[VideoReport,
     previous = None
     freeze_start = None
     freeze_frames = 0
+    undecodable_between = 0
     for capture_time, grain in decoded:
         if grain is None:
             report.undecodable += 1
+            undecodable_between += 1
             continue
         report.decoded += 1
         if report.first_grain is None:
@@ -457,12 +503,16 @@ def analyze_video(decoded: list[tuple[float, int | None]]) -> tuple[VideoReport,
             else:
                 freeze_start = None
                 freeze_frames = 0
-                if step > 1:
+                # Frames captured but undecodable occupied grains in the gap;
+                # they are limited separately and are not missing.
+                missing = step - 1 - undecodable_between
+                if missing > 0:
                     report.skip_events += 1
-                    report.skipped_grains += step - 1
+                    report.skipped_grains += missing
                 elif step < 0:
                     report.regressions += 1
         previous = (capture_time, grain)
+        undecodable_between = 0
     return report, events
 
 
@@ -536,6 +586,13 @@ class Thresholds:
     max_drift_ppm: float = 100.0
     max_undecodable_fraction: float = 0.01
     min_pairs: int = 3
+    # Capture completeness is part of the verdict. A path that legitimately
+    # reduces frame rate (a meeting) must say so with a non-zero allowance;
+    # None disables the check.
+    max_skipped_grains: int | None = 0
+    max_repeats: int | None = None
+    # Bursts whose flash frame fell just outside the capture window.
+    max_unmatched_events: int = 2
 
 
 def verdict(report: dict, thresholds: Thresholds) -> list[str]:
@@ -550,6 +607,13 @@ def verdict(report: dict, thresholds: Thresholds) -> list[str]:
         failures.append("undecodable frame fraction above limit")
     if video["regressions"]:
         failures.append("video grain regressions")
+    if thresholds.max_skipped_grains is not None and video["skipped_grains"] > thresholds.max_skipped_grains:
+        failures.append("video grains missing from capture")
+    if thresholds.max_repeats is not None and video["repeats"] > thresholds.max_repeats:
+        failures.append("video repeats above limit")
+    audio = report.get("audio")
+    if audio and audio["unmatched_events"] > thresholds.max_unmatched_events:
+        failures.append("unmatched audio events above limit")
     if sync.get("pairs", 0) < thresholds.min_pairs:
         failures.append("too few paired A/V events")
     else:
