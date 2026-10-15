@@ -366,6 +366,85 @@ next step.
   never calls the SDK for a missing flow. The writer binding follows the public SDK header
   (`mxlCreateFlowWriter`, `mxlFlowWriterOpenSamples`, `Commit`/`Cancel`).
 
+## Real-MXL mixer lifecycle gate (harness, 2026-10-15)
+
+`tools/mxl-atem-skin/mxl_index_mixer_gate.py` proves the input lifecycle
+against a real MXL domain. It has not been run live yet.
+
+**Isolation.** The gate creates a new tmpfs Docker volume as the domain and
+never accepts a domain path. All gate containers run with `--network none` and
+`--restart no`, publish no ports, and mount the tools directory read-only.
+Mixer state is read with `docker exec`. Every container and the volume carry
+`org.mxl.gate.run=<run id>`. Names and flow IDs (random UUIDv4) are new for each
+run. The gate refuses, before any change, if any of these is true:
+
+- a name or the volume already exists;
+- the image is absent (it never pulls or builds);
+- the tools directory lacks the mixer;
+- the evidence directory exists;
+- Docker is unusable.
+
+**Sequence.** Two constant-tone writers drive the mixer: A at 0.125 and B at
+0.25. The output sample therefore shows exactly who contributes (0.25 = B
+only, 0.375 = A + B). The phases are:
+
+| Phase | What happens | What must hold |
+| --- | --- | --- |
+| `a_absent` | The mixer starts with A absent and B writing, in manual mode with both channels on. | A is offline, its `offline` skips grow, the output is 0.25, and the mixer stays up. |
+| `a_joined` | Writer A starts. | A goes online without a mixer restart, and the output is 0.375. |
+| `a_gone` | Writer A stops and removes its own flow directory. | (Observed.) |
+| `a_recreated` | A new writer creates the same flow ID; its `created=True` is required. | A's `closes` grew, `opens` ≥ 2, A is online, and the output is 0.375. |
+| `hold` | `--hold-seconds`: 60 for the smoke, 600 to confirm. | Both inputs keep contributing. |
+
+Throughout the run:
+
+- the mixer container keeps one start time and zero restarts;
+- the output head advances at every sample; and
+- B never stalls and is never skipped.
+
+Every wait is bounded, and so is the whole run (`max_total` in the plan). A
+missing transition is a failure.
+
+**Evidence and cleanup.** Before cleanup, the gate writes to the evidence
+directory: container logs and inspect output, `samples.jsonl`, `events.json`,
+`plan.json`, `verdict.json`, and `cleanup.json`. The verdict reports A's state
+transitions, opens and closes, skipped reasons, block counts, and the mixer's
+CPU and RSS range. Cleanup removes only the run's exact container names and
+volume, each only after its run label matches. It never prunes or filters by
+pattern.
+
+**Known limit.** The one-syscall SDK race is not hidden. A flow removed between
+`flow_exists()` and reader creation can still crash the mixer. The gate keeps
+removal (writer A's exit) and re-creation apart by `--gap-seconds`, but a
+crash fails the gate with the exit code recorded.
+
+```sh
+# dry run (default): read-only collision checks and the exact plan
+python3 tools/mxl-atem-skin/mxl_index_mixer_gate.py plan \
+  --image <local MXL test image> --library <libmxl path in that image>
+# smoke, then confirmation
+python3 tools/mxl-atem-skin/mxl_index_mixer_gate.py plan \
+  --image <local MXL test image> --library <libmxl path in that image> --apply
+python3 tools/mxl-atem-skin/mxl_index_mixer_gate.py plan \
+  --image <local MXL test image> --library <libmxl path in that image> \
+  --hold-seconds 600 --apply
+```
+
+Use `--docker "sudo -n docker"` where the daemon needs it. The exit code is 0
+for PASS, 1 for FAIL, and 2 for a refusal. `test_index_mixer_gate.py` covers
+the following with a simulated Docker daemon and clock:
+
+- command construction and isolation;
+- unique naming;
+- collision refusals with no mutation;
+- the passing sequence;
+- failure paths: A never joins, a mixer crash on re-creation, re-creation
+  not proven, B stalls, and a mixer restart;
+- each verdict invariant;
+- exact, label-checked cleanup;
+- the tone writer removing only its own flow; and
+- the probe.
+
 ## Gate B: through the isolated candidate Core (2026-10-15)
 
 The reference was registered at runtime with the isolated candidate Core only
