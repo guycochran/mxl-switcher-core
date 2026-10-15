@@ -36,6 +36,11 @@ displacement are diagnostic history, not Preview 1 candidates.
 
 ## Before changing anything
 
+Complete the [real ZoomISO recovery gate](REAL_ZOOMISO_RECOVERY_GATE.md) first.
+Do not use the audience meeting to discover an unresolved source-lifecycle
+problem. Pin the exact passing Core and Program Audio revisions for this run;
+the audience gate must not introduce a new media candidate.
+
 Record, read-only:
 
 - exact Core, Skin, Program Audio, ZoomISO, and reference-source revisions;
@@ -80,6 +85,10 @@ candidate video with operator audio or vice versa.
 9. Remove only the exact temporary source and candidate containers and
    unregister only the temporary reference source. Restore the recorded
    Program/Preview and return-input selections.
+
+If the operator cannot verify the original return-input selection after the
+test, the run is incomplete even when the media analysis passes. Restore the
+return input before any further gate or cleanup of the evidence record.
 
 The public-safe manifest starts at
 [`config/program-return-matrix.example.json`](../config/program-return-matrix.example.json).
