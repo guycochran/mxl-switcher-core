@@ -195,3 +195,39 @@ event audio. `mxl_av_capture.py` records a paired MXL flow into the analyzer's r
 `mxl_av_analyze.py` measures captures for cadence, sample
 continuity, A/V offset, and drift. `av_reference.py` holds the shared timeline
 and is standard-library only. See [the A/V reference guide](../../docs/AV_REFERENCE.md).
+
+## Audio payload probe
+
+`mxl_audio_payload_probe.py` reads one live Float32 audio flow by absolute
+MXL sample index. It is read-only and needs no GStreamer.
+
+It reports what a timestamp-only probe cannot see, because a writer can keep
+a perfect 48 kHz timeline while inserting silence or re-anchoring. Per window
+(default 100 ms) it records:
+
+- RMS and peak per channel;
+- the longest digital-silence run. A run of 5 ms or more is flagged
+  `dropout`, or `silence` when the whole window is silent;
+- held identical non-zero samples (`hold`, 2 ms or more);
+- sample-to-sample splices larger than 8 × the window's mean step (`jump`);
+- left/right correlation;
+- unread blocks (`gap`: `late`, `torn`, or `missing`), which are counted and
+  never skipped.
+
+```sh
+# in a container with the domain mounted read-only
+python3 mxl_audio_payload_probe.py probe --domain /mxl-domain --flow <audio flow> \
+  --library <libmxl> --seconds 60 --all-windows > report.json
+# offline: events.json is [{"t": "<ISO-8601 UTC or Unix seconds>", "kind": "<label>"}]
+python3 mxl_audio_payload_probe.py correlate --report report.json --events events.json
+```
+
+Each window's time comes from the MXL index: it is TAI, converted to UTC with
+the 37 s TAI-UTC offset. That lets `correlate` match windows with the
+writer's log lines, such as re-anchor, silence insertion, or packet discard.
+For each event kind it reports how many events land near a flagged window,
+the rate expected by chance, and the lift between the two. Put only
+timestamps and event kinds in the events file, never participant data.
+
+**Limit:** a splice that lands exactly on a zero crossing shows only as a
+slope reversal, which the step detector cannot see.
