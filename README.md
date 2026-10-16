@@ -21,7 +21,7 @@ and the optional reference operator Skin.
 | Platform integration | EasyMXL catalog/deployment bundle, deterministic read-only discovery planner, writer attribution, and fail-closed reconciliation/apply tooling |
 | Operator control | Versioned HTTP/SSE API plus optional ATEM-style web Skin, Companion/Stream Deck module, NMOS view, and confidence monitoring |
 | Audio | Stable 48 kHz Program Audio candidate and objective timing reference have passed isolated qualification; content-level lip-sync and audience-return acceptance remain open |
-| Destinations | Modular output contract is defined; video-only NDI has passed loaded qualification, and the separate paired NDI prototype has passed a short full-rate 1080p30/48 kHz wire smoke; sustained paired timing/recovery plus packaged SRT, RTMP/RTMPS, SDI/HDMI, recording, and meeting-return acceptance remain open |
+| Destinations | Modular output contract is defined; video-only NDI has passed loaded qualification, and the separate paired NDI prototype has passed a 10-minute full-rate 1080p30/48 kHz wire gate; content timing/recovery plus packaged SRT, RTMP/RTMPS, SDI/HDMI, recording, and meeting-return acceptance remain open |
 
 The latest guarded live promotion ran for 602.8 seconds, advanced 17,999 output
 frames, recorded zero Core hard-counter errors and zero restarts, and kept the

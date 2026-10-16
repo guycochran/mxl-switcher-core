@@ -129,11 +129,13 @@ non-claim of implementation or acceptance.
   and queue telemetry; the clean sender result is not presented as end-to-end
   acceptance.
 - Video-only NDI has completed loaded qualification. The independent paired
-  NDI extension has also passed a short receiver smoke at 30.03 fps with
-  full-rate 48 kHz stereo audio; its readiness gate now measures payload rate,
-  not mere essence presence. Sustained content-level timing and recovery are
-  still required. Packaged SRT, WebRTC distribution, RTMP/RTMPS, SDI/HDMI,
-  and recording adapters are not all production-qualified deliverables yet.
+  NDI extension has also passed a 10-minute receiver gate: 18,000 video frames
+  at 29.996 fps and 28,804,800 audio sample-frames at 48,002.7 Hz, with no
+  receiver error or sender restart. Its readiness gate measures payload rate,
+  not mere essence presence. Content-level timing and flow-replacement
+  recovery are still required. Packaged SRT, WebRTC distribution, RTMP/RTMPS,
+  SDI/HDMI, and recording adapters are not all production-qualified
+  deliverables yet.
 - The included Skin is a reference implementation, not a requirement for using
   Core.
 - Archive/replay and TAMS work is exploratory and is not part of the accepted
@@ -155,9 +157,9 @@ non-claim of implementation or acceptance.
 1. Add a qualified audio-payload resampler behind the paired-clock contract,
    obtain ZoomISO device-clock telemetry or a supported integration boundary,
    then repeat the content-level audience-side A/V gate.
-2. Finish the paired NDI duration/recovery gates, then package independent SRT,
-   RTMP/RTMPS, SDI/HDMI, recording, and WebRTC destination services without
-   adding codecs to Core.
+2. Finish the paired NDI content-timing/recovery gates, then package independent
+   SRT, RTMP/RTMPS, SDI/HDMI, recording, and WebRTC destination services
+   without adding codecs to Core.
 3. Turn the accepted immutable promotion sequence into repeatable fresh-host
    deployment profiles.
 4. Continue proving useful capacity on ordinary CPU infrastructure, with larger
