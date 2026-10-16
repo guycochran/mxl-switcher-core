@@ -20,6 +20,7 @@ struct MxlSourceStats {
   std::uint64_t invalid{0};
   std::uint64_t too_early{0};
   std::uint64_t too_late{0};
+  std::uint64_t too_late_at_ring_edge{0};
   std::uint64_t timeouts{0};
   std::uint64_t reader_reopens{0};
   std::uint64_t no_common_window{0};
@@ -38,6 +39,7 @@ struct MxlBackendStats {
   std::uint64_t invalid{0};
   std::uint64_t too_early{0};
   std::uint64_t too_late{0};
+  std::uint64_t too_late_at_ring_edge{0};
   std::uint64_t timeouts{0};
   std::uint64_t reader_reopens{0};
   std::uint64_t sync_waits{0};

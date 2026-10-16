@@ -163,7 +163,10 @@ decimation, then retries once from a freshly committed head. Periodic stats
 separate the raw race (`torn_retries`), successful recovery
 (`torn_recovered`), and terminal failures (`torn`). Acceptance requires
 terminal `torn` to remain zero; recovered retries remain visible evidence of
-ring pressure rather than being silently discarded.
+ring pressure rather than being silently discarded. Attribution counters also
+separate producer-side head jumps (`torn_writer_jump`) from reader stalls
+(`torn_reader_stall`), while `head_jumps` exposes source bursts even when a
+read succeeds.
 
 The named 2-up through 8-up presets are starting points for the composition
 matrix; every box remains independently assignable. MIX is deliberately

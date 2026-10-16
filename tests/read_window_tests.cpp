@@ -311,6 +311,20 @@ void test_core_catchup_converges_without_late_commit() {
           "steady catch-up did not restore the fixed two-frame delay");
 }
 
+void test_ring_edge_attribution_for_too_late() {
+  require(!selection_on_retiring_edge(5, 5, 6),
+          "an unwrapped ring has no retiring edge");
+  require(selection_on_retiring_edge(997, 1001, 6),
+          "the retiring edge was not recognised");
+  require(!selection_on_retiring_edge(998, 1001, 6),
+          "a grain with writer margin was attributed to the edge");
+  OutputReadTimelines timelines;
+  const auto cut = timelines.select("pgm", "input-3", {1001, 6}, 2, 1000);
+  require(cut && cut->window.selected_index == 997 &&
+              selection_on_retiring_edge(cut->window.selected_index, 1001, 6),
+          "fixture no longer reproduces the zero-margin selection");
+}
+
 void test_out_of_ring_recovery_resets_timeline() {
   OutputReadTimelines timelines;
   require(timelines.select("pgm", "source-a", {100, 6}, 0, 101).has_value(),
@@ -400,6 +414,8 @@ int main() {
       {"Core catch-up rejoin", test_core_catchup_rejoins_without_regression},
       {"Core catch-up convergence",
        test_core_catchup_converges_without_late_commit},
+      {"too_late ring-edge attribution",
+       test_ring_edge_attribution_for_too_late},
       {"out-of-ring recovery reset",
        test_out_of_ring_recovery_resets_timeline},
       {"writer re-anchor reset", test_writer_reanchor_starts_fresh_timeline},

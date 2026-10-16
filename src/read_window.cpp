@@ -67,6 +67,13 @@ bool can_hold_repeated_source(
   return last_valid_source && *last_valid_source == selected_source;
 }
 
+bool selection_on_retiring_edge(std::uint64_t selected_index,
+                                std::uint64_t head_index,
+                                std::uint32_t grain_count) {
+  return grain_count >= 2U && head_index >= grain_count &&
+         selected_index == head_index - grain_count + 2U;
+}
+
 bool copy_may_have_been_overwritten(std::uint64_t selected_index,
                                     std::uint64_t head_after_copy,
                                     std::uint32_t grain_count) {

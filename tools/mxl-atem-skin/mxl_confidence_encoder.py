@@ -103,8 +103,17 @@ class Source:
         self.planes = None
         self.updated = 0.0
         self.next_open = 0.0
-        self.stats = {"reads": 0, "torn": 0, "torn_retries": 0,
-                      "torn_recovered": 0, "missing": 0, "reopens": 0}
+        self.grain_count = 0
+        self.grain_rate = 0.0
+        self.last_head = None
+        self.last_head_at = 0.0
+        self.stats = {
+            "reads": 0, "torn": 0, "torn_retries": 0,
+            "torn_recovered": 0, "missing": 0, "reopens": 0,
+            "torn_writer_jump": 0, "torn_reader_stall": 0,
+            "head_jumps": 0, "max_torn_head_advance": 0,
+            "max_torn_sample_ms": 0.0,
+        }
 
     def _open(self, now: float) -> bool:
         if self.reader is not None:
@@ -120,6 +129,10 @@ class Source:
             config = probe.config()
             probe.close()
             self.reader = mxl.GrainReader(self.api, self.instance, self.flow_id, config.discrete.grainCount)
+            self.grain_count = int(config.discrete.grainCount)
+            rate = config.common.grainRate
+            self.grain_rate = rate.numerator / rate.denominator if rate.denominator else 0.0
+            self.last_head = None
             self.stats["reopens"] += 1
             return True
         except RuntimeError:
@@ -144,10 +157,20 @@ class Source:
         # v210 decimation is in progress. Re-sample one freshly committed head
         # before treating that race as a terminal torn read. The retry remains
         # bounded so an overloaded writer cannot trap the confidence loop.
+        next_head = None
         for attempt in range(2):
-            head = self.reader.head()
+            head = next_head if next_head is not None else self.reader.head()
+            next_head = None
             if not head:
                 return
+            if attempt == 0:
+                margin = max(1, self.grain_count - 2)
+                if self.last_head is not None and self.grain_rate > 0:
+                    expected = (now - self.last_head_at) * self.grain_rate
+                    if head - self.last_head > expected + margin:
+                        self.stats["head_jumps"] += 1
+                self.last_head, self.last_head_at = head, now
+            sample_started = time.monotonic()
             try:
                 result = self.reader.read(head, 0, sample)
             except ValueError:
@@ -161,8 +184,11 @@ class Source:
                 return
             self.stats["reads"] += 1
             if result.torn or result.value is None:
+                after = self.reader.head()
+                self._attribute_torn(head, after, time.monotonic() - sample_started)
                 if attempt == 0:
                     self.stats["torn_retries"] += 1
+                    next_head = after
                     continue
                 self.stats["torn"] += 1
                 return
@@ -171,6 +197,16 @@ class Source:
             self.planes = result.value
             self.updated = now
             return
+
+    def _attribute_torn(self, head: int, after, elapsed: float) -> None:
+        advance = 0 if after is None else max(0, after - head)
+        expected = elapsed * self.grain_rate
+        jumped = advance - expected >= max(1, self.grain_count - 2)
+        self.stats["torn_writer_jump" if jumped else "torn_reader_stall"] += 1
+        self.stats["max_torn_head_advance"] = max(
+            self.stats["max_torn_head_advance"], advance)
+        self.stats["max_torn_sample_ms"] = max(
+            self.stats["max_torn_sample_ms"], round(1000 * elapsed, 3))
 
     def live(self, now: float) -> bool:
         return self.planes is not None and now - self.updated < STALE_SECONDS

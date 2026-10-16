@@ -3,6 +3,7 @@ import pathlib
 import sys
 from types import SimpleNamespace
 import unittest
+import unittest.mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
@@ -85,9 +86,9 @@ class WallGeometryTest(unittest.TestCase):
 @unittest.skipUnless(HAVE_NUMPY, "numpy is required for the confidence encoder")
 class SourceReadRaceTest(unittest.TestCase):
     class Reader:
-        def __init__(self, results):
+        def __init__(self, results, heads):
             self.results = iter(results)
-            self.heads = iter(range(100, 100 + len(results)))
+            self.heads = iter(heads)
 
         def head(self):
             return next(self.heads)
@@ -95,19 +96,26 @@ class SourceReadRaceTest(unittest.TestCase):
         def read(self, _head, _timeout, _sample):
             return next(self.results)
 
-    def source(self, results):
+    def source(self, results, heads):
         source = enc.Source(None, None, "domain", "label", "flow", 6)
-        source.reader = self.Reader(results)
+        source.reader = self.Reader(results, heads)
+        source.grain_count = 6
+        source.grain_rate = 30000 / 1001
         return source
+
+    def poll(self, source, now, clock_values):
+        clock = iter(clock_values)
+        with unittest.mock.patch.object(enc.time, "monotonic", lambda: next(clock)):
+            source.poll(now)
 
     def test_one_torn_read_retries_fresh_head_and_recovers(self):
         planes = (object(), object(), object())
         source = self.source([
             SimpleNamespace(status=enc.mxl.MXL_STATUS_OK, torn=True, value=None),
             SimpleNamespace(status=enc.mxl.MXL_STATUS_OK, torn=False, value=planes),
-        ])
+        ], [100, 101])
 
-        source.poll(12.5)
+        self.poll(source, 12.5, [10.0, 10.002, 10.003])
 
         self.assertIs(source.planes, planes)
         self.assertEqual(source.updated, 12.5)
@@ -115,18 +123,29 @@ class SourceReadRaceTest(unittest.TestCase):
         self.assertEqual(source.stats["torn_retries"], 1)
         self.assertEqual(source.stats["torn_recovered"], 1)
         self.assertEqual(source.stats["torn"], 0)
+        self.assertEqual(source.stats["torn_reader_stall"], 1)
 
     def test_two_torn_reads_report_one_terminal_torn(self):
         torn = SimpleNamespace(status=enc.mxl.MXL_STATUS_OK, torn=True, value=None)
-        source = self.source([torn, torn])
+        source = self.source([torn, torn], [100, 101, 107])
 
-        source.poll(12.5)
+        self.poll(source, 12.5, [10.0, 10.002, 10.003, 10.005])
 
         self.assertIsNone(source.planes)
         self.assertEqual(source.stats["reads"], 2)
         self.assertEqual(source.stats["torn_retries"], 1)
         self.assertEqual(source.stats["torn_recovered"], 0)
         self.assertEqual(source.stats["torn"], 1)
+        self.assertEqual(source.stats["torn_reader_stall"], 1)
+        self.assertEqual(source.stats["torn_writer_jump"], 1)
+
+    def test_head_jump_is_reported_between_polls(self):
+        ok = SimpleNamespace(status=enc.mxl.MXL_STATUS_OK, torn=False,
+                             value=(object(), object(), object()))
+        source = self.source([ok, ok], [100, 112])
+        self.poll(source, 10.0, [1.0])
+        self.poll(source, 10.1, [2.0])
+        self.assertEqual(source.stats["head_jumps"], 1)
 
 
 if __name__ == "__main__":
