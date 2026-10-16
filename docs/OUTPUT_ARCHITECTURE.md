@@ -108,8 +108,8 @@ mechanism. Normal drift is removed by a slowly changing resampling ratio.
   grains caused a presence-only stream with roughly 1% of the required audio
   payload. Preserve the exact long-term sample count for fractional rates.
 - Treat readiness as an actual receiver-rate check, not process liveness or
-  essence presence. The current prototype requires video within 10% of its
-  target and audio sample frames within 5% of 48 kHz.
+  essence presence. The current prototype requires video and audio sample
+  frames within 2% of their 30 fps and 48 kHz targets.
 - Apply the documented NDI-to-SDI/EBU level mapping and expose gain/headroom.
 
 ### SRT
