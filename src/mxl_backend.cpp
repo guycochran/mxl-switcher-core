@@ -338,6 +338,14 @@ class MxlBackend::Impl {
         std::lock_guard lock(stats_mutex_);
         ++stats_.too_late;
         ++stats_.sources[source_flow].too_late;
+        // Still a hard too_late. Also record whether the grain was the ring
+        // edge that one writer commit retires, so a live run can tell a
+        // zero-margin phase from a writer that jumped two or more grains.
+        if (selection_on_retiring_edge(selection->window.selected_index,
+                                       runtime.headIndex, grain_count)) {
+          ++stats_.too_late_at_ring_edge;
+          ++stats_.sources[source_flow].too_late_at_ring_edge;
+        }
       }
       commit_unavailable(writer_it->second, output_index);
       return;

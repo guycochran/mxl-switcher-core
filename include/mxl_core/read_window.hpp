@@ -56,6 +56,14 @@ ReadWindowSelection select_independent_read_index(
 // (`head - grain_count + 2`). Re-check with the head read *after* the copy: a
 // reader preempted mid-copy can otherwise emit a newer grain's picture under
 // the selected index.
+// True when `selected_index` is the oldest grain a reader may still request
+// (head - grain_count + 2 once the ring has wrapped): one further writer
+// commit retires it. Used to attribute MXL_ERR_OUT_OF_RANGE_TOO_LATE reads,
+// never to suppress them.
+bool selection_on_retiring_edge(std::uint64_t selected_index,
+                                std::uint64_t head_index,
+                                std::uint32_t grain_count);
+
 bool copy_may_have_been_overwritten(std::uint64_t selected_index,
                                     std::uint64_t head_after_copy,
                                     std::uint32_t grain_count);

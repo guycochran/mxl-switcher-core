@@ -2,6 +2,7 @@ import importlib.util
 import pathlib
 import sys
 import unittest
+import unittest.mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
@@ -79,6 +80,61 @@ class WallGeometryTest(unittest.TestCase):
         self.assertIn("tune=zerolatency", description)
         self.assertIn("key-int-max=20", description)
         self.assertIn('rtmpsink location="rtmp://127.0.0.1:1935/mxl-multiview live=1"', description)
+
+
+@unittest.skipUnless(HAVE_NUMPY, "numpy is required for the confidence encoder")
+class TornAttributionTest(unittest.TestCase):
+    """A torn read stays torn; the stats say whether the writer or the reader caused it."""
+
+    class FakeReader:
+        def __init__(self, heads):
+            self.heads = list(heads)
+
+        def head(self):
+            return self.heads.pop(0)
+
+        def read(self, index, _timeout, _sample):
+            return enc.mxl.GrainRead(enc.mxl.MXL_STATUS_OK, index, torn=True)
+
+    def source(self, heads):
+        source = enc.Source(None, None, "/mxl-domain", "ZOOM 1", "flow-1", 6)
+        source.reader = self.FakeReader(heads)
+        source.grain_count = 6
+        source.grain_rate = 30000 / 1001
+        return source
+
+    def poll(self, source, now, sample_seconds):
+        clock = iter([now, now + sample_seconds])
+        with unittest.mock.patch.object(enc.time, "monotonic", lambda: next(clock)):
+            source.poll(now)
+
+    def test_writer_index_jump_is_attributed_to_the_source(self):
+        # Head 100 is sampled in 2 ms, but the head is then 106: the writer
+        # reused the slot without the time to commit six grains.
+        source = self.source([100, 106])
+        self.poll(source, 10.0, 0.002)
+        self.assertEqual(source.stats["torn"], 1)
+        self.assertEqual(source.stats["torn_writer_jump"], 1)
+        self.assertEqual(source.stats["torn_reader_stall"], 0)
+        self.assertEqual(source.stats["max_torn_head_advance"], 6)
+        self.assertIsNone(source.planes)
+
+    def test_descheduled_reader_is_attributed_to_the_encoder(self):
+        # The same six-grain advance over 200 ms is ordinary 29.97 fps cadence.
+        source = self.source([100, 106])
+        self.poll(source, 10.0, 0.200)
+        self.assertEqual(source.stats["torn"], 1)
+        self.assertEqual(source.stats["torn_reader_stall"], 1)
+        self.assertEqual(source.stats["torn_writer_jump"], 0)
+        self.assertAlmostEqual(source.stats["max_torn_sample_ms"], 200.0)
+
+    def test_head_jumps_count_source_bursts_between_polls(self):
+        source = self.source([100, 100, 103, 103, 115, 115])
+        self.poll(source, 10.0, 0.001)   # first poll establishes the baseline
+        self.poll(source, 10.1, 0.001)   # +3 grains in 100 ms: normal cadence
+        self.assertEqual(source.stats["head_jumps"], 0)
+        self.poll(source, 10.2, 0.001)   # +12 grains in 100 ms: producer burst
+        self.assertEqual(source.stats["head_jumps"], 1)
 
 
 if __name__ == "__main__":

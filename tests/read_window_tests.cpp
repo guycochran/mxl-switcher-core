@@ -311,6 +311,30 @@ void test_core_catchup_converges_without_late_commit() {
           "steady catch-up did not restore the fixed two-frame delay");
 }
 
+void test_ring_edge_attribution_for_too_late() {
+  // Six-grain ZoomISO ring, two-frame input delay (target = output - 3).
+  require(!selection_on_retiring_edge(5, 5, 6),
+          "an unwrapped ring has no retiring edge");
+  require(selection_on_retiring_edge(997, 1001, 6),
+          "head - grain_count + 2 was not recognised as the retiring edge");
+  require(!selection_on_retiring_edge(998, 1001, 6),
+          "a grain with one commit of margin was attributed to the edge");
+  // A cut while Core's output index trails the source head by one frame
+  // selects exactly that edge: a single writer commit before the payload read
+  // makes MXL report the grain too late.
+  OutputReadTimelines timelines;
+  const auto cut = timelines.select("pgm", "input-3", {1001, 6}, 2, 1000);
+  require(cut && cut->window.selected_index == 997 &&
+              selection_on_retiring_edge(cut->window.selected_index, 1001, 6),
+          "fixture no longer reproduces the zero-margin cut selection");
+  // On phase, the same cut keeps one grain of margin and is not attributed.
+  OutputReadTimelines on_phase;
+  const auto steady = on_phase.select("pgm", "input-3", {1000, 6}, 2, 1000);
+  require(steady && steady->window.selected_index == 997 &&
+              !selection_on_retiring_edge(steady->window.selected_index, 1000, 6),
+          "an on-phase selection was attributed to the retiring edge");
+}
+
 void test_out_of_ring_recovery_resets_timeline() {
   OutputReadTimelines timelines;
   require(timelines.select("pgm", "source-a", {100, 6}, 0, 101).has_value(),
@@ -400,6 +424,8 @@ int main() {
       {"Core catch-up rejoin", test_core_catchup_rejoins_without_regression},
       {"Core catch-up convergence",
        test_core_catchup_converges_without_late_commit},
+      {"too_late ring-edge attribution",
+       test_ring_edge_attribution_for_too_late},
       {"out-of-ring recovery reset",
        test_out_of_ring_recovery_resets_timeline},
       {"writer re-anchor reset", test_writer_reanchor_starts_fresh_timeline},

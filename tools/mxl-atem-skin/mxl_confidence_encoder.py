@@ -16,7 +16,14 @@ Layouts:
   click overlay expects). Missing or stalled sources show a slate.
 
 Every read is validated after decimation; a grain the writer may have lapped
-is discarded and the previous picture is kept.
+is discarded and the previous picture is kept. Reading at the newest committed
+grain already leaves the writer the most room before it reuses that slot (it
+must commit ``grain_count - 1`` more grains), so a torn read is attributed
+rather than avoided by reading older grains: ``torn_writer_jump`` when the head
+advanced further than the sampling time allows (the producer skipped or burst
+indices), ``torn_reader_stall`` when this process was descheduled long enough
+for normal cadence to lap it. ``head_jumps`` counts polls where the source head
+ran ahead of wall-clock cadence by at least the ring margin, torn or not.
 """
 
 from __future__ import annotations
@@ -103,7 +110,15 @@ class Source:
         self.planes = None
         self.updated = 0.0
         self.next_open = 0.0
-        self.stats = {"reads": 0, "torn": 0, "missing": 0, "reopens": 0}
+        self.grain_count = 0
+        self.grain_rate = 0.0
+        self.last_head = None
+        self.last_head_at = 0.0
+        self.stats = {
+            "reads": 0, "torn": 0, "missing": 0, "reopens": 0,
+            "torn_writer_jump": 0, "torn_reader_stall": 0, "head_jumps": 0,
+            "max_torn_head_advance": 0, "max_torn_sample_ms": 0.0,
+        }
 
     def _open(self, now: float) -> bool:
         if self.reader is not None:
@@ -119,6 +134,10 @@ class Source:
             config = probe.config()
             probe.close()
             self.reader = mxl.GrainReader(self.api, self.instance, self.flow_id, config.discrete.grainCount)
+            self.grain_count = int(config.discrete.grainCount)
+            rate = config.common.grainRate
+            self.grain_rate = rate.numerator / rate.denominator if rate.denominator else 0.0
+            self.last_head = None
             self.stats["reopens"] += 1
             return True
         except RuntimeError:
@@ -136,12 +155,19 @@ class Source:
         head = self.reader.head()
         if not head:
             return
+        margin = max(1, self.grain_count - 2)
+        if self.last_head is not None and self.grain_rate > 0:
+            expected = (now - self.last_head_at) * self.grain_rate
+            if head - self.last_head > expected + margin:
+                self.stats["head_jumps"] += 1
+        self.last_head, self.last_head_at = head, now
 
         def sample(address: int, size: int):
             if size != GRAIN_SIZE:
                 raise ValueError("only 1920x1080 v210 grains are supported")
             return decimate(words_at(address), self.factor)
 
+        sample_started = time.monotonic()
         try:
             result = self.reader.read(head, 0, sample)
         except ValueError:
@@ -156,9 +182,21 @@ class Source:
         self.stats["reads"] += 1
         if result.torn or result.value is None:
             self.stats["torn"] += 1
+            if result.torn:
+                self._attribute_torn(head, time.monotonic() - sample_started)
             return
         self.planes = result.value
         self.updated = now
+
+    def _attribute_torn(self, head: int, elapsed: float) -> None:
+        after = self.reader.head()
+        advance = 0 if after is None else max(0, after - head)
+        expected = elapsed * self.grain_rate
+        jumped = advance - expected >= max(1, self.grain_count - 2)
+        self.stats["torn_writer_jump" if jumped else "torn_reader_stall"] += 1
+        self.stats["max_torn_head_advance"] = max(self.stats["max_torn_head_advance"], advance)
+        self.stats["max_torn_sample_ms"] = max(
+            self.stats["max_torn_sample_ms"], round(1000 * elapsed, 3))
 
     def live(self, now: float) -> bool:
         return self.planes is not None and now - self.updated < STALE_SECONDS

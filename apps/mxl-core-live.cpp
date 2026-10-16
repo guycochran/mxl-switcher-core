@@ -44,6 +44,7 @@ std::string health_json(const MxlBackendStats& stats) {
          << ",\"invalid\":" << stats.invalid
          << ",\"too_early\":" << stats.too_early
          << ",\"too_late\":" << stats.too_late
+         << ",\"too_late_at_ring_edge\":" << stats.too_late_at_ring_edge
          << ",\"timeouts\":" << stats.timeouts
          << ",\"reader_reopens\":" << stats.reader_reopens
          << ",\"sync_waits\":" << stats.sync_waits
@@ -112,6 +113,8 @@ std::string health_json(const MxlBackendStats& stats) {
            << ",\"invalid\":" << source.invalid
            << ",\"too_early\":" << source.too_early
            << ",\"too_late\":" << source.too_late
+           << ",\"too_late_at_ring_edge\":"
+           << source.too_late_at_ring_edge
            << ",\"timeouts\":" << source.timeouts
            << ",\"reader_reopens\":" << source.reader_reopens
            << ",\"no_common_window\":" << source.no_common_window
@@ -277,6 +280,7 @@ int main(int argc, char** argv) {
               << " invalid=" << stats.invalid
               << " too_early=" << stats.too_early
               << " too_late=" << stats.too_late
+              << " too_late_at_ring_edge=" << stats.too_late_at_ring_edge
               << " timeouts=" << stats.timeouts
               << " reader_reopens=" << stats.reader_reopens
               << " sync_waits=" << stats.sync_waits
@@ -340,6 +344,8 @@ int main(int argc, char** argv) {
                 << " invalid=" << source_stats.invalid
                 << " too_early=" << source_stats.too_early
                 << " too_late=" << source_stats.too_late
+                << " too_late_at_ring_edge="
+                << source_stats.too_late_at_ring_edge
                 << " timeouts=" << source_stats.timeouts
                 << " reader_reopens=" << source_stats.reader_reopens
                 << " no_common_window=" << source_stats.no_common_window
