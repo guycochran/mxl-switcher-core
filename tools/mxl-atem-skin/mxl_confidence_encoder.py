@@ -153,10 +153,10 @@ class Source:
                 raise ValueError("only 1920x1080 v210 grains are supported")
             return decimate(words_at(address), self.factor)
 
-        # A writer can lap the zero-copy view while the relatively expensive
-        # v210 decimation is in progress. Re-sample one freshly committed head
-        # before treating that race as a terminal torn read. The retry remains
-        # bounded so an overloaded writer cannot trap the confidence loop.
+        # A producer burst/head skip or a descheduled reader can lap the
+        # zero-copy view during validation. Re-sample one freshly committed
+        # head before treating that race as a terminal torn read. The retry is
+        # bounded so sustained pressure cannot trap the confidence loop.
         next_head = None
         for attempt in range(2):
             head = next_head if next_head is not None else self.reader.head()
