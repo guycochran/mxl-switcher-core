@@ -292,9 +292,20 @@ class Supervisor:
                     if current and current.get(field) and current[field] != desired[field]]
         if any(is_active(flows, flow_id) for flow_id in replaced):
             return self.set_state(source, "refused", "old_pair_still_active")
+        # Learn identity only from the pair Core is already bound to while it
+        # is visibly active. Starting during an outage must not let a matching
+        # container name stand in for a previously observed container ID.
+        if source.writer_id is None and current and is_active(flows, current.get("flow_id")):
+            current_ids = (writer_of(flows, current.get("flow_id")),
+                           writer_of(flows, current.get("audio_flow_id")))
+            if current.get("audio_flow_id") and current_ids[0] != current_ids[1]:
+                return self.set_state(source, "refused", "split_writer_ownership")
+            source.writer_id = current_ids[0]
         ids = writer_of(flows, desired["flow_id"]), writer_of(flows, desired["audio_flow_id"])
         if desired["audio_flow_id"] and ids[0] != ids[1]:
             return self.set_state(source, "refused", "split_writer_ownership")
+        if source.writer_id is None:
+            return self.set_state(source, "refused", "writer_not_observed_steady")
         if source.writer_id is not None and ids[0] != source.writer_id:
             return self.set_state(source, "refused", "wrong_writer")
 

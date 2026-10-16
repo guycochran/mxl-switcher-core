@@ -240,6 +240,15 @@ class RefusalTest(Harness):
         self.refused(lambda: self.lab.rotate(V4B, A4B, writer={"id": "another-id", "name": "zoomiso"}),
                      "wrong_writer")
 
+    def test_starting_during_outage_never_learns_writer_from_name(self):
+        self.lab.rotate(V4B, A4B)
+        s = self.supervisor(apply=True)
+        self.ticks(s, 10)
+        self.assertEqual(self.state(s), "refused")
+        self.assertEqual(s.sources["cam-4"].refusal, "writer_not_observed_steady")
+        self.assertFalse(s.sources["cam-4"].writer_id)
+        self.assertEqual(self.core.puts, [])
+
     def test_incompatible_media(self):
         self.refused(lambda: self.lab.rotate(V4B, A4B, width=1280), "incompatible")
 

@@ -418,6 +418,8 @@ Each stable source moves through these states:
 - an ownership collision (`bound_to_other_source`);
 - `unknown_writer_state`;
 - `missing_writer_attribution`;
+- `writer_not_observed_steady` (the supervisor started during an outage and
+  has not yet learned the exact writer container ID from a healthy bound pair);
 - `wrong_writer`;
 - `split_writer_ownership`;
 - `old_pair_still_active`;
@@ -455,6 +457,8 @@ source in place.
 **Limits:**
 
 - It supervises one Core.
+- It fails closed when first started during an outage. Let it observe the
+  healthy bound pair once before relying on automatic recovery.
 - It has no HTTP status endpoint; read the status file.
 - An `uncertain` source needs an operator check before `clear`.
 - The dwell assumes a writer publishes a replacement pair as a whole. A
