@@ -100,8 +100,15 @@ Core's media hot path.
   discovered the replacement pair, atomically rebound the existing stable
   logical source, and recovered moving Program at 29.81 changes/s with zero
   probe drops, stalls, hard-counter movement, or permanent-service restarts.
-  Turning that accepted one-shot recovery into a bounded always-on lifecycle
-  service and completing meeting-to-meeting audience acceptance remain open.
+  The bounded always-on lifecycle service is now complete. A subsequent
+  600-second meeting-connected sender gate on the 32-vCPU CPU-only profile and
+  RAM-backed MXL storage advanced 35,974 routed grains and 59,957 audio blocks
+  with zero video holds/repeats/skips, zero Core hard-counter movement, and
+  zero degraded or skipped audio blocks. The independent observer discovered
+  the return participant, but Zoom raw readers remained blocked until the
+  meeting host grants recording/capture permission. Audience-side recording
+  and matrix analysis therefore remain open; the clean sender result is not
+  presented as end-to-end acceptance.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.

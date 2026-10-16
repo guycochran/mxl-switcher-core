@@ -119,6 +119,41 @@ and audio-event loss remain failures. The matrix evaluates media; prove Core,
 mixer, restart, CPU, and RSS criteria from recording-window snapshots and
 deltas saved beside its report.
 
+## CPU-only cloud sender qualification
+
+The paired sender side completed a 600-second meeting-connected qualification
+on the 32-vCPU CPU-only profile with a RAM-backed MXL domain. Eighty samples
+covered 35,974 routed output grains and 59,957 audio blocks. Core recorded zero
+holds, invalid/early/late reads, timeouts, reader reopens, sync faults,
+no-common-window events, repeats, skips, regressions, presentation fallbacks,
+or availability alarms. The audio mixer recorded zero degraded or skipped
+blocks, history misses, release errors, or write errors. One audio block arrived
+0.5 ms late and was held successfully without a discontinuity.
+
+Both reference publishers reported zero late frames. CPU and memory remained
+bounded:
+
+| Service | CPU min / avg / max | Memory range |
+| --- | ---: | ---: |
+| Primary reference | 14.18% / 15.72% / 19.02% | 109.9-110.9 MiB |
+| Standby reference | 13.88% / 15.87% / 19.67% | 109.6 MiB |
+| Core | 11.39% / 14.50% / 24.46% | 75.53-81.90 MiB |
+| Index audio | 0.78% / 1.17% / 1.66% | 16.85-18.33 MiB |
+| Meeting return | 37.93% / 41.65% / 48.55% | 238.4-260.3 MiB |
+
+An initial run using a disk-backed shared MXL domain failed before transport
+qualification despite ample CPU. Moving the same isolated stack to RAM-backed
+media storage removed the cadence and audio faults. RAM-backed MXL storage is
+therefore part of the qualified same-host sender profile, not an optional
+tuning suggestion.
+
+The return participant joined and sent Program audio and video successfully.
+An independent ZoomISO observer discovered that participant, but the meeting
+did not grant the observer recording/capture permission, so Zoom's SDK refused
+to attach its raw audio/video readers. The temporary observer mapping was
+removed. This result qualifies the meeting-connected sender; it does **not**
+replace the audience-side recording and matrix analysis required below.
+
 ## Promotion ladder
 
 Do not tune several variables at once after a failure. Classify it first as

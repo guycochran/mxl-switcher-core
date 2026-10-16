@@ -821,11 +821,31 @@ shared-host capacity failure before audience-side analysis, not an accepted
 meeting-return result. The next objective return run uses the qualified larger
 CPU-only baseline.
 
+That larger CPU-only profile subsequently completed a 600-second,
+meeting-connected sender qualification with the MXL domain on RAM-backed
+storage. Across 80 samples, Core advanced 35,974 routed output grains with zero
+holds, repeats, skips, regressions, hard-counter movement, presentation
+fallbacks, or availability alarms. The index mixer advanced 59,957 blocks with
+zero degraded/skipped blocks, history misses, release errors, or write errors;
+one block was held for 0.5 ms without discontinuity. Both reference publishers
+reported zero late frames, and every temporary container retained zero
+restarts. Core averaged 14.50% of one CPU, index audio 1.17%, and the meeting
+return 41.65%, with bounded RSS.
+
+The same isolated stack had first failed on a disk-backed shared MXL domain
+despite substantial CPU headroom. RAM-backed MXL storage eliminated those
+sender-side cadence and audio failures and is now part of the tested profile.
+The return participant was visible to an independent observer, but the meeting
+withheld the raw-capture permission required for ZoomISO to attach audience-side
+audio/video readers. Audience media analysis therefore remains open and is not
+inferred from this clean sender result.
+
 ## Next live gate
 
-1. Feed the unchanged, qualified cadence candidate to the meeting return on
-   the larger CPU-only baseline and analyze an
-   audience-side recording before attempting the 30-minute and eight-hour
-   holds.
-2. Repeat the isolated profile with real ZoomISO sources before using the result
+1. Grant recording/capture permission to the independent audience observer,
+   feed it the unchanged RAM-backed sender profile, and analyze at least 70
+   seconds of returned media with the Program-return matrix.
+2. After that audience capture passes, repeat the unchanged paired path for 30
+   minutes before attempting the eight-hour hold.
+3. Repeat the isolated profile with real ZoomISO sources before using the result
    as an end-to-end contribution claim.
