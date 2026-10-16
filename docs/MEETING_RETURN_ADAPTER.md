@@ -61,6 +61,84 @@ Every time `t` is host monotonic time. A ZoomISO virtual-device integration
 would wrap these two calls and move payloads. That integration does not
 exist yet.
 
+## Device boundary: what is verified
+
+This was established from the ZoomISO Cloud setup guide and the native log
+lines recorded by the audience gate. No ZoomISO source code is available.
+Anything not listed as verified is unknown; it is not designed around as if
+it were known.
+
+| Question | Status | Evidence |
+| --- | --- | --- |
+| Where are the virtual camera and microphone? | **Verified: inside ZoomISO.** Its footer input feeds both from one selected source. | Setup guide: "One source feeds both the virtual camera and the virtual microphone." |
+| What can we control? | **Verified:** only the MXL pair offered to ZoomISO's input (or an NDI source). We cannot hook Zoom's device callbacks. | Setup guide: the footer input is an MXL video flow, a test card or tone, or an NDI source. |
+| Input payload formats | **Verified:** MXL `video/v210` (BT.709, progressive) and `audio/float32` at 48 kHz, 2 channels. | Setup guide, MXL format section. |
+| Audio path into Zoom | **Logged, not documented:** ZoomISO converts F32LE stereo to S16LE mono at 48 kHz and pushes it (`send_audio_samples`, `swap_mic`). | Audience-gate native log. |
+| Audio device stack | **Verified present:** PulseAudio runs in the container. Whether the virtual microphone is clocked through it is **unknown**. | Setup guide, `--shm-size` note. |
+| Push or pull at the Zoom SDK | **Unknown.** The log suggests ZoomISO pushes audio; the pacing clock and block size are not documented. | — |
+| Callback or send timestamps | **Unknown.** | — |
+| Requested audio block size | **Unknown.** | — |
+| Video send cadence | **Unknown.** The audience capture showed reduced unique cadence. | Audience gate. |
+| One process or thread for both devices | **Unknown**, though one container serves both. | — |
+| Capture output format | **Verified configurable**, and the default is **`1080p29.97fps`**. An observer row left at 29.97 against a 30 fps reference adds about 1,000 ppm of its own. That is too small to explain +9,400 ppm, but it should be pinned to 1080p30 for measurements. | Setup guide, "Default output format". |
+
+**Consequence.** The paired scheduler cannot sit at Zoom's callbacks in the
+current product, because those belong to ZoomISO. It can run upstream, on
+the MXL pair we offer, only if a device clock can be observed. Today the only
+observable is the audience-side measurement. The safe options are:
+
+- a ZoomISO change that applies this contract at its own device boundary
+  (a vendor request);
+- an integration that uses an observable send clock, if ZoomISO exposes
+  one; or
+- a measurement-driven loop on the audience observer, which is slow, coarse,
+  and needs the reference content.
+
+## Rate controller (ratio policy)
+
+`Limits(correction="ratio")` replaces whole-sample drop and hold for
+production use. The default stays `"sample"`, so the 19 original regression
+tests are unchanged. `RateController` is bounded PI control of the
+source:output sample ratio, driven by the shared-clock error:
+
+- **Sign:** audio ahead gives a ratio below 1 (consume the source more
+  slowly); audio behind gives a ratio above 1.
+- **Cap:** `max_correction_ppm` (2%). `saturated` is reported when the request
+  reaches the cap. The integral stops winding into the cap (anti-windup).
+- **Slew:** at most `max_slew_ppm_per_s` per second of audio. Time advances by
+  audio quantity, not callback wall time, so a catch-up burst still slews.
+- **Jitter:** the proportional term ignores error inside the deadband (5 ms).
+  The integral tracks a steady rate offset.
+- **Telemetry:** requested and applied ratio and ppm, `saturated`,
+  `slew_limited`, plus `resampled_source_samples` and
+  `resampled_output_samples`.
+- **Output:** `("resampled", start, source_n, output_n)` segments. Producing
+  `output_n` samples from `source_n` is a resampler's job. This contract
+  processes no payloads and makes **no DSP-quality claim**.
+- **Latency and discontinuities:** a ratio corrects drift, not transients.
+  An error beyond `ratio_reanchor_ms` (40) is an explicit re-anchor, which
+  bounds latency deviation to about 40 ms. Re-anchors within
+  `reanchor_episode_s` (1) form one episode, so a stall's catch-up burst
+  counts once. The controller keeps its learned rate across a position
+  re-anchor.
+- **Fail-closed:**
+  - two consecutive **capacity** re-anchors in one direction mean
+    `uncorrectable_rate_mismatch`. A capacity re-anchor is reached by a
+    gradual ramp while saturated; a stall arrives as an abrupt jump and
+    never counts;
+  - the window and trend rules still apply;
+  - the episode budget gives `reanchor_budget_exceeded`.
+
+| Scenario (ratio policy) | Drift / range | Whole-sample edits | Health |
+| --- | ---: | ---: | --- |
+| Nominal | 20 ppm / 7 ms | 0 | ok |
+| Measured shape, 120 s | −11 ppm / 49 ms (ratio about +9,400 ppm) | 0 | ok |
+| Microphone −5,000 ppm | 155 ppm / 17 ms | 0 | ok |
+| Microphone +19,000 ppm | −248 ppm / 25 ms | 0 | ok |
+| Microphone ±30,000 or +25,000 ppm | — | 0 | failed (`uncorrectable_rate_mismatch`, about 4–6 s) |
+| 300 ms microphone stall | 4 ppm / 42 ms (1 episode) | 0 | ok |
+| Eight stalls in 40 s | — | 0 | failed (`reanchor_budget_exceeded`) |
+
 ## Simulator
 
 `tools/mxl-atem-skin/meeting_return_sim.py` is event-driven on integer host
@@ -127,13 +205,12 @@ They cover:
 ## Limits and next steps
 
 1. **Sample correction is a drop or repeat of whole samples.** It is
-   deterministic and accountable, but audible at a 1% rate. A production
-   adapter should keep these counters and the error signal, and replace the
-   correction with a bounded resampler that is driven by them.
+   audible at a 1% rate. The ratio policy above replaces it with a bounded
+   ratio contract. No resampler processes payloads yet, and none is claimed.
 2. **Video only drops or repeats.** There is no frame interpolation.
-3. **The ZoomISO callback model is assumed.** The adapter assumes the
-   virtual devices expose pull callbacks timed in host monotonic time. Check
-   the real callback model and its timestamps before integrating.
+3. **The ZoomISO device boundary is closed.** See "Device boundary: what is
+   verified". Its callbacks and send pacing are inside ZoomISO and are not
+   documented.
 4. **Defaults are first choices.** Latency 80 ms, correction 2%, skew bounds
    50/100 ms, and re-anchor 100 ms come from simulation, not from Zoom.
 5. **Acceptance is unchanged.** An integration passes only through the same

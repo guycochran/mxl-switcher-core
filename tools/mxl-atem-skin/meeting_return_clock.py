@@ -45,8 +45,13 @@ and ``failed`` when:
   callbacks, corrections were saturated at least 90% of the time and the mean
   residual of the newer half exceeds the older half by more than the
   deadband (losing ground despite full correction); or a re-anchor was
-  needed while saturated corrections were not converging; or
-- more than ``max_reanchors`` re-anchors occur within ``reanchor_window_s``.
+  needed while saturated corrections were losing ground by more than the
+  deadband; or two consecutive *capacity* re-anchors in one direction (reached
+  by a gradual ramp while correction was saturated, unlike a stall's abrupt
+  jump); or
+- more than ``max_reanchors`` re-anchor episodes occur within
+  ``reanchor_window_s``. Re-anchors within ``reanchor_episode_s`` of each other,
+  such as one stall's catch-up burst, are one episode.
 """
 
 from __future__ import annotations
@@ -78,9 +83,19 @@ class Limits:
     target_latency_ms: float = 80.0
     audio_deadband_ms: float = 5.0
     max_correction_ppm: float = 20_000.0
+    # "sample": whole-sample drop/hold (deterministic, audible near 1%; the offline baseline).
+    # "ratio": a bounded rate controller asks a resampler for source:output ratios (production).
+    correction: str = "sample"
+    max_slew_ppm_per_s: float = 20_000.0
+    rate_time_constant_s: float = 1.0
+    rate_integral_s: float = 4.0
+    # A ratio controller corrects drift, not transients: an error it cannot remove quickly is a
+    # declared discontinuity at this smaller threshold.
+    ratio_reanchor_ms: float = 40.0
     discontinuity_ms: float = 100.0
     max_reanchors: int = 5
     reanchor_window_s: float = 60.0
+    reanchor_episode_s: float = 1.0  # re-anchors this close together are one discontinuity episode
     skew_soft_ms: float = 50.0
     skew_hard_ms: float = 100.0
     hard_grace_callbacks: int = 50
@@ -92,8 +107,81 @@ class Limits:
             raise ValueError("queues must hold at least two frames and two audio blocks")
         if not 0 < self.max_correction_ppm < 100_000:
             raise ValueError("max_correction_ppm must be between 0 and 100000")
+        if self.correction not in ("sample", "ratio"):
+            raise ValueError("correction must be 'sample' or 'ratio'")
+        if not (self.max_slew_ppm_per_s > 0 and self.rate_time_constant_s > 0 and self.rate_integral_s > 0):
+            raise ValueError("rate controller slew and time constants must be positive")
         if not 0 < self.skew_soft_ms < self.skew_hard_ms:
             raise ValueError("skew bounds must satisfy 0 < soft < hard")
+
+
+class RateController:
+    """Bounded PI control of the source:output sample ratio, driven by the shared-clock error.
+
+    ``update(error_s, dt_s)`` takes the audio error in seconds (read pointer
+    minus the clock target; positive means the audio is ahead) and the audio
+    duration the callback covers. It returns the applied ratio of source
+    samples consumed per output sample. Time advances by audio quantity, not
+    by callback wall time, so a burst of catch-up callbacks still slews and
+    integrates. The proportional term ignores error inside ``deadband_s``
+    (callback jitter), while the integral term tracks a steady rate offset. If the
+    audio is ahead, the ratio is below 1 and the source is consumed more
+    slowly; if it is behind, the ratio is above 1. The controller caps the
+    ratio at ``max_ratio_ppm``, limits each change to ``max_slew_ppm_per_s``,
+    and stops integrating while saturated (anti-windup). It reports the
+    requested and applied ratio and whether the cap was hit.
+
+    It only computes ratios. Producing samples at a ratio is the resampler's
+    job; this contract makes no claim about DSP quality.
+    """
+
+    def __init__(self, max_ratio_ppm: float, max_slew_ppm_per_s: float, time_constant_s: float,
+                 integral_s: float, deadband_s: float = 0.0) -> None:
+        self.max_ppm, self.max_slew = max_ratio_ppm, max_slew_ppm_per_s
+        self.tau, self.ti, self.deadband = time_constant_s, integral_s, deadband_s
+        self.integral_ppm = 0.0
+        self.requested_ppm = 0.0
+        self.applied_ppm = 0.0
+        self.saturated = False
+        self.slew_limited = False
+        self.accumulator = 0.0
+
+    def update(self, error_s: float, dt_s: float) -> float:
+        dt = min(max(dt_s, 0.0), 0.1)
+        outside = max(0.0, abs(error_s) - self.deadband) * (1 if error_s > 0 else -1)
+        proportional = -outside / self.tau * 1e6
+        candidate = self.integral_ppm + (-error_s) * dt / (self.tau * self.ti) * 1e6
+        requested = proportional + candidate
+        self.saturated = abs(requested) >= self.max_ppm * 0.999  # at the cap counts: anti-windup holds it there
+        if not self.saturated or abs(candidate) < abs(self.integral_ppm):
+            self.integral_ppm = candidate  # anti-windup: never integrate further into the cap
+        self.requested_ppm = proportional + self.integral_ppm
+        target = max(-self.max_ppm, min(self.max_ppm, self.requested_ppm))
+        step = self.max_slew * dt
+        limited = max(self.applied_ppm - step, min(self.applied_ppm + step, target))
+        self.slew_limited = limited != target
+        self.applied_ppm = limited
+        return 1 + self.applied_ppm / 1e6
+
+    def consume(self, out_count: int) -> int:
+        """Whole source samples for ``out_count`` output samples; the fraction carries over."""
+
+        self.accumulator += out_count * (1 + self.applied_ppm / 1e6)
+        whole = int(self.accumulator)
+        self.accumulator -= whole
+        return whole
+
+    def reset(self) -> None:
+        """Restart control from a neutral ratio (a new epoch, not a position re-anchor)."""
+
+        self.integral_ppm = self.requested_ppm = self.applied_ppm = self.accumulator = 0.0
+        self.saturated = self.slew_limited = False
+
+    def view(self) -> dict:
+        return {"requested_ratio": round(1 + self.requested_ppm / 1e6, 7),
+                "applied_ratio": round(1 + self.applied_ppm / 1e6, 7),
+                "requested_ppm": round(self.requested_ppm, 1), "applied_ppm": round(self.applied_ppm, 1),
+                "max_ratio_ppm": self.max_ppm, "saturated": self.saturated, "slew_limited": self.slew_limited}
 
 
 class IntervalStats:
@@ -134,12 +222,17 @@ class PairedScheduler:
         self.video_error_ns = 0
         self.audio_error_ns = 0
         self.correction_credit = 0.0
+        self.rate = RateController(self.limits.max_correction_ppm, self.limits.max_slew_ppm_per_s,
+                                   self.limits.rate_time_constant_s, self.limits.rate_integral_s,
+                                   deadband_s=self.limits.audio_deadband_ms / 1000)
         self.counters = {key: 0 for key in (
             "video_drops", "video_repeats", "video_underruns", "video_overruns",
             "audio_dropped", "audio_inserted", "audio_underrun_samples", "audio_overrun_samples",
             "audio_input_gaps", "audio_input_gap_samples", "audio_input_overlap_samples",
             "reanchors", "discontinuities", "saturated_callbacks",
-            "pre_start_video_callbacks", "pre_start_audio_samples")}
+            "pre_start_video_callbacks", "pre_start_audio_samples",
+            "resampled_callbacks", "resampled_source_samples", "resampled_output_samples",
+            "reanchor_episodes", "capacity_reanchors")}
         self.skew = {"current_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0}
         self.intervals = {"video": IntervalStats(self.limits.interval_window),
                           "audio": IntervalStats(self.limits.interval_window)}
@@ -150,6 +243,8 @@ class PairedScheduler:
         self._window: collections.deque[tuple[bool, int]] = collections.deque(
             maxlen=self.limits.saturation_callbacks)
         self._reanchors_at: collections.deque[int] = collections.deque()
+        self._recent_errors: collections.deque[int] = collections.deque(maxlen=10)
+        self._last_capacity_sign = 0
 
     # --- input ------------------------------------------------------------------
     def push_video(self, frame_index: int) -> None:
@@ -236,7 +331,11 @@ class PairedScheduler:
         return {"frame": self.shown, "kind": kind, "error_ms": round(self.video_error_ns / 1e6, 3)}
 
     def on_audio_callback(self, t_ns: int, count: int) -> dict:
-        """Return the presented audio as segments: ``("source", start, n)`` or ``("hold"|"silence", n)``."""
+        """Return the presented audio as segments.
+
+        Sample policy: ``("source", start, n)``, ``("hold", n)``, ``("silence", n)``.
+        Ratio policy: ``("resampled", start, source_n, output_n)``, ``("silence", n)``.
+        """
 
         self.intervals["audio"].note(t_ns)
         if not self.start(t_ns):
@@ -246,31 +345,61 @@ class PairedScheduler:
         target = media_ns_to_sample(self.target_media_ns(t_ns))
         error = self.read - target  # >0: ahead of the clock (repeat), <0: behind (drop)
         deadband = round(limits.audio_deadband_ms * SAMPLE_RATE / 1000)
-        discontinuity = round(limits.discontinuity_ms * SAMPLE_RATE / 1000)
+        discontinuity_ms = limits.discontinuity_ms if limits.correction == "sample" else \
+            min(limits.discontinuity_ms, limits.ratio_reanchor_ms)
+        discontinuity = round(discontinuity_ms * SAMPLE_RATE / 1000)
         segments: list[tuple] = []
         saturated = False
         residual = error
         per_callback = count * limits.max_correction_ppm / 1e6
         # Credit accrues every callback (capped), so correction capacity is a rate, not a burst.
         self.correction_credit = min(self.correction_credit + per_callback, 2 * per_callback + 1)
+        approach = abs(error - self._recent_errors[0]) if self._recent_errors else abs(error)
+        self._recent_errors.append(error)
         if abs(error) > discontinuity:
             self.counters["discontinuities"] += 1
             self.counters["reanchors"] += 1
-            self._reanchors_at.append(t_ns)
+            # A re-anchor reached by a gradual ramp while correction is saturated means the rate is
+            # beyond capacity. Two in a row in one direction is a mismatch, not a transient (a stall
+            # arrives as an abrupt jump and never counts).
+            capacity = approach < discontinuity / 2 and (self.rate.saturated if limits.correction == "ratio"
+                                                         else self._window and self._window[-1][0])
+            sign = 1 if error > 0 else -1
+            if capacity:
+                self.counters["capacity_reanchors"] += 1
+                if self._last_capacity_sign == sign:
+                    self._fail("uncorrectable_rate_mismatch")
+                self._last_capacity_sign = sign
+            else:
+                self._last_capacity_sign = 0
+            self._recent_errors.clear()
+            if not self._reanchors_at or t_ns - self._reanchors_at[-1] > limits.reanchor_episode_s * 1e9:
+                self._reanchors_at.append(t_ns)  # a new discontinuity episode
+                self.counters["reanchor_episodes"] += 1
             while self._reanchors_at and self._reanchors_at[0] < t_ns - limits.reanchor_window_s * 1e9:
                 self._reanchors_at.popleft()
             # Saturated corrections that were not converging, then still lost the clock: a rate the
             # correction budget cannot follow. A transient (a stall) converges and is not counted.
             if (len(self._window) >= limits.saturation_callbacks // 2
                     and sum(s for s, _ in self._window) >= 0.9 * len(self._window)
-                    and self._trend() >= 0):
+                    and self._trend() > deadband):
                 self._fail("uncorrectable_rate_mismatch")
+            self._window.clear()  # a declared step invalidates trend evidence; rebuild from here
             self._discard_before(target)
             self.read = target
-            residual = 0
+            residual = 0  # the controller keeps its rate: the device clock did not change, only position
             if len(self._reanchors_at) > limits.max_reanchors:
                 self._fail("reanchor_budget_exceeded")
-        elif abs(error) > deadband:
+        if limits.correction == "ratio":
+            # Production policy: no whole-sample edits; ask the resampler for a bounded ratio.
+            self.rate.update((self.read - target) / SAMPLE_RATE, count / SAMPLE_RATE)
+            saturated = self.rate.saturated
+            consume = self.rate.consume(count)
+            segments.extend(self._take_resampled(consume, count))
+            self.audio_error_ns = sample_media_ns(self.read) - self.target_media_ns(t_ns)
+            self._update_health(saturated, abs(residual))
+            return {"segments": segments, "health": self.health, "ratio": self.rate.view()}
+        if deadband < abs(error) <= discontinuity:  # sample policy: whole-sample drop/hold
             budget = int(self.correction_credit)
             step = min(abs(error) - deadband, budget)
             saturated = step == budget and abs(error) - deadband > budget
@@ -289,6 +418,33 @@ class PairedScheduler:
         self.audio_error_ns = sample_media_ns(self.read) - self.target_media_ns(t_ns)
         self._update_health(saturated, abs(residual))
         return {"segments": segments, "health": self.health}
+
+    def _take_resampled(self, consume: int, produce: int) -> list[tuple]:
+        """Take ``consume`` source samples to fill ``produce`` output samples.
+
+        Each part becomes ``("resampled", start, source_count, output_count)``,
+        or ``("silence", output_count)`` where the input had a gap. Output counts
+        are distributed so they sum exactly to ``produce``.
+        """
+
+        parts = self._take(consume) if consume else []
+        out, consumed, emitted = [], 0, 0
+        for part in parts:
+            n = part[-1]
+            consumed += n
+            share = produce if consumed == consume else consumed * produce // max(consume, 1)
+            out_n, emitted = share - emitted, share
+            if part[0] == "source":
+                out.append(("resampled", part[1], n, out_n))
+                self.counters["resampled_source_samples"] += n
+            else:
+                out.append(("silence", out_n))
+        if emitted < produce:  # nothing to consume (or rounding): the remainder is silence
+            out.append(("silence", produce - emitted))
+            self.counters["audio_underrun_samples"] += produce - emitted
+        self.counters["resampled_callbacks"] += 1
+        self.counters["resampled_output_samples"] += produce
+        return out
 
     def _discard_before(self, index: int) -> None:
         while self.audio and self.audio[0][0] < index:
@@ -380,5 +536,7 @@ class PairedScheduler:
             "queue_depth": {"video_frames": len(self.video), "audio_samples": self.audio_queued},
             "queue_max_depth": dict(self.max_depth),
             "callback_intervals": {name: stats.view() for name, stats in self.intervals.items()},
+            "correction": self.limits.correction,
+            "rate_controller": self.rate.view() if self.limits.correction == "ratio" else None,
             "counters": dict(self.counters),
         }

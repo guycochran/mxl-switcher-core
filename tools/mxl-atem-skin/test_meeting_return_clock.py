@@ -187,5 +187,137 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(status["counters"]["audio_underrun_samples"], 0)
 
 
+RATIO = mc.Limits(correction="ratio")
+
+
+def controller(**overrides):
+    params = {"max_ratio_ppm": 20_000, "max_slew_ppm_per_s": 20_000, "time_constant_s": 1.0, "integral_s": 4.0,
+              "deadband_s": 0.005}
+    params.update(overrides)
+    return mc.RateController(**params)
+
+
+class RateControllerTest(unittest.TestCase):
+    """The bounded ratio contract a production resampler would follow."""
+
+    def settle(self, rc, error_s, steps, dt=0.01):
+        for _ in range(steps):
+            ratio = rc.update(error_s, dt)
+        return ratio
+
+    def test_ratio_sign_follows_the_error(self):
+        self.assertLess(self.settle(controller(), +0.02, 50), 1.0)   # audio ahead: consume the source slower
+        self.assertGreater(self.settle(controller(), -0.02, 50), 1.0)  # behind: consume faster
+        rc = controller()
+        self.settle(rc, 0.001, 50)  # inside the deadband: no proportional action, only slow integration
+        self.assertEqual(rc.requested_ppm, rc.integral_ppm)
+        self.assertLess(abs(rc.applied_ppm), 200)
+
+    def test_ratio_is_capped_and_saturation_reported(self):
+        rc = controller(max_ratio_ppm=5_000)
+        ratio = self.settle(rc, -0.5, 500)
+        self.assertAlmostEqual(ratio, 1.005, places=9)
+        view = rc.view()
+        self.assertTrue(view["saturated"])
+        self.assertGreater(view["requested_ppm"], view["applied_ppm"])
+        self.assertEqual(view["applied_ppm"], 5_000)
+
+    def test_slew_limits_each_step(self):
+        rc = controller(max_slew_ppm_per_s=10_000)
+        previous = 0.0
+        for _ in range(50):
+            rc.update(-0.5, 0.01)
+            self.assertLessEqual(abs(rc.applied_ppm - previous), 10_000 * 0.01 + 1e-6)
+            previous = rc.applied_ppm
+        self.assertTrue(rc.view()["slew_limited"])
+
+    def test_anti_windup_releases_promptly(self):
+        rc = controller()
+        self.settle(rc, -0.5, 1000)  # pinned at the cap for 10 s
+        self.settle(rc, 0.0, 400)    # error gone
+        self.assertLess(abs(rc.applied_ppm), 20_000)  # it does not stay wound up at the cap
+
+    def test_consume_is_exact_over_time(self):
+        rc = controller()
+        rc.applied_ppm = 10_000.0
+        total = sum(rc.consume(480) for _ in range(1000))
+        self.assertEqual(total, round(480 * 1000 * 1.01))
+
+    def test_reset_is_neutral(self):
+        rc = controller()
+        self.settle(rc, -0.5, 100)
+        rc.reset()
+        self.assertEqual((rc.applied_ppm, rc.requested_ppm, rc.saturated), (0.0, 0.0, False))
+
+
+class RatioPolicyTest(unittest.TestCase):
+    """The production policy: no whole-sample edits; ratios, re-anchors, and fail-closed health."""
+
+    def run_ratio(self, **config):
+        return sim.simulate(sim.SimConfig(**config), mc.PairedScheduler(RATIO))
+
+    def edits(self, status):
+        return status["counters"]["audio_dropped"] + status["counters"]["audio_inserted"]
+
+    def test_measured_shape_converges_without_sample_edits(self):
+        result = self.run_ratio(duration_s=120, camera_fps=25.0, mic_rate_ppm=9400)
+        status = result["status"]
+        self.assertLess(abs(result["offsets_ms"]["drift_ppm"]), 50)
+        self.assertLess(result["offsets_ms"]["range"], 60)
+        self.assertEqual((status["health"], self.edits(status)), ("ok", 0))
+        self.assertAlmostEqual(status["rate_controller"]["applied_ppm"], 9400, delta=2000)
+        produced = status["counters"]["resampled_output_samples"]
+        consumed = status["counters"]["resampled_source_samples"]
+        self.assertAlmostEqual(consumed / produced, 1.0094, delta=0.002)
+
+    def test_fast_microphone_lowers_the_ratio(self):
+        status = self.run_ratio(duration_s=30, mic_rate_ppm=-5000)["status"]
+        self.assertLess(status["rate_controller"]["applied_ratio"], 1.0)
+        self.assertEqual((status["health"], self.edits(status)), ("ok", 0))
+
+    def test_uncorrectable_mismatch_fails_closed(self):
+        for ppm in (30_000, -30_000, 25_000):
+            with self.subTest(ppm=ppm):
+                result = self.run_ratio(duration_s=20, mic_rate_ppm=ppm)
+                status = result["status"]
+                self.assertEqual((status["health"], status["reason"], status["output_allowed"]),
+                                 ("failed", "uncorrectable_rate_mismatch", False))
+                self.assertGreaterEqual(status["counters"]["capacity_reanchors"], 2)
+                self.assertLess(result["health_trace"].index("failed"), 800)  # within about eight seconds
+                self.assertEqual(self.edits(status), 0)
+
+    def test_stall_is_an_explicit_discontinuity_not_a_mismatch(self):
+        status = self.run_ratio(duration_s=20, stalls=((5.0, 0.3, "mic"),))["status"]
+        self.assertEqual(status["health"], "ok")
+        self.assertGreater(status["counters"]["reanchors"], 0)
+        self.assertEqual((status["counters"]["reanchor_episodes"], status["counters"]["capacity_reanchors"]), (1, 0))
+
+    def test_stall_storm_exhausts_the_episode_budget(self):
+        stalls = tuple((3.0 + 4 * i, 0.3, "mic") for i in range(8))
+        status = self.run_ratio(duration_s=40, stalls=stalls)["status"]
+        self.assertEqual((status["health"], status["reason"]), ("failed", "reanchor_budget_exceeded"))
+
+    def test_latency_is_bounded_by_the_ratio_reanchor_threshold(self):
+        result = self.run_ratio(duration_s=20, mic_rate_ppm=19_000)
+        self.assertLess(abs(result["status"]["audio_error_ms"]), RATIO.ratio_reanchor_ms + 10)
+
+    def test_ratio_status_contract(self):
+        status = self.run_ratio(duration_s=5)["status"]
+        self.assertEqual(status["correction"], "ratio")
+        for key in ("requested_ratio", "applied_ratio", "requested_ppm", "applied_ppm", "max_ratio_ppm",
+                    "saturated", "slew_limited"):
+            self.assertIn(key, status["rate_controller"])
+        self.assertIsNone(mc.PairedScheduler().status()["rate_controller"])  # sample policy unchanged
+
+    def test_ratio_runs_are_deterministic(self):
+        a = self.run_ratio(duration_s=10, mic_rate_ppm=9400, seed=3)["status"]
+        b = self.run_ratio(duration_s=10, mic_rate_ppm=9400, seed=3)["status"]
+        self.assertEqual(a, b)
+
+    def test_invalid_policy_is_refused(self):
+        with self.assertRaises(ValueError):
+            mc.Limits(correction="interpolate")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -149,8 +149,11 @@ def simulate(config: SimConfig, scheduler=None) -> dict:
             position = 0
             for segment in result["segments"]:
                 if segment[0] == "source":
-                    heard.append((segment[1], segment[2], t + position * NS // clock.SAMPLE_RATE))
+                    heard.append((segment[1], segment[2], t + position * NS // clock.SAMPLE_RATE, segment[2]))
                     position += segment[2]
+                elif segment[0] == "resampled":  # source_n samples played over output_n samples
+                    heard.append((segment[1], segment[2], t + position * NS // clock.SAMPLE_RATE, segment[3]))
+                    position += segment[3]
                 else:
                     position += segment[-1]
     return {"offsets_ms": summarize(av_offsets(seen, heard)),
@@ -172,10 +175,10 @@ def av_offsets(seen: dict, heard: list) -> list[tuple[int, float]]:
         i = bisect.bisect_right(starts, sample) - 1
         if i < 0:
             continue
-        first, count, t_start = heard[i]
+        first, count, t_start, played = heard[i]
         if not first <= sample < first + count:
             continue
-        t_heard = t_start + (sample - first) * NS // clock.SAMPLE_RATE
+        t_heard = t_start + (sample - first) * played * NS // (count * clock.SAMPLE_RATE)
         out.append((t_seen, (t_heard - t_seen) / 1e6))
     return out
 
