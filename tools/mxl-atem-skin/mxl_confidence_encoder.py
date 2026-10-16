@@ -103,7 +103,8 @@ class Source:
         self.planes = None
         self.updated = 0.0
         self.next_open = 0.0
-        self.stats = {"reads": 0, "torn": 0, "missing": 0, "reopens": 0}
+        self.stats = {"reads": 0, "torn": 0, "torn_retries": 0,
+                      "torn_recovered": 0, "missing": 0, "reopens": 0}
 
     def _open(self, now: float) -> bool:
         if self.reader is not None:
@@ -133,32 +134,43 @@ class Source:
     def poll(self, now: float) -> None:
         if not self._open(now):
             return
-        head = self.reader.head()
-        if not head:
-            return
 
         def sample(address: int, size: int):
             if size != GRAIN_SIZE:
                 raise ValueError("only 1920x1080 v210 grains are supported")
             return decimate(words_at(address), self.factor)
 
-        try:
-            result = self.reader.read(head, 0, sample)
-        except ValueError:
-            self._drop()
+        # A writer can lap the zero-copy view while the relatively expensive
+        # v210 decimation is in progress. Re-sample one freshly committed head
+        # before treating that race as a terminal torn read. The retry remains
+        # bounded so an overloaded writer cannot trap the confidence loop.
+        for attempt in range(2):
+            head = self.reader.head()
+            if not head:
+                return
+            try:
+                result = self.reader.read(head, 0, sample)
+            except ValueError:
+                self._drop()
+                return
+            if result.status == mxl.MXL_ERR_FLOW_INVALID:
+                self._drop()        # the writer recreated the flow
+                self.next_open = 0.0
+                return
+            if result.status != mxl.MXL_STATUS_OK:
+                return
+            self.stats["reads"] += 1
+            if result.torn or result.value is None:
+                if attempt == 0:
+                    self.stats["torn_retries"] += 1
+                    continue
+                self.stats["torn"] += 1
+                return
+            if attempt:
+                self.stats["torn_recovered"] += 1
+            self.planes = result.value
+            self.updated = now
             return
-        if result.status == mxl.MXL_ERR_FLOW_INVALID:
-            self._drop()        # the writer recreated the flow
-            self.next_open = 0.0
-            return
-        if result.status != mxl.MXL_STATUS_OK:
-            return
-        self.stats["reads"] += 1
-        if result.torn or result.value is None:
-            self.stats["torn"] += 1
-            return
-        self.planes = result.value
-        self.updated = now
 
     def live(self, now: float) -> bool:
         return self.planes is not None and now - self.updated < STALE_SECONDS

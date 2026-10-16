@@ -1,6 +1,7 @@
 import importlib.util
 import pathlib
 import sys
+from types import SimpleNamespace
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
@@ -79,6 +80,53 @@ class WallGeometryTest(unittest.TestCase):
         self.assertIn("tune=zerolatency", description)
         self.assertIn("key-int-max=20", description)
         self.assertIn('rtmpsink location="rtmp://127.0.0.1:1935/mxl-multiview live=1"', description)
+
+
+@unittest.skipUnless(HAVE_NUMPY, "numpy is required for the confidence encoder")
+class SourceReadRaceTest(unittest.TestCase):
+    class Reader:
+        def __init__(self, results):
+            self.results = iter(results)
+            self.heads = iter(range(100, 100 + len(results)))
+
+        def head(self):
+            return next(self.heads)
+
+        def read(self, _head, _timeout, _sample):
+            return next(self.results)
+
+    def source(self, results):
+        source = enc.Source(None, None, "domain", "label", "flow", 6)
+        source.reader = self.Reader(results)
+        return source
+
+    def test_one_torn_read_retries_fresh_head_and_recovers(self):
+        planes = (object(), object(), object())
+        source = self.source([
+            SimpleNamespace(status=enc.mxl.MXL_STATUS_OK, torn=True, value=None),
+            SimpleNamespace(status=enc.mxl.MXL_STATUS_OK, torn=False, value=planes),
+        ])
+
+        source.poll(12.5)
+
+        self.assertIs(source.planes, planes)
+        self.assertEqual(source.updated, 12.5)
+        self.assertEqual(source.stats["reads"], 2)
+        self.assertEqual(source.stats["torn_retries"], 1)
+        self.assertEqual(source.stats["torn_recovered"], 1)
+        self.assertEqual(source.stats["torn"], 0)
+
+    def test_two_torn_reads_report_one_terminal_torn(self):
+        torn = SimpleNamespace(status=enc.mxl.MXL_STATUS_OK, torn=True, value=None)
+        source = self.source([torn, torn])
+
+        source.poll(12.5)
+
+        self.assertIsNone(source.planes)
+        self.assertEqual(source.stats["reads"], 2)
+        self.assertEqual(source.stats["torn_retries"], 1)
+        self.assertEqual(source.stats["torn_recovered"], 0)
+        self.assertEqual(source.stats["torn"], 1)
 
 
 if __name__ == "__main__":
