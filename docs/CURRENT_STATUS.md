@@ -24,7 +24,8 @@ forcing a particular UI, cloud, I/O protocol, or show workflow.
 - EasyMXL packaging plus deterministic discovery, writer attribution, and an
   optional fail-closed live-writer guard.
 - Optional ATEM-style reference Skin, Companion/Stream Deck controls, NMOS
-  integration, and browser confidence views.
+  integration, browser confidence views, and a loopback-only EIC extension
+  readiness panel.
 
 ## Latest live result
 
@@ -71,6 +72,14 @@ The web Skin, Companion pages, SuperSource layouts, confidence encoders,
 Program Audio service, NMOS adapter, and deployment-platform integration prove
 the extension model. They can be replaced independently and do not sit inside
 Core's media hot path.
+
+The separate
+[`mxl-switcher-extensions`](https://github.com/guycochran/mxl-switcher-extensions)
+repository now publishes machine-readable concept contracts for ZoomISO, NDI,
+SRT, RTSP, DeckLink, WebRTC, RTMPS, meeting return, and recording. It also has a
+shared lifecycle/health runtime and fail-closed one-shot readiness check. Those
+contracts make the intended boundary concrete; `concept` remains an explicit
+non-claim of implementation or acceptance.
 
 ## Deliberately not claimed yet
 
