@@ -273,11 +273,14 @@ regression counters had zero delta. The static old binding could not see the
 replacement flow, so the run correctly did not claim recovery and was stopped
 before the audience-return gate.
 
-This result promotes real ZoomISO UUID rotation from an assumption to an
-observed lifecycle contract. The next live acceptance must use writer-specific
-discovery to plan and apply the new pair to the existing stable Core source ID,
-then verify content motion and a stable post-rebind hold. Full aggregate
-evidence is recorded in
+This result promoted real ZoomISO UUID rotation from an assumption to an
+observed lifecycle contract. The follow-up live gate used writer-specific
+discovery to plan and atomically apply the new pair to the existing stable Core
+source ID. Program recovered moving content near 30 fps, completed its stable
+hold, and recorded zero probe drops, stalls, hard-counter movement, or
+permanent-service restarts. The remaining lifecycle step is a bounded,
+authenticated always-on observer built from the accepted planner and executor,
+not new matching logic. Full aggregate evidence is recorded in
 [Real ZoomISO output identity rotation](REAL_ZOOMISO_FLOW_ROTATION_2026-10-15.md).
 
 ### Core audio-ownership qualification (2026-10-15)

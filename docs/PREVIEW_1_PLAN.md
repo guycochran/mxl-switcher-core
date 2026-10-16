@@ -131,7 +131,11 @@ needed. Paid cloud machines must be deallocated after each test window.
   recovery. A read-only two-source real-ZoomISO smoke subsequently held 4,262
   routes over 70 seconds with no post-baseline counter movement and zero probe
   drops at approximately 30 fps. Controlled real-ZoomISO interruption recovery
-  remains open. A mixer-owned
+  then passed: writer-specific discovery found the rotated video/audio pair,
+  the guarded executor atomically rebound the stable source, and Program
+  resumed near 30 fps with zero probe drops, stalls, or hard-counter movement.
+  Productionizing that one-shot recovery as a bounded lifecycle service remains
+  open. A mixer-owned
   sample history also makes
   long presentation delays independent of an upstream writer's ring depth;
   that boundary has unit and real-MXL audio proof but is not yet a promoted

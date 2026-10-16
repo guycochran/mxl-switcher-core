@@ -96,10 +96,12 @@ Core's media hot path.
   70 seconds with no post-baseline counter movement; Program and Preview stayed
   near 30 fps with zero drops and one-frame final source lag. A controlled
   protocol-change test then proved that ZoomISO rotates both video and audio
-  flow UUIDs when an output returns to MXL. The isolated Core and control path
-  remained clean at about 30 fps, but the static old binding could not follow
-  the replacement UUID. Real discovery-driven atomic rebind acceptance and
-  meeting-to-meeting audience acceptance remain open.
+  flow UUIDs when an output returns to MXL. A subsequent writer-specific gate
+  discovered the replacement pair, atomically rebound the existing stable
+  logical source, and recovered moving Program at 29.81 changes/s with zero
+  probe drops, stalls, hard-counter movement, or permanent-service restarts.
+  Turning that accepted one-shot recovery into a bounded always-on lifecycle
+  service and completing meeting-to-meeting audience acceptance remain open.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.
