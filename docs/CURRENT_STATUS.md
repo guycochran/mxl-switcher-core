@@ -56,6 +56,8 @@ Full public evidence:
 - [Objective A/V reference](AV_REFERENCE.md)
 - [Preview 1 release plan](PREVIEW_1_PLAN.md)
 - [Preview 1 Program-return runbook](PREVIEW_1_PROGRAM_RETURN_RUNBOOK.md)
+- [Paired-clock meeting-return foundation](MEETING_RETURN_ADAPTER.md)
+- [ZoomISO device-boundary integration questions](ZOOMISO_DEVICE_BOUNDARY_REQUEST.md)
 - [Real ZoomISO output identity rotation](REAL_ZOOMISO_FLOW_ROTATION_2026-10-15.md)
 
 ## What is demonstrated versus productized
@@ -147,8 +149,9 @@ non-claim of implementation or acceptance.
 
 ## Near-term direction
 
-1. Build and qualify a paired-clock meeting-return adapter; then repeat the
-   content-level audience-side A/V gate.
+1. Add a qualified audio-payload resampler behind the paired-clock contract,
+   obtain ZoomISO device-clock telemetry or a supported integration boundary,
+   then repeat the content-level audience-side A/V gate.
 2. Package independent NDI, SRT, RTMP/RTMPS, SDI/HDMI, recording, and WebRTC
    destination services without adding codecs to Core.
 3. Turn the accepted immutable promotion sequence into repeatable fresh-host

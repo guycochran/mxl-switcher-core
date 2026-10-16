@@ -94,6 +94,9 @@ observable is the audience-side measurement. The safe options are:
 - a measurement-driven loop on the audience observer, which is slow, coarse,
   and needs the reference content.
 
+The exact non-proprietary questions and a minimal read-only telemetry shape are
+collected in [ZoomISO meeting-return integration questions](ZOOMISO_DEVICE_BOUNDARY_REQUEST.md).
+
 ## Rate controller (ratio policy)
 
 `Limits(correction="ratio")` replaces whole-sample drop and hold for
