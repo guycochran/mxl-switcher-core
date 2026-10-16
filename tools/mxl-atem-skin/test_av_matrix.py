@@ -51,6 +51,7 @@ class MatrixTest(unittest.TestCase):
             "schema": "mxl-av-matrix/1",
             "matrix": "preview1-program-return",
             "stage": "10min",
+            "observer_capture_format": "1080p30fps",
             "defaults": {"limits": {"max_skipped_grains": -1, "max_freeze_ms": 250}, "event_channel": "left"},
             "cases": [
                 {"name": "index-mixer", "configuration": {"name": "index-mixer+clock-recovery", "max_wait_ms": 500},
@@ -132,11 +133,19 @@ class RefusalTest(MatrixTest):
             "limit audio_lag_ms must be a number": {"cases": [{**case, "limits": {"audio_lag_ms": True}}]},
             "required must be true or false": {"cases": [{**case, "required": "yes"}]},
             "manifest schema must be": {"schema": "other/2"},
+            "observer_capture_format must be 1080p30fps": {"observer_capture_format": "1080p29.97fps"},
         }
         for contains, override in cases.items():
             with self.subTest(contains):
                 self.assertRefused(self.manifest(**override), "--apply", "--result-dir", str(self.results),
                                    contains=contains)
+
+    def test_observer_capture_format_is_required(self):
+        body = json.loads(pathlib.Path(self.manifest()).read_text())
+        del body["observer_capture_format"]
+        path = self.root / "no-format.json"
+        path.write_text(json.dumps(body))
+        self.assertRefused(str(path), contains="observer_capture_format must be 1080p30fps")
 
     def test_a_directory_is_not_a_capture(self):
         (self.root / "dir.mkv").mkdir()

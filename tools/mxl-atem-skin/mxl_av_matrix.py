@@ -56,7 +56,7 @@ LIMITS = {
 }
 CHANNELS = {"event_channel": ("--event-channel", ("left", "right", "mix")),
             "counter_channel": ("--counter-channel", ("left", "right"))}
-MATRIX_KEYS = {"schema", "matrix", "stage", "defaults", "cases"}
+MATRIX_KEYS = {"schema", "matrix", "stage", "observer_capture_format", "defaults", "cases"}
 DEFAULT_KEYS = {"limits", "event_channel", "counter_channel", "required"}
 CASE_KEYS = {"name", "configuration", "capture", "limits", "event_channel", "counter_channel", "required"}
 
@@ -126,6 +126,11 @@ def load_manifest(path: str, stage_override: str | None = None) -> dict:
     stage = stage_override or manifest.get("stage")
     if stage not in STAGES:
         raise Refused(f"stage must be one of {', '.join(STAGES)}")
+    observer_format = manifest.get("observer_capture_format")
+    if observer_format != "1080p30fps":
+        raise Refused(
+            "observer_capture_format must be 1080p30fps; ZoomISO defaults to "
+            "1080p29.97fps, which is not valid for the 30 fps reference gate")
     defaults = manifest.get("defaults", {})
     if not isinstance(defaults, dict):
         raise Refused("defaults must be an object")
@@ -176,7 +181,8 @@ def load_manifest(path: str, stage_override: str | None = None) -> dict:
             **default_channels,
             **_channels(where, case),
         })
-    return {"matrix": matrix, "stage": stage, "minimum_covered_s": STAGES[stage], "cases": clean_cases}
+    return {"matrix": matrix, "stage": stage, "observer_capture_format": observer_format,
+            "minimum_covered_s": STAGES[stage], "cases": clean_cases}
 
 
 def analyzer_command(case: dict, python: str = sys.executable, analyzer: Path = ANALYZER) -> list[str]:
@@ -262,6 +268,7 @@ def plan(matrix: dict, python: str = sys.executable) -> dict:
         "mode": "dry_run",
         "matrix": matrix["matrix"],
         "stage": matrix["stage"],
+        "observer_capture_format": matrix["observer_capture_format"],
         "minimum_covered_s": matrix["minimum_covered_s"],
         "cases": [{
             "name": case["name"],
@@ -314,6 +321,7 @@ def run(matrix: dict, result_dir: str, executor=run_analyzer, revision=None, pyt
         "schema": SCHEMA,
         "matrix": matrix["matrix"],
         "stage": matrix["stage"],
+        "observer_capture_format": matrix["observer_capture_format"],
         "minimum_covered_s": matrix["minimum_covered_s"],
         "verdict": "PASS" if required and not failed else "FAIL",
         "required_failed": failed if required else ["no required cases"],

@@ -2,6 +2,7 @@
   "schema": "mxl-av-matrix/1",
   "matrix": "preview1-program-return",
   "stage": "smoke",
+  "observer_capture_format": "1080p30fps",
   "defaults": {
     "limits": {
       "audio_lead_ms": 40,

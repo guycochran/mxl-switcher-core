@@ -63,6 +63,11 @@ candidate video with operator audio or vice versa.
 
 1. Join both ZoomISO instances to their intended meetings and join the audience
    observer to the destination meeting.
+   On the audience observer, set its capture output row to **1080p30fps**.
+   ZoomISO defaults this row to 1080p29.97fps; that mismatch adds roughly
+   1,000 ppm to a 30 fps reference measurement. The matrix manifest now
+   requires `"observer_capture_format": "1080p30fps"` and refuses any other
+   declared format, but the operator must still verify the actual ZoomISO row.
 2. Start the paired reference as a temporary source and register it only with
    the isolated candidate Core.
 3. Start the index-domain audio candidate on a new output flow. Pass the
