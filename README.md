@@ -20,7 +20,7 @@ and the optional reference operator Skin.
 | Deployment | Immutable versioned image, guarded replacement, retained rollback, output-collision checks, corrected port probing, and optional EasyMXL active-writer protection |
 | Platform integration | EasyMXL catalog/deployment bundle, deterministic read-only discovery planner, writer attribution, and fail-closed reconciliation/apply tooling |
 | Operator control | Versioned HTTP/SSE API plus optional ATEM-style web Skin, Companion/Stream Deck module, NMOS view, and confidence monitoring |
-| Audio | Stable 48 kHz Program Audio candidate and objective timing reference have passed isolated qualification; content-level lip-sync and audience-return acceptance remain open |
+| Audio | Stable 48 kHz Program Audio and the real libsamplerate dynamic-ratio payload candidate have passed isolated qualification; target-runtime packaging, content-level lip-sync, and audience-return acceptance remain open |
 | Destinations | Modular output contract is defined; video-only NDI has passed loaded qualification, and the separate paired NDI prototype has passed a 10-minute full-rate 1080p30/48 kHz wire gate; content timing/recovery plus packaged SRT, RTMP/RTMPS, SDI/HDMI, recording, and meeting-return acceptance remain open |
 
 The latest guarded live promotion ran for 602.8 seconds, advanced 17,999 output
@@ -290,8 +290,10 @@ The release target and pass/fail definition are in the
 [Preview 1 plan](docs/PREVIEW_1_PLAN.md).
 
 1. **Program Master clock recovery:** candidate stable 48 kHz Program Audio and
-   AFV are live; complete content-level lip-sync, recovered-alarm analysis, and
-   staged acceptance before any distribution adapter claims the paired master.
+   AFV are live, and the libsamplerate payload algorithm passed its isolated
+   dynamic-ratio gate; package it on the target runtime, complete content-level
+   lip-sync and recovered-alarm analysis, and run staged acceptance before any
+   distribution adapter claims the paired master.
 2. **Meeting-to-meeting proof:** complete an audience-side receive gate with
    switched/composited video and clock-correct audio.
 3. **Independent output nodes:** add NDI, SRT, WebRTC, recording, YouTube

@@ -136,6 +136,11 @@ non-claim of implementation or acceptance.
   recovery are still required. Packaged SRT, WebRTC distribution, RTMP/RTMPS,
   SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.
+- The meeting-return libsamplerate `sinc_best` payload candidate has passed its
+  isolated full-scale dynamic-ratio gate: 95.02 dB worst-window SNR, exact
+  frame accounting, zero underflow, and no measurable steady pitch error. This
+  qualifies the algorithm and adapter seam, not the target Linux package or an
+  audience-side Zoom return.
 - The included Skin is a reference implementation, not a requirement for using
   Core.
 - Archive/replay and TAMS work is exploratory and is not part of the accepted
@@ -154,9 +159,10 @@ non-claim of implementation or acceptance.
 
 ## Near-term direction
 
-1. Add a qualified audio-payload resampler behind the paired-clock contract,
-   obtain ZoomISO device-clock telemetry or a supported integration boundary,
-   then repeat the content-level audience-side A/V gate.
+1. Package the isolated-qualified audio payload resampler behind the
+   paired-clock contract on the target Linux runtime, obtain ZoomISO
+   device-clock telemetry or a supported integration boundary, then repeat the
+   content-level audience-side A/V gate.
 2. Finish the paired NDI content-timing/recovery gates, then package independent
    SRT, RTMP/RTMPS, SDI/HDMI, recording, and WebRTC destination services
    without adding codecs to Core.

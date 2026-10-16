@@ -144,25 +144,27 @@ source:output sample ratio, driven by the shared-clock error:
 
 ## Payload resampler seam and quality gate
 
-**No production resampler has been qualified yet.** This section defines the
-seam and the objective gate that would qualify one.
+The real libsamplerate `sinc_best` candidate has passed this isolated objective
+quality gate. That qualifies the payload algorithm and adapter seam; it does
+not qualify a live Zoom meeting return or the target Linux runtime.
 
 ### Seam
 
 `tools/mxl-atem-skin/meeting_return_resampler.py` turns the scheduler's
-`("resampled", start, source_n, output_n)` segments into audio.
+`("resampled", start, source_n, output_n, source_per_output)` segments into
+audio.
 
-`PayloadResampler.process(left, right, source_n, output_n)` takes float32,
-48 kHz stereo frames and returns **exactly** `output_n` frames per channel,
-using a streaming backend at ratio `output_n / source_n`. That ratio is output
-per input, the libsamplerate convention and the inverse of the scheduler's
-source:output ratio.
+`PayloadResampler.process(left, right, source_n, output_n,
+source_per_output=...)` takes float32, 48 kHz stereo frames and returns
+**exactly** `output_n` frames per channel. It passes the inverse of the
+controller's continuous source:output ratio to libsamplerate. The quantised
+`output_n / source_n` ratio exists only as a documented compatibility fallback.
 
 | Property | Behaviour |
 | --- | --- |
 | Latency | A bounded output FIFO is primed with `prime_frames` (256, 5.33 ms) of silence, so the backend's group delay and its call-to-call output variation never become gaps or duplicates. The gate reports the measured latency. |
 | Bounds | Underflow or overflow past `max_fifo_frames` (4,800, 100 ms) latches `failed`, and later calls refuse. |
-| Ratio updates | The ratio is set per segment, every callback. A backend may smooth it within a call; libsamplerate does. |
+| Ratio updates | The ratio is stepped with `src_set_ratio` before each segment. A wrapper that cannot provide step changes is refused because `src_process` smoothing produces measurable callback-rate phase modulation. |
 | State reset | `backend.reset()` starts a new stream. The scheduler's re-anchor policy decides when a discontinuity is declared. |
 
 ### Backends and preflight
@@ -172,7 +174,7 @@ refusal. It **never substitutes a weaker algorithm**.
 
 | Backend | Role | Licence | Availability |
 | --- | --- | --- | --- |
-| `samplerate-sinc-best` | Production candidate: libsamplerate `SRC_SINC_BEST_QUALITY`, streaming, varying ratio per call | libsamplerate BSD-2-Clause; python-samplerate MIT | **Not installed in this offline environment** (it needs `numpy` and `samplerate`), so it is refused. It is not claimed as qualified until the gate passes on the target runtime. |
+| `samplerate-sinc-best` | Production candidate: libsamplerate `SRC_SINC_BEST_QUALITY`, streaming, explicit step-ratio updates | libsamplerate BSD-2-Clause; python-samplerate MIT | Passed the isolated real-backend gate with NumPy 2.5.4 and python-samplerate 0.2.4. Deployment still requires these dependencies and a repeat on the target Linux runtime. |
 | `oracle` | Test instrument: evaluates the analytic reference exactly. Validates that the gate passes perfect output. | — | Always available; never production. |
 | `linear`, `drop-hold` | Negative controls the gate must fail | — | Always available; never production. |
 
@@ -241,9 +243,9 @@ smoothing instrument, a single dropped sample, linear interpolation,
 drop-hold, channel swap, a +20 ppm pitch error, and a backend that ignores
 ratio changes all still fail.
 
-**Remaining risk.** libsamplerate's look-ahead may scale slightly with the
-ratio. A single fitted switch latency would leave a residual of about 1e-4
-samples at each ratio change. The rerun will show whether that is visible.
+**Remaining risk.** The isolated real-backend rerun measured the residual from
+any ratio-dependent look-ahead well inside the gate, but the target Linux
+runtime and the live Zoom device boundary still require separate qualification.
 
 Measured offline (short schedule):
 
@@ -252,14 +254,19 @@ Measured offline (short schedule):
 | `oracle` | PASS | exact | 0.0 | 0.0 |
 | `linear` | FAIL | 40 dB | 0.020 | 0.001 |
 | `drop-hold` | FAIL | 3 dB | 0.598 | 0.82 |
-| `samplerate-sinc-best` | REFUSED (not installed) | — | — | — |
+| `samplerate-sinc-best` | PASS | 95.02 dB | 0.0000308 | 0.00043 sample |
 
 Injected faults are also caught: channel swap, DC offset, clipping, and a
 20 ppm pitch error.
 
+The full-scale real-backend run produced exactly 429,120 requested frames from
+429,800 consumed source frames with zero underflow, 0 ppm measured steady pitch
+error, 0.00448 sample maximum timing deviation, and a fitted 143.5-frame switch
+latency.
+
 **Still unproven:**
 
-- that any real resampler passes on the target runtime;
+- the same backend package and performance on the target Linux runtime;
 - listening quality;
 - performance at the real callback rate;
 - behaviour against ZoomISO's actual device clock (see "Device boundary").
@@ -329,9 +336,10 @@ They cover:
 
 ## Limits and next steps
 
-1. **Sample correction is a drop or repeat of whole samples.** It is
-   audible at a 1% rate. The ratio policy above replaces it with a bounded
-   ratio contract. No resampler processes payloads yet, and none is claimed.
+1. **The scheduler's whole-sample correction is not the production payload
+   path.** The qualified candidate processes payloads through the bounded
+   ratio contract above, but it is not yet packaged into or accepted at the
+   live Zoom meeting-return boundary.
 2. **Video only drops or repeats.** There is no frame interpolation.
 3. **The ZoomISO device boundary is closed.** See "Device boundary: what is
    verified". Its callbacks and send pacing are inside ZoomISO and are not
