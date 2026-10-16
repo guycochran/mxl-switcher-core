@@ -7,6 +7,9 @@
   <title>MXL Core Health</title>
   <link rel="stylesheet" href="/health.css?v=2">
   <link rel="stylesheet" href="/recovery.css?v=1">
+  <style>
+    .extension-grid{display:grid;gap:7px}.extension-card{display:grid;grid-template-columns:10px 1fr auto;gap:9px;align-items:center;background:#0a0f15;border:1px solid #202a35;border-radius:6px;padding:9px}.extension-card i{width:8px;height:8px;border-radius:50%;background:var(--gray)}.extension-card.ready i{background:var(--green);box-shadow:0 0 9px #37d57999}.extension-card.fault i{background:var(--red);box-shadow:0 0 9px #f34a5099}.extension-card strong,.extension-card small{display:block}.extension-card small{color:var(--muted);font-size:9px}.extension-card span{color:var(--muted);font-size:9px;font-weight:900;letter-spacing:.08em}.extension-card.ready span{color:var(--green)}.extension-card.fault span{color:var(--red)}
+  </style>
 </head>
 <body>
   <main class="health-shell">
@@ -98,6 +101,11 @@
             <div><span>RECEIVERS</span><strong id="receivers">—</strong></div>
             <div><span>REGISTRY</span><strong id="registry">—</strong></div>
           </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head"><div><small>BOLT-ON SERVICES</small><h2>Extension readiness</h2></div><span>LIVE ≠ READY</span></div>
+          <div id="extensionGrid" class="extension-grid"><p class="empty">No extension health endpoints configured.</p></div>
         </article>
 
         <article class="panel">

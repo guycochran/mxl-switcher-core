@@ -272,6 +272,9 @@ function renderAlerts(data, stalledSources, routeStalled) {
   }
   if (data.nmos.state !== 'disabled' && (data.nmos.state !== 'online' || !['registered','disabled'].includes(data.nmos.registry))) alerts.push(['critical', 'NMOS control-plane fault', `Node ${data.nmos.state}; Registry ${data.nmos.registry}.`])
   if (data.audio.state === 'unavailable') alerts.push(['critical', 'Audio confidence unavailable', 'The configured meter service did not respond.'])
+  for (const extension of data.extensions || []) {
+    if (!extension.ready) alerts.push(['critical', `${extension.name} is not ready`, extension.last_error || `Extension state is ${extension.state}.`])
+  }
   const box = $('alerts'); box.replaceChildren()
   if (!alerts.length) alerts.push(['clear', 'No active alarms', 'The current sample is healthy; lifetime measurements remain visible below.'])
   for (const [kind, title, detail] of alerts) {
@@ -282,6 +285,26 @@ function renderAlerts(data, stalledSources, routeStalled) {
   }
   $('alarmCount').textContent = alerts[0][0] === 'clear' ? 'CLEAR' : `${alerts.length} ACTIVE`
   return alerts[0][0] !== 'clear'
+}
+
+function renderExtensions(extensions) {
+  const box = $('extensionGrid'); box.replaceChildren()
+  if (!(extensions || []).length) {
+    box.innerHTML = '<p class="empty">No extension health endpoints configured.</p>'
+    return
+  }
+  for (const extension of extensions) {
+    const item = document.createElement('div')
+    item.className = `extension-card ${extension.ready ? 'ready' : 'fault'}`
+    const lamp = document.createElement('i')
+    const body = document.createElement('div')
+    const name = document.createElement('strong'); name.textContent = extension.name
+    const detail = document.createElement('small')
+    detail.textContent = `${extension.kind} · rev ${fmt(extension.revision)} · restarts ${fmt(extension.restarts)}`
+    body.append(name, detail)
+    const state = document.createElement('span'); state.textContent = extension.ready ? 'READY' : String(extension.state || 'unknown').toUpperCase()
+    item.append(lamp, body, state); box.append(item)
+  }
 }
 
 function render(data) {
@@ -303,6 +326,7 @@ function render(data) {
   const stalledSources = renderInputs(data)
   renderNmos(data.nmos)
   renderAudio(data.audio, data.audio_mixer)
+  renderExtensions(data.extensions)
   renderCounters(health)
   const hasAlarm = renderAlerts(data, stalledSources, routeStalled)
 

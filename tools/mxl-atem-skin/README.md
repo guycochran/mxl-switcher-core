@@ -24,6 +24,8 @@ python3 server.py --core http://127.0.0.1:18085 \
   --recovery-mapping /etc/mxl/easy-mxl-mapping.json \
   --recovery-planner /opt/mxl/tools/mxl_discovery_planner.py \
   --recovery-executor /opt/mxl/tools/mxl_rebind_apply.py \
+  --extension-health recorder=http://127.0.0.1:18110 \
+  --extension-health meeting-return=http://127.0.0.1:18120 \
   --supersource-helper /home/guy/mxl-atem-skin/run-supersource-bank.sh
 ```
 
@@ -72,6 +74,11 @@ and reports the configured NMOS Node/Registry inventory. Fault counters show a
 delta from the moment the browser page was opened so an old test event does
 not masquerade as a new incident. The operator skin links to this page through
 the **ENGINEERING HEALTH** button; switching controls remain on the main page.
+Repeatable `--extension-health NAME=LOOPBACK_URL` arguments add independently
+supervised bolt-ons to that dashboard. The Skin reads only the shared public
+state contract and deliberately reports an answering-but-not-ready adapter as
+a fault. Only loopback URLs are accepted, and adapter URLs or metrics are not
+returned to the browser.
 
 `mxl_audio_meter.py` reads the native planar Float32 audio rings without
 decoding video or inserting a media conversion. Its loopback-only `/meters`

@@ -9,6 +9,7 @@ import json
 import mimetypes
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,7 @@ class App:
         recovery_executor: pathlib.Path | None = None,
         recovery_token_env: str = "EASY_MXL_TOKEN",
         recovery_apply_enabled: bool = False,
+        extension_health_urls: dict[str, str] | None = None,
     ):
         self.root = root
         self.core = core.rstrip("/")
@@ -58,6 +60,7 @@ class App:
         self.recovery_executor = recovery_executor
         self.recovery_token_env = recovery_token_env
         self.recovery_apply_enabled = recovery_apply_enabled
+        self.extension_health_urls = extension_health_urls or {}
         self.state_file = state_file
         self.lock = threading.Lock()
         self.banks = {
@@ -168,7 +171,36 @@ class App:
             "audio": self.audio_state(),
             "audio_mixer": self.audio_mixer_state(),
             "nmos": self.nmos_state(),
+            "extensions": self.extension_states(),
         }
+
+    def extension_states(self):
+        states = []
+        for configured_name, base_url in sorted(self.extension_health_urls.items()):
+            try:
+                snapshot = self.url_json(base_url + "/api/v1/state", timeout=1)
+                states.append({
+                    "configured_name": configured_name,
+                    "name": snapshot.get("name") or configured_name,
+                    "kind": snapshot.get("kind") or "extension",
+                    "state": snapshot.get("state") or "unknown",
+                    "ready": snapshot.get("ready") is True,
+                    "revision": snapshot.get("revision"),
+                    "restarts": snapshot.get("restarts"),
+                    "last_error": snapshot.get("last_error"),
+                })
+            except (OSError, TimeoutError, json.JSONDecodeError, ValueError) as error:
+                states.append({
+                    "configured_name": configured_name,
+                    "name": configured_name,
+                    "kind": "extension",
+                    "state": "unavailable",
+                    "ready": False,
+                    "revision": None,
+                    "restarts": None,
+                    "last_error": str(error),
+                })
+        return states
 
     def recovery_configured(self):
         return all((
@@ -450,6 +482,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(500, {"error": str(error)})
 
 
+def parse_extension_health(values):
+    result = {}
+    for value in values:
+        name, separator, url = value.partition("=")
+        if not separator or not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", name):
+            raise ValueError("extension health must be NAME=http://127.0.0.1:PORT")
+        url = url.rstrip("/")
+        if not re.fullmatch(r"https?://(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]+)?", url):
+            raise ValueError(f"extension health URL for {name} must be loopback HTTP(S)")
+        if name in result:
+            raise ValueError(f"duplicate extension health name: {name}")
+        result[name] = url
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
@@ -471,10 +518,21 @@ def main():
     parser.add_argument("--recovery-token-env", default="EASY_MXL_TOKEN")
     parser.add_argument("--enable-source-reconnect", action="store_true",
                         help="allow confirmed reconnects; scan/preflight remain read-only without this")
+    parser.add_argument(
+        "--extension-health",
+        action="append",
+        default=[],
+        metavar="NAME=LOOPBACK_URL",
+        help="repeatable extension state endpoint shown on the EIC dashboard",
+    )
     parser.add_argument("--state-file")
     args = parser.parse_args()
     root = pathlib.Path(__file__).with_name("static").resolve()
     state_file = pathlib.Path(args.state_file).resolve() if args.state_file else root.parent / "state.json"
+    try:
+        extension_health_urls = parse_extension_health(args.extension_health)
+    except ValueError as error:
+        parser.error(str(error))
     Handler.app = App(
         root,
         args.core,
@@ -494,6 +552,7 @@ def main():
         pathlib.Path(args.recovery_executor).resolve() if args.recovery_executor else None,
         args.recovery_token_env,
         args.enable_source_reconnect,
+        extension_health_urls,
     )
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(json.dumps({"event": "skin_ready", "url": f"http://{args.host}:{args.port}", "live_supersource": bool(args.supersource_helper)}), flush=True)

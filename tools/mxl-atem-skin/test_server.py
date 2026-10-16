@@ -95,6 +95,49 @@ class AppTests(unittest.TestCase):
         self.assertEqual(dashboard["health"]["routed"], 12)
         self.assertEqual(dashboard["sources"][0]["id"], "input-1")
         self.assertEqual(dashboard["nmos"]["state"], "disabled")
+        self.assertEqual(dashboard["extensions"], [])
+
+    def test_extension_health_is_aggregated_without_exposing_urls(self):
+        app = self.app()
+        app.extension_health_urls = {
+            "meeting-return": "http://127.0.0.1:18120",
+            "recorder": "http://127.0.0.1:18110",
+        }
+
+        def url_json(url, timeout=2):
+            if ":18120/" in url:
+                return {
+                    "name": "program-meeting-return",
+                    "kind": "output",
+                    "state": "running",
+                    "ready": True,
+                    "revision": 9,
+                    "restarts": 0,
+                    "last_error": None,
+                    "metrics": {"secret-free": True},
+                }
+            raise OSError("connection refused")
+
+        app.url_json = url_json
+        states = app.extension_states()
+        self.assertEqual(states[0]["name"], "program-meeting-return")
+        self.assertTrue(states[0]["ready"])
+        self.assertEqual(states[1]["state"], "unavailable")
+        self.assertNotIn("url", states[0])
+        self.assertNotIn("metrics", states[0])
+
+    def test_extension_health_configuration_is_loopback_only(self):
+        self.assertEqual(
+            server.parse_extension_health(["recorder=http://127.0.0.1:18110/"]),
+            {"recorder": "http://127.0.0.1:18110"},
+        )
+        with self.assertRaisesRegex(ValueError, "loopback"):
+            server.parse_extension_health(["recorder=http://192.0.2.1:18110"])
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            server.parse_extension_health([
+                "recorder=http://127.0.0.1:18110",
+                "recorder=http://127.0.0.1:18111",
+            ])
 
     def recovery_app(self, apply_enabled=False):
         app = self.app()
