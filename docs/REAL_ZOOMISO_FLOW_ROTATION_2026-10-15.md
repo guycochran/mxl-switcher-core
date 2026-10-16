@@ -116,3 +116,42 @@ Evidence includes:
 
 Exit codes: 0 is PASS, 1 is FAIL or a rehearsal stop, 2 is refused with
 nothing changed.
+
+## Confirmed live acceptance
+
+The completed harness was then exercised against a real, unused ZoomISO
+output in three deliberate stages:
+
+1. **Plan only:** uniquely matched the active video/audio pair to one writer
+   using group and role metadata; confirmed the selected source was absent
+   from the operator's Program, Preview, and Program Audio paths.
+2. **Rehearsal:** observed MXL → non-MXL → MXL, proved that both UUIDs
+   rotated, saved the executor preflight, and stopped before writing exactly
+   as designed.
+3. **Confirmed gate:** bound the old video/audio pair on the isolated
+   candidate, observed another rotation, atomically rebound the stable source
+   to the discovered replacement pair at the recorded revision, and verified
+   recovery.
+
+The confirmed result was **PASS**:
+
+| Check | Result |
+| --- | ---: |
+| Stable source rebind | applied atomically |
+| Program / Preview selection | unchanged |
+| Candidate output identities | unchanged |
+| Selected content before interruption | 29.10 changes/s |
+| Control content before interruption | 29.99 changes/s |
+| Program content after rebind | 29.81 changes/s |
+| Program / Preview probe frames after baseline | 2,602 / 2,589 |
+| Probe drops / stalls | 0 / 0 |
+| Invalid / too early / too late / timeouts | 0 / 0 / 0 / 0 |
+| Selected-input regressions | 0 |
+| Final selected-input lag | 1 frame |
+| Active sustained alarm | 0 |
+| Permanent-service restarts | 0 |
+
+The required stable hold completed, every exact candidate container and
+candidate flow was removed, and the temporary discovery observer was removed
+after its private evidence was saved. This closes the real ZoomISO
+flow-identity-rotation acceptance for an isolated Core candidate.
