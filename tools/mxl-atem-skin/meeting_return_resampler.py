@@ -23,10 +23,10 @@ algorithm. Backends here:
 
 - ``samplerate-sinc-best``: libsamplerate through ``python-samplerate``
   (BSD-2-Clause for libsamplerate). This is the production candidate. It
-  streams with a per-call ratio and smooths the change across each call. It
-  is **unavailable in this offline environment**: the preflight probes for it
-  and refuses when it is absent, and it is not claimed as qualified until the
-  gate passes on the target runtime.
+  streams with the ratio **stepped** per call (``set_ratio``). It is
+  **unavailable in this offline environment**: the preflight probes for it
+  and refuses when it is absent, or when the wrapper cannot step the ratio. It
+  is not claimed as qualified until the gate passes on the target runtime.
 - ``oracle``, ``linear``, ``drop-hold``: test instruments only, never
   qualified. The gate must pass ``oracle``, which evaluates the known
   reference analytically, and must fail the other two.
@@ -55,22 +55,32 @@ class BackendInfo:
 
 
 class SamplerateBackend:
-    """libsamplerate (``sinc_best``) through ``python-samplerate``: the production candidate."""
+    """libsamplerate (``sinc_best``) through ``python-samplerate``: the production candidate.
+
+    The ratio is **stepped** each call: ``set_ratio`` (libsamplerate
+    ``src_set_ratio``) is called before ``process``. Without that,
+    ``src_process`` interpolates every ratio change linearly across the call's
+    output. That is phase modulation at the callback rate, about 60 dB in the
+    gate. A wrapper without ``set_ratio`` is refused rather than run in
+    smoothing mode.
+    """
 
     info = BackendInfo("samplerate-sinc-best", True, "libsamplerate BSD-2-Clause; python-samplerate MIT",
-                       "streaming Resampler.process(data, ratio); ratio changes are smoothed within a call")
+                       "streaming Resampler.process with set_ratio step changes (src_set_ratio)")
 
-    def __init__(self) -> None:
-        import numpy  # noqa: F401  (python-samplerate requires numpy arrays)
-        import samplerate
-
-        self._np = numpy
-        self._samplerate = samplerate
+    def __init__(self, module=None, numpy_module=None) -> None:
+        if numpy_module is None:
+            import numpy as numpy_module  # python-samplerate requires numpy arrays
+        if module is None:
+            import samplerate as module
+        self._np, self._samplerate = numpy_module, module
         self.reset()
+        if not hasattr(self._resampler, "set_ratio"):
+            raise ImportError("python-samplerate Resampler.set_ratio (step ratio changes)", name="set_ratio")
 
     @property
     def latency_frames(self) -> int:
-        return 0  # reported by measurement in the gate, not assumed
+        return 0  # measured by the gate (switch latency), never assumed
 
     def reset(self) -> None:
         self._resampler = self._samplerate.Resampler("sinc_best", channels=CHANNELS)
@@ -78,8 +88,9 @@ class SamplerateBackend:
     def process(self, left, right, ratio):
         np = self._np
         frames = np.column_stack([np.asarray(left, dtype=np.float32), np.asarray(right, dtype=np.float32)])
+        self._resampler.set_ratio(ratio)  # step: no within-call interpolation from the previous ratio
         out = self._resampler.process(frames, ratio, end_of_input=False)
-        return list(map(float, out[:, 0])), list(map(float, out[:, 1]))
+        return [float(v) for v in out[:, 0]], [float(v) for v in out[:, 1]]
 
 
 class LinearBackend:
@@ -150,22 +161,99 @@ class OracleBackend:
         self.reset()
 
     def reset(self) -> None:
-        self.source_time = 0.0  # in source samples
-        self.carry = 0.0
+        self.source_time = 0.0  # fractional source time of the next output
+        self.available = 0      # source frames supplied so far
 
     def process(self, left, right, ratio):
-        n_in = len(left)
-        self.carry += n_in * ratio
-        n_out = int(self.carry + 1e-9)  # ratio is out/in of whole frames: never lose one to float error
-        self.carry -= n_out
+        """Emit outputs at exactly ``1 / ratio`` source samples apart, never past the input supplied."""
+
+        self.available += len(left)
         out = [[], []]
-        step = n_in / n_out if n_out else 0.0
-        for k in range(n_out):
-            t = self.source_time + k * step
-            l_value, r_value = self.reference(t)
+        while self.source_time < self.available - 1:
+            l_value, r_value = self.reference(self.source_time)
             out[0].append(l_value)
             out[1].append(r_value)
-        self.source_time += n_in
+            self.source_time += 1.0 / ratio
+        return out[0], out[1]
+
+
+class SmoothedOracle(OracleBackend):
+    """Test instrument: libsamplerate ``src_process`` time mapping, analytically.
+
+    When the ratio passed to a call differs from the previous call's,
+    libsamplerate interpolates it linearly across that call's output (a step
+    needs ``src_set_ratio``). Output counts vary per call, and it is causal:
+    it never reads past the input supplied. With no distortion at all, this
+    reproduces the timing a smoothing backend has, so the gate can tell a
+    smooth timing excursion apart from a defect.
+    """
+
+    info = BackendInfo("smoothed-oracle", False, "n/a (test instrument)", "libsamplerate-style ratio smoothing")
+
+    def reset(self) -> None:
+        super().reset()
+        self.last_ratio = None
+
+    def process(self, left, right, ratio):
+        self.available += len(left)
+        start = self.last_ratio if self.last_ratio is not None else ratio
+        expected = max(1, round(len(left) * ratio))
+        out = [[], []]
+        k = 0
+        while self.source_time < self.available - 1:
+            current = start + (ratio - start) * min(1.0, k / expected)
+            l_value, r_value = self.reference(self.source_time)
+            out[0].append(l_value)
+            out[1].append(r_value)
+            self.source_time += 1.0 / current
+            k += 1
+        self.last_ratio = ratio
+        return out[0], out[1]
+
+
+class GapOracle(OracleBackend):
+    """Test instrument: the exact oracle, except one source sample is skipped once (a 1-sample gap)."""
+
+    info = BackendInfo("gap-oracle", False, "n/a (test instrument)", "drops exactly one source sample")
+
+    def __init__(self, reference=None, at_frame: int = 96_000) -> None:
+        self.at = at_frame
+        super().__init__(reference)
+
+    def reset(self) -> None:
+        super().reset()
+        self.skipped = False
+
+    def process(self, left, right, ratio):
+        if not self.skipped and self.available + len(left) > self.at:
+            self.source_time += 1  # the gap: one source sample is never played
+            self.skipped = True
+        return super().process(left, right, ratio)
+
+
+class LatentOracle(OracleBackend):
+    """Test instrument: exact, step-mode ratio changes, but with a real filter latency.
+
+    It only emits outputs whose source time is ``latency`` frames behind the
+    input supplied, as a sinc resampler must. Each ratio change therefore
+    takes effect at a latency-shifted point relative to the gate's ideal. That
+    is a legitimate, continuous timing difference the gate must not penalise.
+    """
+
+    info = BackendInfo("latent-oracle", False, "n/a (test instrument)", "step ratio, sinc-like latency")
+
+    def __init__(self, reference=None, latency: int = 143) -> None:
+        self.latency = latency
+        super().__init__(reference)
+
+    def process(self, left, right, ratio):
+        self.available += len(left)
+        out = [[], []]
+        while self.source_time < self.available - 1 - self.latency:
+            l_value, r_value = self.reference(self.source_time)
+            out[0].append(l_value)
+            out[1].append(r_value)
+            self.source_time += 1.0 / ratio
         return out[0], out[1]
 
 
@@ -210,8 +298,14 @@ class PayloadResampler:
         for c in range(CHANNELS):
             self.fifo[c].extend([0.0] * prime_frames)
 
-    def process(self, left, right, source_n: int, output_n: int):
-        """Resample ``source_n`` frames (``left``/``right``) into exactly ``output_n`` frames."""
+    def process(self, left, right, source_n: int, output_n: int, source_per_output: float | None = None):
+        """Resample ``source_n`` frames (``left``/``right``) into exactly ``output_n`` frames.
+
+        ``source_per_output`` is the scheduler's continuous ratio (the segment's fifth field).
+        Pass it: ``output_n / source_n`` is quantised to whole samples per callback and would make
+        the backend's pitch jitter call to call (about ±0.2% at 480-frame callbacks). Without it
+        the quantised ratio is used, which is correct only for whole-sample-aligned backends.
+        """
 
         if self.failed:
             raise ResamplerUnavailable(f"resampler failed closed: {self.failed}")
@@ -220,7 +314,8 @@ class PayloadResampler:
         self.counters["segments"] += 1
         self.counters["source_frames"] += source_n
         if source_n:
-            out_l, out_r = self.backend.process(left, right, output_n / source_n)
+            ratio = 1.0 / source_per_output if source_per_output else output_n / source_n
+            out_l, out_r = self.backend.process(left, right, ratio)
             self.fifo[0].extend(out_l)
             self.fifo[1].extend(out_r)
         depth = len(self.fifo[0])

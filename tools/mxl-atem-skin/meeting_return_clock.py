@@ -334,7 +334,9 @@ class PairedScheduler:
         """Return the presented audio as segments.
 
         Sample policy: ``("source", start, n)``, ``("hold", n)``, ``("silence", n)``.
-        Ratio policy: ``("resampled", start, source_n, output_n)``, ``("silence", n)``.
+        Ratio policy: ``("resampled", start, source_n, output_n, ratio)``, ``("silence", n)``, where
+        ``ratio`` is the controller's continuous source:output ratio. A resampler must run at that
+        ratio, not at ``source_n / output_n``, which is quantised to whole samples per callback.
         """
 
         self.intervals["audio"].note(t_ns)
@@ -422,7 +424,7 @@ class PairedScheduler:
     def _take_resampled(self, consume: int, produce: int) -> list[tuple]:
         """Take ``consume`` source samples to fill ``produce`` output samples.
 
-        Each part becomes ``("resampled", start, source_count, output_count)``,
+        Each part becomes ``("resampled", start, source_count, output_count, ratio)``,
         or ``("silence", output_count)`` where the input had a gap. Output counts
         are distributed so they sum exactly to ``produce``.
         """
@@ -435,7 +437,7 @@ class PairedScheduler:
             share = produce if consumed == consume else consumed * produce // max(consume, 1)
             out_n, emitted = share - emitted, share
             if part[0] == "source":
-                out.append(("resampled", part[1], n, out_n))
+                out.append(("resampled", part[1], n, out_n, 1 + self.rate.applied_ppm / 1e6))
                 self.counters["resampled_source_samples"] += n
             else:
                 out.append(("silence", out_n))

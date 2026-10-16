@@ -204,6 +204,44 @@ The output is JSON, with the verdict, failures, metrics and the worst
 windows. Exit codes: 0 is PASS, 1 is FAIL, 2 is REFUSED (backend
 unavailable).
 
+### Dynamic-ratio root cause (the isolated libsamplerate FAIL at `225b5b9`)
+
+Codex ran libsamplerate 0.2.2 (python-samplerate 0.2.4) in a throwaway
+environment. It passed steady state, but failed on ramps: 9 dB SNR, 0.35
+spikes, and 2.3-sample delay jumps. All three causes were reproduced and
+fixed offline:
+
+1. **The adapter quantised the ratio.** It passed `output_n / source_n`. With
+   whole-sample `source_n` per callback, that alternated, for example 480/484
+   and 480/485 at +9,400 ppm, so the backend's pitch jittered by about ±0.2%
+   every callback. Scheduler segments now carry the controller's continuous
+   ratio as a fifth field, and `PayloadResampler.process(...,
+   source_per_output=)` passes `1 / ratio` to the backend.
+2. **The gate's ideal was wrong for real resamplers.** It changed the ratio
+   at the scheduler's callback boundaries. Any correct streaming resampler
+   changes it when it reaches that input, minus its filter look-ahead. The
+   ideal is now an exact, causal, step-mode resampler with one fitted
+   **switch latency**, reported as `switch_latency_source_frames`. The
+   per-window delay is fitted as a warm-started, curvature-penalised spline.
+   Continuity is checked where windows meet. A new bound,
+   `max_timing_deviation_samples`, sits beside the existing thresholds, which
+   are unchanged.
+3. **libsamplerate smooths ratio changes.** `src_process` interpolates each
+   change across the call. That is phase modulation at the callback rate, and
+   it measures about 60 dB, so it fails honestly. `SamplerateBackend` now
+   steps the ratio (`set_ratio`, which is `src_set_ratio`) before every
+   `process`, and refuses a wrapper that cannot.
+
+An exact step-mode instrument with a sinc-like look-ahead of 143 or 230
+frames now passes exactly, and the fit recovers its switch latency. The
+smoothing instrument, a single dropped sample, linear interpolation,
+drop-hold, channel swap, a +20 ppm pitch error, and a backend that ignores
+ratio changes all still fail.
+
+**Remaining risk.** libsamplerate's look-ahead may scale slightly with the
+ratio. A single fitted switch latency would leave a residual of about 1e-4
+samples at each ratio change. The rerun will show whether that is visible.
+
 Measured offline (short schedule):
 
 | Backend | Verdict | Worst SNR | Worst error | Delay jump |

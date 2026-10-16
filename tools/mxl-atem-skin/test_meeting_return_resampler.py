@@ -174,5 +174,161 @@ class GateTest(unittest.TestCase):
             self.assertIn(code, (0, 1))
 
 
+class _Causal:
+    """Test-local exact resampler with step ratio changes and a filter look-ahead (no module helpers)."""
+
+    def __init__(self, latency=0, smooth=False, gap_at=None):
+        self.latency, self.smooth, self.gap_at = latency, smooth, gap_at
+        self.position, self.available, self.last = 0.0, 0, None
+        self.ratios = []
+
+    def reset(self):
+        self.__init__(self.latency, self.smooth, self.gap_at)
+
+    def process(self, left, right, ratio):
+        self.ratios.append(ratio)
+        if self.gap_at is not None and self.available + len(left) > self.gap_at:
+            self.position += 1  # one source sample never played
+            self.gap_at = None
+        self.available += len(left)
+        start = self.last if (self.smooth and self.last is not None) else ratio
+        expected = max(1, round(len(left) * ratio))
+        out = [[], []]
+        k = 0
+        while self.position < self.available - 1 - self.latency:
+            current = start + (ratio - start) * min(1.0, k / expected)
+            left_v, right_v = gate.reference(self.position)
+            out[0].append(left_v)
+            out[1].append(right_v)
+            self.position += 1.0 / current
+            k += 1
+        self.last = ratio
+        return out[0], out[1]
+
+
+class DynamicRatioRegressionTest(unittest.TestCase):
+    """Root cause of the isolated libsamplerate FAIL at 225b5b9 (9 dB, 2.3-sample jumps).
+
+    1. The adapter passed the backend output_n/source_n, quantised to whole samples per
+       callback, so its pitch jittered about ±0.2% call to call.
+    2. The gate's ideal changed ratio at the scheduler's callback boundaries and refit a
+       small delay from zero each window. A correct resampler changes ratio at its own
+       latency-shifted point, so the old gate failed even an exact one.
+    """
+
+    def test_exact_step_resampler_with_filter_latency_passes(self):
+        for latency in (143, 230):
+            with self.subTest(latency=latency):
+                report = gate.run(_Causal(latency=latency), SCALE)
+                self.assertEqual(report["verdict"], "PASS", report["failures"])
+                self.assertAlmostEqual(report["metrics"]["switch_latency_source_frames"], latency, delta=0.5)
+
+    def test_backend_receives_the_continuous_ratio(self):
+        backend = _Causal()
+        gate.run(backend, SCALE)
+        steady = backend.ratios[-8:]  # inside the closing unity segment
+        self.assertEqual(len(set(steady)), 1)  # no per-callback quantisation jitter
+        self.assertEqual(steady[0], 1.0)
+        plus = {round(r, 12) for r in backend.ratios if abs(r - 1 / 1.0094) < 1e-9}
+        self.assertEqual(len(plus), 1)
+
+    def test_quantised_ratio_is_only_a_fallback(self):
+        recorded = []
+
+        class Recorder(mrr.OracleBackend):
+            def process(self, left, right, ratio):
+                recorded.append(ratio)
+                return super().process(left, right, ratio)
+
+        adapter = mrr.PayloadResampler(Recorder(gate.reference))
+        adapter.process([0.0] * 485, [0.0] * 485, 485, 480)
+        adapter.process([0.0] * 484, [0.0] * 484, 484, 480, source_per_output=1.0094)
+        self.assertAlmostEqual(recorded[0], 480 / 485)
+        self.assertAlmostEqual(recorded[1], 1 / 1.0094)
+
+    def test_smoothing_backend_fails_honestly(self):
+        report = gate.run(_Causal(latency=143, smooth=True), SCALE)
+        self.assertEqual(report["verdict"], "FAIL")
+        self.assertTrue(any("SNR" in f for f in report["failures"]))
+
+    def test_a_single_sample_gap_still_fails(self):
+        report = gate.run(_Causal(latency=143, gap_at=int(48_000 * 1.6 * SCALE / 0.4)), SCALE)
+        self.assertEqual(report["verdict"], "FAIL")
+        self.assertTrue(any("error spike" in f for f in report["failures"]))
+
+    def test_scheduler_segments_carry_the_continuous_ratio(self):
+        import meeting_return_clock as mc
+        import meeting_return_sim as sim
+
+        scheduler = mc.PairedScheduler(mc.Limits(correction="ratio"))
+        seen = []
+        original = scheduler.on_audio_callback
+
+        def capture(t, n):
+            result = original(t, n)
+            seen.extend(seg for seg in result["segments"] if seg[0] == "resampled")
+            return result
+
+        scheduler.on_audio_callback = capture
+        sim.simulate(sim.SimConfig(duration_s=3, mic_rate_ppm=9400), scheduler)
+        self.assertTrue(seen)
+        self.assertTrue(all(len(seg) == 5 for seg in seen))
+        self.assertAlmostEqual(seen[-1][4], 1 + scheduler.rate.applied_ppm / 1e6)
+
+
+class SamplerateBackendTest(unittest.TestCase):
+    """The production adapter, against a fake python-samplerate (no dependency installed)."""
+
+    class FakeArray:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def __getitem__(self, key):
+            _, column = key
+            return [row[column] for row in self.rows]
+
+    class FakeNumpy:
+        float32 = "float32"
+
+        @staticmethod
+        def asarray(values, dtype=None):
+            return list(values)
+
+        @classmethod
+        def column_stack(cls, columns):
+            return list(zip(*columns))
+
+    def fake_module(self, with_set_ratio=True):
+        calls = []
+        outer = self
+
+        class Resampler:
+            def __init__(self, converter, channels):
+                calls.append(("init", converter, channels))
+
+            def process(self, frames, ratio, end_of_input=False):
+                calls.append(("process", ratio, len(frames)))
+                return outer.FakeArray([row for row in frames][: int(len(frames) * ratio)])
+
+        if with_set_ratio:
+            Resampler.set_ratio = lambda self, ratio: calls.append(("set_ratio", ratio))
+        return type("samplerate", (), {"Resampler": Resampler}), calls
+
+    def test_ratio_is_stepped_before_every_process(self):
+        module, calls = self.fake_module()
+        backend = mrr.SamplerateBackend(module=module, numpy_module=self.FakeNumpy)
+        backend.process([0.1] * 480, [0.2] * 480, 0.99)
+        backend.process([0.1] * 480, [0.2] * 480, 0.98)
+        sequence = [c[0] for c in calls]
+        self.assertEqual(sequence, ["init", "set_ratio", "process", "set_ratio", "process"])
+        self.assertEqual([c[1] for c in calls if c[0] == "set_ratio"], [0.99, 0.98])
+        self.assertEqual(calls[0][1:], ("sinc_best", 2))
+
+    def test_wrapper_without_step_ratio_is_refused(self):
+        module, _ = self.fake_module(with_set_ratio=False)
+        with self.assertRaises(ImportError):
+            mrr.SamplerateBackend(module=module, numpy_module=self.FakeNumpy)
+
+
 if __name__ == "__main__":
     unittest.main()
