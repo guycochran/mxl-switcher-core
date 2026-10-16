@@ -338,6 +338,11 @@ class MxlBackend::Impl {
         std::lock_guard lock(stats_mutex_);
         ++stats_.too_late;
         ++stats_.sources[source_flow].too_late;
+        if (selection_on_retiring_edge(selection->window.selected_index,
+                                       runtime.headIndex, grain_count)) {
+          ++stats_.too_late_at_ring_edge;
+          ++stats_.sources[source_flow].too_late_at_ring_edge;
+        }
       }
       commit_unavailable(writer_it->second, output_index);
       return;
