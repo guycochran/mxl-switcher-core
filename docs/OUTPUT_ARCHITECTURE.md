@@ -103,8 +103,13 @@ mechanism. Normal drift is removed by a slowly changing resampling ratio.
 - Submit Program video and Float32 audio with a common NDI timecode.
 - Use 48 kHz audio and accumulated sample counts; at 30000/1001 the adapter
   must handle the non-integer number of audio samples per video frame.
-- Prefer audio buffers near half a video-frame duration while preserving the
-  exact long-term sample count.
+- Coalesce fine-grained Program Audio into video-frame-sized blocks before the
+  NDI combiner. The tested 30/1 path uses 1/30-second blocks; passing raw 1 ms
+  grains caused a presence-only stream with roughly 1% of the required audio
+  payload. Preserve the exact long-term sample count for fractional rates.
+- Treat readiness as an actual receiver-rate check, not process liveness or
+  essence presence. The current prototype requires video within 10% of its
+  target and audio sample frames within 5% of 48 kHz.
 - Apply the documented NDI-to-SDI/EBU level mapping and expose gain/headroom.
 
 ### SRT
