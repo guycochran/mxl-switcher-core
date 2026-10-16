@@ -139,6 +139,90 @@ source:output sample ratio, driven by the shared-clock error:
 | 300 ms microphone stall | 4 ppm / 42 ms (1 episode) | 0 | ok |
 | Eight stalls in 40 s | — | 0 | failed (`reanchor_budget_exceeded`) |
 
+## Payload resampler seam and quality gate
+
+**No production resampler has been qualified yet.** This section defines the
+seam and the objective gate that would qualify one.
+
+### Seam
+
+`tools/mxl-atem-skin/meeting_return_resampler.py` turns the scheduler's
+`("resampled", start, source_n, output_n)` segments into audio.
+
+`PayloadResampler.process(left, right, source_n, output_n)` takes float32,
+48 kHz stereo frames and returns **exactly** `output_n` frames per channel,
+using a streaming backend at ratio `output_n / source_n`. That ratio is output
+per input, the libsamplerate convention and the inverse of the scheduler's
+source:output ratio.
+
+| Property | Behaviour |
+| --- | --- |
+| Latency | A bounded output FIFO is primed with `prime_frames` (256, 5.33 ms) of silence, so the backend's group delay and its call-to-call output variation never become gaps or duplicates. The gate reports the measured latency. |
+| Bounds | Underflow or overflow past `max_fifo_frames` (4,800, 100 ms) latches `failed`, and later calls refuse. |
+| Ratio updates | The ratio is set per segment, every callback. A backend may smooth it within a call; libsamplerate does. |
+| State reset | `backend.reset()` starts a new stream. The scheduler's re-anchor policy decides when a discontinuity is declared. |
+
+### Backends and preflight
+
+`select_backend()` returns a qualified candidate or a machine-readable
+refusal. It **never substitutes a weaker algorithm**.
+
+| Backend | Role | Licence | Availability |
+| --- | --- | --- | --- |
+| `samplerate-sinc-best` | Production candidate: libsamplerate `SRC_SINC_BEST_QUALITY`, streaming, varying ratio per call | libsamplerate BSD-2-Clause; python-samplerate MIT | **Not installed in this offline environment** (it needs `numpy` and `samplerate`), so it is refused. It is not claimed as qualified until the gate passes on the target runtime. |
+| `oracle` | Test instrument: evaluates the analytic reference exactly. Validates that the gate passes perfect output. | — | Always available; never production. |
+| `linear`, `drop-hold` | Negative controls the gate must fail | — | Always available; never production. |
+
+The lab runtime already uses GStreamer `pitch` (SoundTouch) plus
+`audioresample quality=10` in `mxl_program_reclock.py`. They are alternative
+candidates, but neither has been measured by this gate. Varying their ratio
+per callback would need either `pitch rate` property updates or
+`GstAudio.AudioResampler` with the variable-rate flag.
+
+### Gate
+
+`tools/mxl-atem-skin/meeting_return_resampler_gate.py --backend <name>` runs
+a schedule that obeys the 20,000 ppm/s slew contract: unity, a ramp to
++9,400 ppm, a hold, a ramp to −5,000 ppm, a hold, and a ramp back. Callback
+sizes rotate through 480, 441, 1,024 and 160 frames. The reference is
+analytic: 997 Hz on the left and 3,001 Hz on the right, plus Hann bursts of
+7 kHz (left) and 5 kHz (right), offset in time. So the ideal output is known
+exactly at every fractional source time.
+
+| Check | Threshold |
+| --- | --- |
+| Worst 50 ms window SNR against the ideal (after latency and fractional-delay alignment) | ≥ 90 dB |
+| Worst sample error (click) | ≤ 0.001 (−60 dBFS) |
+| Fitted-delay jump between windows (gap or duplicate is about 1 sample) | ≤ 0.25 sample |
+| Delay slope in steady segments (unexpected pitch) | ≤ 5 ppm |
+| Left/right crosstalk | ≤ −80 dB |
+| DC offset | ≤ 1e−4 |
+| Peak (clipping) | ≤ 0.99 |
+| Frame accounting (requested = produced, source fully consumed) | exact |
+
+The output is JSON, with the verdict, failures, metrics and the worst
+windows. Exit codes: 0 is PASS, 1 is FAIL, 2 is REFUSED (backend
+unavailable).
+
+Measured offline (short schedule):
+
+| Backend | Verdict | Worst SNR | Worst error | Delay jump |
+| --- | --- | ---: | ---: | ---: |
+| `oracle` | PASS | exact | 0.0 | 0.0 |
+| `linear` | FAIL | 40 dB | 0.020 | 0.001 |
+| `drop-hold` | FAIL | 3 dB | 0.598 | 0.82 |
+| `samplerate-sinc-best` | REFUSED (not installed) | — | — | — |
+
+Injected faults are also caught: channel swap, DC offset, clipping, and a
+20 ppm pitch error.
+
+**Still unproven:**
+
+- that any real resampler passes on the target runtime;
+- listening quality;
+- performance at the real callback rate;
+- behaviour against ZoomISO's actual device clock (see "Device boundary").
+
 ## Simulator
 
 `tools/mxl-atem-skin/meeting_return_sim.py` is event-driven on integer host
