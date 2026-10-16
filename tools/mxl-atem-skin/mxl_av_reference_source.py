@@ -54,7 +54,8 @@ BAR_REGION = (330, 400, 0, WIDTH)
 TIMECODE_REGION = (720, 900, 300, 1620)
 CODE_REGION = (920, 1060, 60, 1860)
 FLASH_REGION = (ref.FLASH_RECT[1], ref.FLASH_RECT[3], ref.FLASH_RECT[0], ref.FLASH_RECT[2])
-DYNAMIC_REGIONS = (BAR_REGION, TIMECODE_REGION, CODE_REGION, FLASH_REGION)
+FULL_DYNAMIC_REGIONS = (BAR_REGION, TIMECODE_REGION, CODE_REGION, FLASH_REGION)
+MEASUREMENT_DYNAMIC_REGIONS = (CODE_REGION, FLASH_REGION)
 RUNNING = True
 
 
@@ -98,31 +99,45 @@ def pack_v210(luma: np.ndarray) -> np.ndarray:
 class Picture:
     """A luma canvas and its v210 image, repacked only where it changes."""
 
-    def __init__(self) -> None:
+    def __init__(self, visual_profile: str = "full") -> None:
         if ref.v210_stride(WIDTH) != GROUPS * 16:
             raise ValueError("v210 stride must equal the packed row size")
+        if visual_profile not in ("full", "measurement"):
+            raise ValueError("visual_profile must be full or measurement")
+        self.visual_profile = visual_profile
         self.luma = np.full((HEIGHT, WIDTH), BACKGROUND, dtype=np.uint8)
         cv2.rectangle(self.luma, (90, 72), (1560, 290), PANEL, -1)
         text(self.luma, "MXL A/V REFERENCE", (140, 175), 1.9, 5)
-        text(self.luma, "48 kHz burst on every flash frame", (145, 255), 0.8, 2)
+        subtitle = (
+            "MEASUREMENT PROFILE - 48 kHz burst on every flash frame"
+            if visual_profile == "measurement"
+            else "48 kHz burst on every flash frame"
+        )
+        text(self.luma, subtitle, (145, 255), 0.8, 2)
         self.v210 = pack_v210(self.luma)
 
     def draw(self, grain: int) -> None:
         luma = self.luma
-        y0, y1, x0, x1 = BAR_REGION
-        luma[y0:y1, x0:x1] = BACKGROUND
-        phase = (grain * 8) % (WIDTH + 200) - 100
-        cv2.rectangle(luma, (phase - 40, y0), (phase + 40, y1 - 1), 200, -1)
-        y0, y1, x0, x1 = TIMECODE_REGION
-        luma[y0:y1, x0:x1] = PANEL
-        text(luma, ref.timecode(grain), (360, 865), 3.0, 6)
+        if self.visual_profile == "full":
+            y0, y1, x0, x1 = BAR_REGION
+            luma[y0:y1, x0:x1] = BACKGROUND
+            phase = (grain * 8) % (WIDTH + 200) - 100
+            cv2.rectangle(luma, (phase - 40, y0), (phase + 40, y1 - 1), 200, -1)
+            y0, y1, x0, x1 = TIMECODE_REGION
+            luma[y0:y1, x0:x1] = PANEL
+            text(luma, ref.timecode(grain), (360, 865), 3.0, 6)
         y0, y1, x0, x1 = CODE_REGION
         luma[y0:y1, x0:x1] = BLACK
         for (bx0, by0, bx1, by1), bit in ref.code_blocks(grain):
             luma[by0:by1, bx0:bx1] = WHITE if bit else BLACK
         y0, y1, x0, x1 = FLASH_REGION
         luma[y0:y1, x0:x1] = WHITE if ref.flash_on(grain) else BLACK
-        for y0, y1, x0, x1 in DYNAMIC_REGIONS:
+        regions = (
+            FULL_DYNAMIC_REGIONS
+            if self.visual_profile == "full"
+            else MEASUREMENT_DYNAMIC_REGIONS
+        )
+        for y0, y1, x0, x1 in regions:
             self.v210[y0:y1, x0 // 6 * 4:x1 // 6 * 4] = pack_v210(luma[y0:y1, x0:x1])
 
     def payload(self) -> bytes:
@@ -247,6 +262,12 @@ def main() -> int:
     parser.add_argument("--group", default="MXLAVReference")
     parser.add_argument("--label", default="MXL AV Reference")
     parser.add_argument("--audio-mode", choices=("meeting", "lossless"), default="meeting")
+    parser.add_argument(
+        "--visual-profile",
+        choices=("full", "measurement"),
+        default="full",
+        help="measurement keeps the frame code and flash but omits expensive per-frame decorations",
+    )
     parser.add_argument("--core-url", help="optionally register with Core at runtime")
     parser.add_argument("--source-id", default="av-reference")
     parser.add_argument("--stats-every-s", type=float, default=10.0)
@@ -269,7 +290,7 @@ def main() -> int:
     if args.core_url:
         register_source(args.core_url, args.source_id, args.video_flow, args.audio_flow, args.label)
 
-    picture = Picture()
+    picture = Picture(args.visual_profile)
     synth = AudioSynth(args.audio_mode)
     stats = Stats()
     first_grain = ref.ns_to_index(time.clock_gettime_ns(TAI) + START_LEAD_NS, ref.VIDEO_RATE) + 1
@@ -277,7 +298,8 @@ def main() -> int:
     offset = 0
     next_stats = time.monotonic() + args.stats_every_s
     print(
-        f"av_reference=ready mode={args.audio_mode} first_grain={first_grain} "
+        f"av_reference=ready mode={args.audio_mode} visual_profile={args.visual_profile} "
+        f"first_grain={first_grain} "
         f"rate={ref.VIDEO_RATE}/1 sample_rate={ref.SAMPLE_RATE} "
         f"base_time={base_time} clock_offset={clock_offset}",
         flush=True,

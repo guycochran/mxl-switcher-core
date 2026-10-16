@@ -42,6 +42,12 @@ python3 tools/mxl-atem-skin/mxl_av_reference_source.py \
   [--core-url http://127.0.0.1:<port> --source-id av-reference]
 ```
 
+On a constrained measurement host, add `--visual-profile measurement`. It
+retains the exact binary frame code, flash patch, and synchronized 48 kHz
+events used by the analyzer, but omits the moving bar and large timecode from
+the per-frame redraw. The default `full` profile remains the human-friendly
+demo picture.
+
 One GStreamer pipeline writes both flows from one frame counter, with group
 hints `<group>:Video` and `<group>:Audio`. Buffer timestamps are anchored to
 MXL time, using the pipeline base time and the gst-mxl-rs clock offset
@@ -51,8 +57,9 @@ clock reads. As a result the sink writes grain `g` at MXL index `g` and sample
 Without the anchor, the sink quantizes an arbitrary per-run video phase to a
 grain, which produced constant but run-dependent offsets of -1.25 ms and
 -10.83 ms in early live runs. The greyscale picture is packed to
-v210 in numpy, and only the bar, timecode, flash, and code regions are repacked
-each frame. There is no scaler, colour converter, or leaky queue that could drop
+v210 in numpy. The full profile repacks only the bar, timecode, flash, and code
+regions each frame; the measurement profile repacks only the flash and code.
+There is no scaler, colour converter, or leaky queue that could drop
 grains silently. The publisher logs `stats` lines with frames, render time, and true lateness:
 buffers handed to the sink after their running time, which are written late,
 never dropped. With `--core-url`, it registers a
@@ -775,9 +782,10 @@ unavailable alarms. Fallback activity stopped after recovery and both sources
 returned to one-frame head lag. Exact temporary containers and the isolated
 domain were removed; permanent services retained zero restarts.
 
-This qualifies the synthetic writer-disappearance/recreation behavior. A
-controlled real-ZoomISO recovery and the paired audience-return gate remain
-required before the 30-minute or eight-hour audience-return holds.
+This qualifies the synthetic writer-disappearance/recreation behavior. The
+subsequent controlled real-ZoomISO rotation gate also passed discovery-driven
+atomic rebinding to the replacement pair. The paired audience-return gate
+remains required before the 30-minute or eight-hour audience-return holds.
 
 A separate read-only smoke then exercised the same candidate against two live
 ZoomISO MXL sources without changing meeting mappings or permanent services.
@@ -800,14 +808,24 @@ blocks with zero history misses, degraded blocks, overruns, or write failures.
 The older shared host could not meet the corresponding video gate, so this
 larger-delay profile remains an implementation proof, not a promoted profile.
 
+An initial meeting-return smoke on that same older shared host reinforced the
+capacity boundary. The measurement visual profile reduced the reference
+generator's isolated redraw benchmark from 10.2 to 3.5 ms/frame. With the
+sequential-timeline Core candidate, a sender-only 70-second hold retained zero
+hard errors, audio skips, degraded blocks, or restarts, but recorded 19
+isolated video repeat/skip pairs. Enabling the second ZoomISO meeting sender
+then caused substantial video repeats/skips and audio missing blocks without a
+process restart or a ZoomISO transport error. The run was stopped, its return
+input was restored, and all candidate resources were removed. This is a
+shared-host capacity failure before audience-side analysis, not an accepted
+meeting-return result. The next objective return run uses the qualified larger
+CPU-only baseline.
+
 ## Next live gate
 
-1. Run a controlled real-ZoomISO output interruption/recovery while preserving
-   the operator mappings and watching input lag, timeline resets, reader
-   reopens, and `presentation_fallbacks`. Use the fail-closed
-   [real ZoomISO recovery gate](REAL_ZOOMISO_RECOVERY_GATE.md).
-2. Feed that unchanged candidate to the meeting return and analyze an
+1. Feed the unchanged, qualified cadence candidate to the meeting return on
+   the larger CPU-only baseline and analyze an
    audience-side recording before attempting the 30-minute and eight-hour
    holds.
-3. Repeat the isolated profile with real ZoomISO sources before using the result
+2. Repeat the isolated profile with real ZoomISO sources before using the result
    as an end-to-end contribution claim.
