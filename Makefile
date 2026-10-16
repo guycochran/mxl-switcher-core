@@ -63,6 +63,7 @@ test: $(BUILD)/core-tests $(BUILD)/control-api-tests $(BUILD)/http-server-tests 
 	python3 -m unittest tools/test_mxl_core_nmos.py
 	python3 -m unittest tools/test_mxl_discovery_planner.py
 	python3 -m unittest tools/test_mxl_rebind_apply.py
+	python3 -m unittest tools/test_mxl_flow_supervisor.py
 	python3 packaging/core-bundle/test_mxl_core_bundle.py
 
 demo: $(BUILD)/mxl-core-demo

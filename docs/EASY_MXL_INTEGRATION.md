@@ -364,6 +364,102 @@ unless the server was explicitly started with `--enable-source-reconnect`.
 The operator must type `APPLY_REBINDS`; the server then regenerates the plan
 and requires both its hash and Core revision to match the reviewed values.
 
+## Flow-lifecycle supervisor
+
+`tools/mxl_flow_supervisor.py` runs the accepted one-shot rotation gate
+continuously and keeps lifecycle policy out of Core. It adds no new matching
+or write logic:
+
+- **Matching** is `mxl_discovery_planner.plan()`: writer attribution, NMOS
+  group, and video/audio roles.
+- **Writes** go only through `mxl_rebind_apply.preflight()` and `execute()`,
+  which provide the live revision gate, single-owner checks, verification, and
+  reverse rollback.
+
+```json
+{
+  "version": 1,
+  "core_url": "http://127.0.0.1:<core port>",
+  "easy_mxl": {"url": "http://127.0.0.1:<easy-mxl port>", "domain": "<domain>", "token_env": "EASY_MXL_TOKEN"},
+  "interval_s": 2, "dwell_s": 5, "timeout_s": 5, "max_backoff_s": 60,
+  "journal": "<state dir>/supervisor-journal.json",
+  "status": "<state dir>/supervisor-status.json",
+  "policy": {"allow_program_rebind": false},
+  "mapping": {"version": 1, "defaults": {"video": {"width": 1920, "height": 1080, "rate": "30/1",
+                                                   "media_type": "video/v210"}},
+              "sources": [{"id": "<stable source id>",
+                           "match": {"writer_container": "<writer container>", "group": "<NMOS group>",
+                                     "video_role": "<role>", "audio_role": "<role>"}}]}
+}
+```
+
+```sh
+python3 tools/mxl_flow_supervisor.py run --config supervisor.json                 # observe and plan only
+python3 tools/mxl_flow_supervisor.py run --config supervisor.json --apply --confirm APPLY_REBINDS
+python3 tools/mxl_flow_supervisor.py clear --config supervisor.json --source <id> # after an operator check
+```
+
+Each stable source moves through these states:
+
+| State | Meaning |
+| --- | --- |
+| `steady` | The bound pair is the one active match, and the writer container ID is learned. |
+| `outage` | That pair is inactive, and nothing replaces it yet. |
+| `dwelling` | Exactly one replacement pair, from the same writer container, has stayed uniquely active. A different pair, or the pair disappearing, resets the timer and counts a flap. |
+| `planned` / `applied` | The dwell has elapsed: plan only, or written through the executor. |
+| `refused` | No write. The reason is given in `refusal`. |
+| `uncertain` | No write until `clear` is run. |
+
+**Refusal reasons:**
+
+- `ambiguous`;
+- `incompatible`;
+- `create_required`;
+- an ownership collision (`bound_to_other_source`);
+- `unknown_writer_state`;
+- `missing_writer_attribution`;
+- `wrong_writer`;
+- `split_writer_ownership`;
+- `old_pair_still_active`;
+- `program_changed_during_dwell`;
+- `on_air_program_rebind_not_permitted`.
+
+The on-air reason holds the candidate and releases when the operator cuts
+away; `policy.allow_program_rebind` must be true to rebind the Program
+source in place.
+
+**Failure handling:**
+
+- A failed write is rolled back by the executor and latched as
+  `apply_failed_rolled_back`. The same candidate is never retried.
+- If the outcome cannot be proven, the source becomes `uncertain`.
+- Completing a pair is not a replacement. That is the case where an
+  unchanged active video gains its audio, for example after a video-only
+  config.
+
+**Journal and status:**
+
+- The journal is bounded and written atomically. It holds only the source,
+  bindings, revision, state, timestamps, and result.
+- Before the first action after a restart, every `applying` entry is
+  reconciled against live Core and recorded as applied, not applied, or
+  uncertain. It is never replayed.
+- The status file is overwritten every poll. It holds the state, last
+  successful inventory and Core reads, pending dwell, last accepted rebind,
+  refusal, and counters.
+- Logs record transitions only.
+- Neither ever contains a token or a URL.
+- Failures back off exponentially up to `max_backoff_s`.
+- SIGINT and SIGTERM stop promptly and write a `stopped` status.
+
+**Limits:**
+
+- It supervises one Core.
+- It has no HTTP status endpoint; read the status file.
+- An `uncertain` source needs an operator check before `clear`.
+- The dwell assumes a writer publishes a replacement pair as a whole. A
+  writer that publishes video and audio far apart can show as a flap.
+
 ## Catalog entry
 
 [`packaging/easy-mxl/mxl-switcher-core.catalog.json`](../packaging/easy-mxl/mxl-switcher-core.catalog.json)
