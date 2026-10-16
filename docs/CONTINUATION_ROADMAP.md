@@ -68,10 +68,15 @@ with zero range and drift. See [A/V reference](AV_REFERENCE.md).
 
 ### 3. Close the meeting-to-meeting Program return
 
-The reclocker has passed an isolated 10-minute cadence test, but the audience
-return still exhibited audible artifacts and apparent lag. The mixer latency,
-presentation offset, and unsynchronized-sink CLI controls are experimental
-test hooks—not accepted settings.
+The reclocker has passed an isolated 10-minute cadence test. A subsequent
+host-authorized audience capture proved the upstream Core/index pair exact but
+measured growing lag after the Zoom meeting boundary. The audio-only reclocker
+remained internally healthy and did not solve the return: its final 20-second
+sample measured 1,009.083 ms median lag, 130.729 ms range, and +9,365 ppm fitted
+drift while Zoom delivered reduced unique-video cadence. The mixer latency,
+presentation offset, and unsynchronized-sink CLI controls remain experimental
+test hooks—not accepted settings. A fixed offset is specifically not a remedy
+for measured drift.
 
 The index-domain Program Audio mixer now also survives inputs that are absent
 at startup or recreated later: unavailable channels remain offline and are
@@ -79,7 +84,11 @@ re-probed, while invalidated or stalled readers are reopened without restarting
 the mixer. This lifecycle behavior is covered by offline tests and a strict
 10-minute real-MXL lifecycle gate on the CPU-only cloud baseline.
 
-Run a small matrix against the objective reference source. For each setting,
+Build the next candidate as a paired meeting-return adapter, not another
+audio-only tuning variant. It should use one monotonic output clock for virtual
+camera and microphone delivery, bound both queues, report callback cadence and
+queue depth, and count every audio correction and video drop/repeat. Then run a
+small matrix against the objective reference source. For each setting,
 capture the audience-side result and retain:
 
 - exact video cadence and repeats;

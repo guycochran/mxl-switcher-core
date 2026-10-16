@@ -105,10 +105,18 @@ Core's media hot path.
   RAM-backed MXL storage advanced 35,974 routed grains and 59,957 audio blocks
   with zero video holds/repeats/skips, zero Core hard-counter movement, and
   zero degraded or skipped audio blocks. The independent observer discovered
-  the return participant, but Zoom raw readers remained blocked until the
-  meeting host grants recording/capture permission. Audience-side recording
-  and matrix analysis therefore remain open; the clean sender result is not
-  presented as end-to-end acceptance.
+  the return participant. After the host granted co-host/capture permission,
+  objective audience-side recording completed and exposed the next boundary.
+  The paired Core/index output immediately before Zoom was exact, but the
+  meeting return accumulated hundreds of milliseconds of audio lag and
+  reduced unique-video cadence. An audio-only bounded-PLL comparison stayed
+  internally clean yet ended a 20-second audience capture at 1,009.083 ms
+  median lag, 130.729 ms range, and +9,365 ppm fitted drift. Core hard counters
+  stayed at zero and the host had ample CPU/RAM headroom. The 30-minute and
+  eight-hour holds were withheld. End-to-end acceptance now requires a paired
+  meeting adapter that owns one audio/video output clock and exposes callback
+  and queue telemetry; the clean sender result is not presented as end-to-end
+  acceptance.
 - NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
   RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
   deliverables yet.
@@ -130,7 +138,8 @@ Core's media hot path.
 
 ## Near-term direction
 
-1. Complete content-level A/V and audience-meeting return qualification.
+1. Build and qualify a paired-clock meeting-return adapter; then repeat the
+   content-level audience-side A/V gate.
 2. Package independent NDI, SRT, RTMP/RTMPS, SDI/HDMI, recording, and WebRTC
    destination services without adding codecs to Core.
 3. Turn the accepted immutable promotion sequence into repeatable fresh-host

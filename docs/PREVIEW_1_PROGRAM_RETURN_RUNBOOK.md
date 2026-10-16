@@ -148,11 +148,46 @@ therefore part of the qualified same-host sender profile, not an optional
 tuning suggestion.
 
 The return participant joined and sent Program audio and video successfully.
-An independent ZoomISO observer discovered that participant, but the meeting
-did not grant the observer recording/capture permission, so Zoom's SDK refused
-to attach its raw audio/video readers. The temporary observer mapping was
-removed. This result qualifies the meeting-connected sender; it does **not**
-replace the audience-side recording and matrix analysis required below.
+An independent ZoomISO observer discovered that participant. The first attempt
+stopped at the permission boundary: the meeting had not yet granted the
+observer the recording/capture role that Zoom requires for raw audio/video
+readers.
+
+### Audience-side follow-up
+
+The host subsequently granted the observer co-host status, capture attached,
+and the same CPU-only, RAM-backed topology reached an objective audience-side
+recording. The result did **not** pass promotion:
+
+- A direct capture immediately before Zoom transport proved the paired Core
+  Program video and index-audio output was exact: 182 sequential frames,
+  288,960 audio samples, six paired events, and 0 ms measured offset, range,
+  and drift.
+- A clean ZoomISO source selection rebuilt the virtual microphone at 48 kHz,
+  reported a successful audio swap, left audio unmuted, and produced no SDK
+  send error. There was no 44.1-to-48 kHz conversion in this path.
+- The direct audience-return recording measured hundreds of milliseconds of
+  audio lag and positive drift. A later sample showed the lag continuing to
+  grow rather than settling at a fixed presentation offset.
+- An audio-only bounded-PLL Program Master comparison remained internally
+  healthy with zero pipeline restarts, output PTS discontinuities, or hard
+  sample corrections. Its final 20-second audience capture still measured
+  598 frames and 956,640 audio samples with only three matched events, a
+  1,009.083 ms median audio lag, 130.729 ms offset range, and +9,365 ppm fitted
+  drift. Zoom delivered 512 repeated frames and 85 seven-grain skips; the
+  longest freeze was 233 ms.
+- Core remained clean with zero invalid, early, late, timeout, reader-reopen,
+  common-window, selected-skip, selected-regression, or active-alarm movement.
+  A resource snapshot showed ample CPU and memory headroom, so this was not a
+  host-saturation failure.
+
+The 30-minute and eight-hour audience holds were correctly withheld. A static
+audio presentation offset cannot repair a growing clock error, and an
+audio-only reclocker cannot own the cadence of Zoom's independent virtual
+camera and microphone callbacks. The next candidate must be a paired meeting
+return adapter with one output clock, bounded audio and video queues, callback
+cadence/queue telemetry, and explicit drop/repeat correction. It must pass this
+same audience-side reference capture before any longer hold.
 
 ## Promotion ladder
 
