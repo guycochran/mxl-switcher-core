@@ -128,9 +128,12 @@ non-claim of implementation or acceptance.
   meeting adapter that owns one audio/video output clock and exposes callback
   and queue telemetry; the clean sender result is not presented as end-to-end
   acceptance.
-- NDI has completed loaded qualification. Packaged SRT, WebRTC distribution,
-  RTMP/RTMPS, SDI/HDMI, and recording adapters are not all production-qualified
-  deliverables yet.
+- Video-only NDI has completed loaded qualification. The independent paired
+  NDI extension has also passed a short receiver smoke at 30.03 fps with
+  full-rate 48 kHz stereo audio; its readiness gate now measures payload rate,
+  not mere essence presence. Sustained content-level timing and recovery are
+  still required. Packaged SRT, WebRTC distribution, RTMP/RTMPS, SDI/HDMI,
+  and recording adapters are not all production-qualified deliverables yet.
 - The included Skin is a reference implementation, not a requirement for using
   Core.
 - Archive/replay and TAMS work is exploratory and is not part of the accepted
@@ -152,8 +155,9 @@ non-claim of implementation or acceptance.
 1. Add a qualified audio-payload resampler behind the paired-clock contract,
    obtain ZoomISO device-clock telemetry or a supported integration boundary,
    then repeat the content-level audience-side A/V gate.
-2. Package independent NDI, SRT, RTMP/RTMPS, SDI/HDMI, recording, and WebRTC
-   destination services without adding codecs to Core.
+2. Finish the paired NDI duration/recovery gates, then package independent SRT,
+   RTMP/RTMPS, SDI/HDMI, recording, and WebRTC destination services without
+   adding codecs to Core.
 3. Turn the accepted immutable promotion sequence into repeatable fresh-host
    deployment profiles.
 4. Continue proving useful capacity on ordinary CPU infrastructure, with larger
