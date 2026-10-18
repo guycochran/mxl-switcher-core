@@ -117,7 +117,7 @@ class MxlBackend::Impl {
     }
     writers_.emplace(output.flow_id,
                      Writer{writer, config, created, {}, 0, 0, std::nullopt,
-                            {}});
+                            0, {}});
   }
 
   void prepare_frame(const std::vector<FlowId>& source_flows,
@@ -409,11 +409,29 @@ class MxlBackend::Impl {
     if (write_status != MXL_STATUS_OK) {
       throw sdk_error("mxlFlowWriterCommitGrain", write_status);
     }
-    writer_it->second.last_payload.assign(
-        source_payload, source_payload + source_info.grainSize);
-    writer_it->second.last_flags = source_info.flags;
-    writer_it->second.last_valid_slices = source_info.validSlices;
-    writer_it->second.last_source_flow = source_flow;
+    // The freeze-frame cache is a recovery aid, not part of the live media
+    // path. Copying every 1080p v210 grain into it doubled memory traffic and
+    // made a single Core thread miss its 30 fps deadline on older CPUs. Seed
+    // immediately, refresh on a source change, then refresh about once per
+    // second. Cadence holds can safely reuse that bounded-age picture while
+    // the normal routed frame still goes directly from the input ring to the
+    // output ring.
+    const auto cache_interval = std::max<std::uint64_t>(
+        1U, static_cast<std::uint64_t>(writer_it->second.config.common.grainRate.numerator /
+                                      writer_it->second.config.common.grainRate.denominator));
+    const auto refresh_cache = writer_it->second.last_payload.empty() ||
+                               writer_it->second.last_source_flow != source_flow ||
+                               writer_it->second.routed_since_cache >= cache_interval;
+    if (refresh_cache) {
+      writer_it->second.last_payload.assign(
+          source_payload, source_payload + source_info.grainSize);
+      writer_it->second.last_flags = source_info.flags;
+      writer_it->second.last_valid_slices = source_info.validSlices;
+      writer_it->second.last_source_flow = source_flow;
+      writer_it->second.routed_since_cache = 0;
+    } else {
+      ++writer_it->second.routed_since_cache;
+    }
     const auto cleared_unavailable_alarm =
         writer_it->second.unavailable_alarm.note_available();
     {
@@ -463,6 +481,7 @@ class MxlBackend::Impl {
     std::uint32_t last_flags{0};
     std::uint32_t last_valid_slices{0};
     std::optional<FlowId> last_source_flow;
+    std::uint64_t routed_since_cache{0};
     SustainedUnavailableAlarm unavailable_alarm;
   };
 

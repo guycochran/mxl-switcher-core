@@ -71,8 +71,10 @@ counter.
    picture if that floor is no longer readable;
 5. copies directly from the SDK-owned input payload into the SDK-owned output
    payload, avoiding an intermediate allocation or second copy;
-6. repeats each output's last valid payload for unavailable or repeated input so
-   output timing advances without dropping downstream transports;
+6. seeds a hold-last cache immediately, refreshes it on a source change and
+   about once per second, and uses that bounded-age picture for unavailable or
+   repeated input so output timing advances without doubling steady-state v210
+   memory traffic;
 7. detects a same-UUID shared-memory object replacement and reopens that reader
    without recreating PGM/PVW;
 8. exposes independent selection, observed common-window gap, timeline-reset,
