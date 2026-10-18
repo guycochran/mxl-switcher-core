@@ -565,7 +565,7 @@ class MxlBackend::Impl {
   }
 
   void refresh_replaced_readers(const std::vector<FlowId>& flow_ids) {
-    std::vector<FlowId> replaced;
+    bool selected_generation_changed = false;
     for (const auto& flow_id : flow_ids) {
       const auto found = readers_.find(flow_id);
       if (found == readers_.end()) {
@@ -573,28 +573,36 @@ class MxlBackend::Impl {
       }
       const auto current = flow_identity(flow_id);
       if (!current) {
-        continue;
+        selected_generation_changed = true;
+        break;
       }
       if (!found->second.identity) {
         found->second.identity = current;
       } else if (*found->second.identity != *current) {
-        replaced.push_back(flow_id);
+        selected_generation_changed = true;
+        break;
       }
     }
-    if (replaced.empty()) {
+    if (!selected_generation_changed) {
       return;
     }
+    // A bank writer recreates its selected flow objects as one generation.
+    // Reopening only the first object observed during that transition can mix
+    // an old reader with a new reader for one frame, producing a meaningless
+    // epoch-sized skew and unsafe common-window decisions. Retire the selected
+    // reader cohort together, then let the normal open path admit the new
+    // generation only as its members become available.
     reset_sync_group();
-    for (const auto& flow_id : replaced) {
+    for (const auto& flow_id : flow_ids) {
       const auto found = readers_.find(flow_id);
       if (found != readers_.end()) {
         mxlReleaseFlowReader(instance_, found->second.handle);
         readers_.erase(found);
+        std::lock_guard lock(stats_mutex_);
+        ++stats_.reader_reopens;
+        ++stats_.sources[flow_id].reader_reopens;
       }
       timelines_.reset_source(flow_id);
-      std::lock_guard lock(stats_mutex_);
-      ++stats_.reader_reopens;
-      ++stats_.sources[flow_id].reader_reopens;
     }
   }
 

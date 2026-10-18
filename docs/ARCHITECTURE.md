@@ -75,8 +75,9 @@ counter.
    about once per second, and uses that bounded-age picture for unavailable or
    repeated input so output timing advances without doubling steady-state v210
    memory traffic;
-7. detects a same-UUID shared-memory object replacement and reopens that reader
-   without recreating PGM/PVW;
+7. detects a missing or replaced selected shared-memory object and retires the
+   selected reader cohort together, preventing one frame from mixing old and
+   new bank generations while preserving PGM/PVW identities;
 8. exposes independent selection, observed common-window gap, timeline-reset,
    recovery-clamp, and sustained-unavailable telemetry;
 9. closes handles at shutdown without deleting/recreating flows during operation.
