@@ -291,8 +291,20 @@ class AppTests(unittest.TestCase):
 
     def test_prepare_rejects_undefined_layouts(self):
         app = self.app("/helper")
-        with self.assertRaisesRegex(ValueError, "2-up, 3-up, 4-up, 6-up, or 8-up"):
-            app.prepare({"count": 5, "sources": [1, 2, 3, 4, 5]})
+        with self.assertRaisesRegex(ValueError, "between 2 and 8"):
+            app.prepare({"count": 9, "sources": [1, 2, 3, 4, 5, 6, 7, 8, 9]})
+
+    @mock.patch.object(subprocess, "run")
+    def test_prepare_accepts_five_and_seven_up(self, run):
+        run.return_value = subprocess.CompletedProcess(
+            [], 0, '{"bank":"b","state":"ready"}\n', ""
+        )
+        for count in (5, 7):
+            app = self.app("/helper")
+            app.state = lambda: {"core": {"program": "zoomiso-1", "preview": "supersource-a"}}
+            app.core_json = mock.Mock(return_value=(202, "application/json", b'{"command_id":7}'))
+            result = app.prepare({"count": count, "sources": list(range(1, count + 1))})
+            self.assertEqual(result["bank"], "b")
 
     @mock.patch.object(subprocess, "run")
     def test_prepare_uses_bank_b_when_a_is_in_preview(self, run):

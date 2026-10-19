@@ -300,13 +300,24 @@ async function command(kind, body) {
 }
 
 function layoutGrid() {
-  const cols = layout <= 2 ? layout : layout <= 4 ? 2 : 4
-  $('canvas').style.gridTemplateColumns = `repeat(${cols},1fr)`
+  const geometry = {
+    2: [[6, 1], [6, 1]],
+    3: [[8, 2], [4, 1], [4, 1]],
+    4: [[6, 1], [6, 1], [6, 1], [6, 1]],
+    5: [[4, 1], [4, 1], [4, 1], [6, 1], [6, 1]],
+    6: Array(6).fill([4, 1]),
+    7: [...Array(4).fill([3, 1]), ...Array(3).fill([4, 1])],
+    8: Array(8).fill([3, 1]),
+  }[layout]
+  $('canvas').style.gridTemplateColumns = 'repeat(12,1fr)'
+  $('canvas').style.gridTemplateRows = 'repeat(2,1fr)'
   $('canvas').replaceChildren()
   for (let i = 0; i < layout; i++) {
     const tile = document.createElement('div')
     tile.className = 'tile'
     tile.textContent = slots[i]
+    tile.style.gridColumn = `span ${geometry[i][0]}`
+    tile.style.gridRow = `span ${geometry[i][1]}`
     $('canvas').append(tile)
   }
   $('slots').replaceChildren()
@@ -337,9 +348,9 @@ function layoutGrid() {
 }
 
 function buildLayouts() {
-  const names = { 2: 'INTERVIEW', 3: 'PANEL', 4: 'GRID', 6: 'GRID', 8: 'WALL' }
+  const names = { 2: 'INTERVIEW', 3: 'PANEL', 4: 'GRID', 5: 'PANEL', 6: 'GRID', 7: 'PANEL', 8: 'WALL' }
   $('layouts').replaceChildren()
-  for (const count of [2, 3, 4, 6, 8]) {
+  for (const count of [2, 3, 4, 5, 6, 7, 8]) {
     const button = document.createElement('button')
     button.innerHTML = `<strong>${count}-UP</strong><small>${names[count]}</small>`
     button.title = `${count}-up ${names[count].toLowerCase()} preset`
