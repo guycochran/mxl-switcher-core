@@ -289,6 +289,11 @@ class AppTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "different source"):
             app.prepare({"count": 2, "sources": [1, 1]})
 
+    def test_prepare_rejects_undefined_layouts(self):
+        app = self.app("/helper")
+        with self.assertRaisesRegex(ValueError, "2-up, 3-up, 4-up, 6-up, or 8-up"):
+            app.prepare({"count": 5, "sources": [1, 2, 3, 4, 5]})
+
     @mock.patch.object(subprocess, "run")
     def test_prepare_uses_bank_b_when_a_is_in_preview(self, run):
         app = self.app()

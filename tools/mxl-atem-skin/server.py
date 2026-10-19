@@ -357,8 +357,8 @@ class App:
             raise RuntimeError("persistent SuperSource scene engine is not enabled")
         count = int(payload.get("count", 0))
         sources = payload.get("sources")
-        if count not in range(2, 9):
-            raise ValueError("layout must be between 2-up and 8-up")
+        if count not in {2, 3, 4, 6, 8}:
+            raise ValueError("layout must be 2-up, 3-up, 4-up, 6-up, or 8-up")
         if not isinstance(sources, list) or len(sources) != count:
             raise ValueError("source count must match the selected layout")
         sources = [int(item) for item in sources]

@@ -337,9 +337,9 @@ function layoutGrid() {
 }
 
 function buildLayouts() {
-  const names = { 2: 'INTERVIEW', 3: 'PANEL', 4: 'GRID', 5: 'PANEL', 6: 'GRID', 7: 'FORUM', 8: 'WALL' }
+  const names = { 2: 'INTERVIEW', 3: 'PANEL', 4: 'GRID', 6: 'GRID', 8: 'WALL' }
   $('layouts').replaceChildren()
-  for (let count = 2; count <= 8; count++) {
+  for (const count of [2, 3, 4, 6, 8]) {
     const button = document.createElement('button')
     button.innerHTML = `<strong>${count}-UP</strong><small>${names[count]}</small>`
     button.title = `${count}-up ${names[count].toLowerCase()} preset`
